@@ -12,6 +12,7 @@ Function inventory (kept in sync with the signature-inspection test):
   - search_own_transactions(session, reported_amount, reported_date)
   - get_customer_profile(session)
   - get_case_history(session, category, before_date)
+  - count_prior_complaints(session, before_date)
 """
 
 from __future__ import annotations
@@ -151,6 +152,29 @@ def get_case_history(
               AND CAST(creation_date AS DATE) < CAST(? AS DATE)
             """,
             [session.customer_id, category, before_date, window_days, before_date],
+        ).fetchone()
+    finally:
+        con.close()
+    return row[0]
+
+
+def count_prior_complaints(session: Session, before_date: date, *, db_path: Path | None = None) -> int:
+    """Count of this session's OWN complaints of ANY category, all-time,
+    strictly before `before_date` — the live counterpart of
+    `etl/features.py`'s `prior_complaint_count` training feature. It must keep
+    those exact semantics (no category filter, no window): feeding the
+    classifier the category-scoped, 90-day abuse-guard count instead would be
+    train/serve skew.
+    """
+    con = fixture_db.get_connection(db_path)
+    try:
+        row = con.execute(
+            """
+            SELECT COUNT(*) FROM complaints
+            WHERE customer_id = ?
+              AND CAST(creation_date AS DATE) < CAST(? AS DATE)
+            """,
+            [session.customer_id, before_date],
         ).fetchone()
     finally:
         con.close()

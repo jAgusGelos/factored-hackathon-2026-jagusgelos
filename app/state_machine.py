@@ -41,7 +41,7 @@ from typing import TypedDict
 
 import duckdb
 
-from app import cases, llm
+from app import cases, classifier, llm
 from app.auth import Session
 from app.llm import Language
 from app.policy import (
@@ -58,6 +58,7 @@ from app.policy import (
 from app.transactions import (
     CustomerProfile,
     TransactionCandidate,
+    count_prior_complaints,
     get_case_history,
     get_customer_profile,
     search_own_transactions,
@@ -229,7 +230,17 @@ def evaluate_case(
     prior_disputes = get_case_history(
         session, DISPUTE_COMPLAINT_CATEGORY, reported_date, window_days=ABUSE_GUARD_WINDOW_DAYS
     )
-    resolution = evaluate_resolution(matched, prior_disputes_in_window=prior_disputes)
+    predicted_priority = classifier.predict_priority(
+        classifier.build_live_features(
+            get_customer_profile(session),
+            claimed_amount=reported_amount,
+            currency=currency,
+            prior_complaint_count=count_prior_complaints(session, reported_date),
+        )
+    )
+    resolution = evaluate_resolution(
+        matched, prior_disputes_in_window=prior_disputes, classifier_priority=predicted_priority
+    )
 
     if resolution.decision == ResolutionDecision.AUTO_RESOLVE:
         return CaseEvaluation(

@@ -55,6 +55,11 @@ MAX_CLARIFICATION_ROUNDS = 2
 
 DISPUTE_COMPLAINT_CATEGORY = "Transactions"
 
+# AD-6/AD-11 Row 5 (Milestone 3): a classifier prediction of this label is
+# ONE OR-condition that can force escalation — see evaluate_resolution()'s
+# docstring for the hard boundary on what this can and cannot do.
+CLASSIFIER_ESCALATION_LABEL = "Critical"
+
 
 class MatchOutcome(StrEnum):
     CONFIDENT = "confident"
@@ -92,10 +97,22 @@ def effective_amount_usd(txn: TransactionCandidate) -> float | None:
 
 
 def evaluate_resolution(
-    txn: TransactionCandidate, *, prior_disputes_in_window: int
+    txn: TransactionCandidate,
+    *,
+    prior_disputes_in_window: int,
+    classifier_priority: str | None = None,
 ) -> ResolutionEvaluation:
     """Row 4/5 of AD-11, given a single CONFIDENT match. Never called for an
     ambiguous match — that path is Row 3's clarification loop, not this.
+
+    `classifier_priority` (Milestone 3, AD-6) is DECISION SUPPORT ONLY: a
+    "Critical" prediction is one OR-condition among several that can force
+    `FORCED_ESCALATION`, exactly like the amount/fraud/status/abuse-guard
+    conditions above. It is structurally incapable of ever causing
+    `AUTO_RESOLVE` by itself or overriding any of the other conditions —
+    there is no code path in this function where the classifier's opinion
+    can flip a `FORCED_ESCALATION` result back to `AUTO_RESOLVE`. Enforced
+    by `tests/test_policy_not_overridden.py`.
     """
     amount_usd = effective_amount_usd(txn)
     reasons: list[str] = []
@@ -123,6 +140,12 @@ def evaluate_resolution(
             f"{ABUSE_GUARD_WINDOW_DAYS} days (abuse guard)"
         )
 
-    if amount_ok and fraud_ok and status_ok and abuse_ok:
+    classifier_ok = classifier_priority != CLASSIFIER_ESCALATION_LABEL
+    if not classifier_ok:
+        reasons.append(
+            f"priority classifier predicted {CLASSIFIER_ESCALATION_LABEL!r} (decision support only)"
+        )
+
+    if amount_ok and fraud_ok and status_ok and abuse_ok and classifier_ok:
         return ResolutionEvaluation(decision=ResolutionDecision.AUTO_RESOLVE, reasons=())
     return ResolutionEvaluation(decision=ResolutionDecision.FORCED_ESCALATION, reasons=tuple(reasons))

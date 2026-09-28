@@ -11,6 +11,7 @@ silently.
   - app.transactions.search_own_transactions
   - app.transactions.get_customer_profile
   - app.transactions.get_case_history
+  - app.transactions.count_prior_complaints
 """
 
 from __future__ import annotations
@@ -25,9 +26,19 @@ from app import cases, db
 from app import transactions as txns_module
 from app.auth import Session
 from app.state_machine import CaseState, evaluate_case, handle_message
-from app.transactions import get_case_history, get_customer_profile, search_own_transactions
+from app.transactions import (
+    count_prior_complaints,
+    get_case_history,
+    get_customer_profile,
+    search_own_transactions,
+)
 
-CUSTOMER_DATA_FUNCTIONS = (search_own_transactions, get_customer_profile, get_case_history)
+CUSTOMER_DATA_FUNCTIONS = (
+    search_own_transactions,
+    get_customer_profile,
+    get_case_history,
+    count_prior_complaints,
+)
 
 
 @pytest.mark.parametrize("fn", CUSTOMER_DATA_FUNCTIONS, ids=lambda fn: fn.__name__)
@@ -69,6 +80,7 @@ FIXTURE_COLUMNS = {
         "merchant_category", "channel", "_is_synthetic",
     ),
     "complaints": ("complaint_id", "customer_id", "category", "creation_date"),
+    "customers": ("customer_id", "segment", "credit_score", "country", "customer_status"),
 }
 
 
@@ -82,6 +94,10 @@ def fixture_con(tmp_path, monkeypatch):
     con.execute(
         f"CREATE TABLE complaints ({', '.join(c + ' VARCHAR' for c in FIXTURE_COLUMNS['complaints'])})"
     )
+    con.execute(
+        f"CREATE TABLE customers ({', '.join(c + ' VARCHAR' for c in FIXTURE_COLUMNS['customers'])})"
+    )
+    con.execute("INSERT INTO customers VALUES ('CLI-1', 'Plus', '700', 'México', 'Active')")
     con.close()
 
     from app import config
@@ -118,6 +134,25 @@ def test_confident_clean_match_resolves_auto(fixture_con):
     )
     assert evaluation.state == CaseState.RESOLVED_AUTO
     assert evaluation.matched_transaction.transaction_id == "TRX-1"
+
+
+def test_count_prior_complaints_matches_the_training_feature_semantics(fixture_con):
+    """Live counterpart of etl/features.py's prior_complaint_count: any
+    category, no trailing window, strictly before the anchor date, own
+    customer only. Diverging from that would be train/serve skew.
+    """
+    con = duckdb.connect(str(fixture_con))
+    con.execute(
+        "INSERT INTO complaints VALUES "
+        "('CMP-OLD-FEES', 'CLI-1', 'Fees', '2020-01-01'), "
+        "('CMP-TXN', 'CLI-1', 'Transactions', '2024-03-01'), "
+        "('CMP-SAME-DAY', 'CLI-1', 'Transactions', '2024-03-10'), "
+        "('CMP-OTHER', 'CLI-OTHER', 'Transactions', '2024-03-01')"
+    )
+    con.close()
+
+    assert count_prior_complaints(SESSION, date(2024, 3, 10)) == 2
+    assert get_case_history(SESSION, "Transactions", date(2024, 3, 10), window_days=90) == 1
 
 
 def test_confident_match_over_threshold_escalates_with_handoff(fixture_con):
