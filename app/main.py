@@ -7,7 +7,6 @@ This process has zero AWS dependency by design (AD-2) — verified by
 
 from __future__ import annotations
 
-import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Annotated
@@ -17,7 +16,8 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import auth, config, db, state_machine
+from app import auth, cases, config, db, state_machine
+from app.llm import Language
 
 SESSION_COOKIE_NAME = "session_token"
 
@@ -87,13 +87,17 @@ def me(session: CurrentSession):
 class ChatRequest(BaseModel):
     case_id: str | None = None
     message: str
-    language: str = "es"
+    language: Language = Language.ES
 
 
 @app.post("/api/chat")
 def chat(payload: ChatRequest, session: CurrentSession):
-    case_id = payload.case_id or f"CASE-{uuid.uuid4().hex[:12].upper()}"
-    return state_machine.handle_message(session, case_id, payload.message)
+    try:
+        return state_machine.handle_message(
+            session, payload.case_id, payload.message, language=payload.language
+        )
+    except cases.CaseOwnershipError:
+        return JSONResponse(status_code=403, content={"detail": "Case does not belong to this session"})
 
 
 app.mount("/", StaticFiles(directory=str(config.STATIC_DIR), html=True), name="static")

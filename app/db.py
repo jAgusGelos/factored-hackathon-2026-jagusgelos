@@ -14,7 +14,11 @@ it must survive a process restart mid-demo.
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
 from pathlib import Path
+
+from app import config
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -76,3 +80,11 @@ def init_db(db_path: Path) -> None:
         con.commit()
     finally:
         con.close()
+
+
+@contextmanager
+def app_connection(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
+    # Resolved at call time (not as a default-argument value), so tests can
+    # monkeypatch `config.APP_DB_PATH` and have it take effect.
+    with closing(get_connection(db_path if db_path is not None else config.APP_DB_PATH)) as con:
+        yield con

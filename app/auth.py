@@ -24,9 +24,6 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
-import sqlite3
-from collections.abc import Iterator
-from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -40,12 +37,7 @@ class Session:
     expires_at: datetime
 
 
-@contextmanager
-def _session_db(db_path: Path | None) -> Iterator[sqlite3.Connection]:
-    # Resolved at call time (not as a default-argument value), so tests can
-    # monkeypatch `config.APP_DB_PATH` and have it take effect.
-    with closing(db.get_connection(db_path if db_path is not None else config.APP_DB_PATH)) as con:
-        yield con
+_session_db = db.app_connection
 
 
 def _hash_token(token: str) -> str:
