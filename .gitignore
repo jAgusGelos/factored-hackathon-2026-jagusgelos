@@ -1,0 +1,38 @@
+# Secrets & environment
+.env
+.env.*
+!.env.example
+
+# Raw challenge docs (not ours to redistribute; contain AWS credentials)
+raw-docs/
+
+# Data (never commit dataset extracts)
+data/raw/
+data/interim/
+*.parquet
+*.csv
+!data/**/sample_*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Node
+node_modules/
+dist/
+build/
+.next/
+.turbo/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Logs & local artifacts
+*.log
+.cache/
