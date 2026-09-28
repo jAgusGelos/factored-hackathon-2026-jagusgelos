@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>LATAM Bank — Disputas (M1 walking skeleton)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+  <h1>LATAM Bank — Disputas (esqueleto Milestone 1)</h1>
+  <p>Esta pantalla es intencionalmente básica. El diseño final (DESIGN.md) se implementa en el Milestone 4.</p>
+
+  <section id="login-section">
+    <h2>Ingresar</h2>
+    <form id="login-form">
+      <label>Usuario: <input type="text" id="username" required /></label><br />
+      <label>Contraseña: <input type="password" id="password" required /></label><br />
+      <button type="submit">Ingresar</button>
+    </form>
+    <p id="login-status"></p>
+  </section>
+
+  <section id="chat-section" style="display: none">
+    <h2>Chat</h2>
+    <div id="chat-log"></div>
+    <form id="chat-form">
+      <input type="text" id="message" placeholder="Escribí tu mensaje..." required />
+      <button type="submit">Enviar</button>
+    </form>
+  </section>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
