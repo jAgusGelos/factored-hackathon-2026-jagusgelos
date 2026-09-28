@@ -107,11 +107,22 @@ def update_case(
     clarification_rounds: int | None = None,
     resolution_reference: str | None = None,
     handoff: dict | None = None,
+    expected_states: tuple[str, ...] | None = None,
     db_path: Path | None = None,
-) -> None:
+) -> bool:
+    """Returns False (and writes nothing) when `expected_states` is given and
+    the case is no longer in one of them: a compare-and-set, so two concurrent
+    requests on the same case cannot both win a transition (e.g. two "yes"
+    replies both issuing a credit, or a late "no" overwriting a resolution).
+    """
+    state_guard = ""
+    guard_params: list[str] = []
+    if expected_states is not None:
+        state_guard = f" AND state IN ({', '.join('?' for _ in expected_states)})"
+        guard_params = list(expected_states)
     with db.app_connection(db_path) as con:
-        con.execute(
-            """
+        cursor = con.execute(
+            f"""
             UPDATE cases SET
                 state = ?,
                 reported_amount = COALESCE(?, reported_amount),
@@ -122,16 +133,17 @@ def update_case(
                 resolution_reference = COALESCE(?, resolution_reference),
                 handoff_json = COALESCE(?, handoff_json),
                 updated_at = ?
-            WHERE case_id = ?
+            WHERE case_id = ?{state_guard}
             """,
             [
                 state, reported_amount, reported_currency, reported_date, matched_transaction_id,
                 clarification_rounds, resolution_reference,
                 json.dumps(handoff, ensure_ascii=False) if handoff is not None else None,
-                datetime.now(UTC).isoformat(), case_id,
+                datetime.now(UTC).isoformat(), case_id, *guard_params,
             ],
         )
         con.commit()
+    return cursor.rowcount == 1
 
 
 def log_message(

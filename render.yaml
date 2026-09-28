@@ -29,6 +29,8 @@ services:
         sync: false  # set manually in the Render dashboard — never in this file or in git
       - key: SESSION_TTL_HOURS
         value: "4"
+      - key: SHOW_DEMO_CREDENTIALS
+        value: "1"  # login-screen autofill of the synthetic demo personas; "0" hides it
       - key: PORT
         value: "8000"  # must match the image's listening port (Render defaults to 10000 otherwise)
       # No AWS_* vars are set: the deployed app has zero runtime AWS dependency

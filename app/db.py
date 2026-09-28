@@ -55,6 +55,15 @@ CREATE TABLE IF NOT EXISTS messages (
     FOREIGN KEY (case_id) REFERENCES cases (case_id)
 );
 
+CREATE TABLE IF NOT EXISTS login_failures (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope TEXT NOT NULL,
+    key TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_login_failures_lookup ON login_failures (scope, key, created_at);
+CREATE INDEX IF NOT EXISTS idx_login_failures_created ON login_failures (created_at);
+
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     correlation_id TEXT NOT NULL,

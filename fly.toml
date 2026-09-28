@@ -12,6 +12,9 @@ primary_region = "gru"           # São Paulo: the only Fly region in South Amer
   # AWS_* vars are set anywhere: the deployed app has zero runtime AWS
   # dependency by design (AD-2).
   SESSION_TTL_HOURS = "4"
+  # Login screen click-to-autofill of the synthetic demo personas (AD-4). Set to
+  # "0" to hide the credentials on anything that is not a labeled demo.
+  SHOW_DEMO_CREDENTIALS = "1"
 
 [[mounts]]
   source = "dispute_agent_data"

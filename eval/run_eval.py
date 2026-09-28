@@ -95,6 +95,13 @@ DISPUTE_OPENING = {
     Language.PT: "Tenho uma cobrança que não reconheço",
 }
 
+CONFIRMATION_TURNS = 1
+# AD-12: a policy-eligible match is confirmed with the customer before resolving.
+CONFIRMATION_REPLY = {
+    Language.ES: "Sí, es ese cargo",
+    Language.PT: "Sim, é essa cobrança",
+}
+
 GROUP_REQUIRED_DEMO = "required_demo"
 GROUP_ADVERSARIAL = "adversarial"
 
@@ -184,9 +191,11 @@ def _run_conversation(
 ) -> CaseOutcome:
     """Repeats the same dispute message, chaining turns on the `case_id` each
     reply returns, until the case leaves CLARIFYING or the clarification
-    budget is spent. `cliente.ambiguo` has ZERO real matching transactions
+    budget is spent; a CONFIRMING reply (AD-12) is answered with an explicit
+    "yes" turn. `cliente.ambiguo` has ZERO real matching transactions
     (Milestone 1's verified finding), so it consumes every round and then
-    escalates; the other personas settle on the first turn. Latency and
+    escalates; the other personas settle on the first turn (plus the confirmation turn when
+    the match is policy-eligible). Latency and
     estimated cost are summed across turns: one logical case.
     """
     session = persona_session(username, app_db_path)
@@ -194,15 +203,18 @@ def _run_conversation(
     case_key = f"{username}[{language}]"
     case_id: str | None = None
     turns: list[CaseOutcome] = []
-    for _ in range(MAX_CLARIFICATION_ROUNDS + 1):
+    text = DISPUTE_OPENING[language]
+    for _ in range(1 + MAX_CLARIFICATION_ROUNDS + CONFIRMATION_TURNS):
         turn = _run_case(
-            GROUP_REQUIRED_DEMO, case_key, session, DISPUTE_OPENING[language],
+            GROUP_REQUIRED_DEMO, case_key, session, text,
             language=language, expected_state=expected_state, extraction=extraction,
             app_db_path=app_db_path, case_id=case_id,
         )
         turns.append(turn)
         case_id = turn.case_id
-        if turn.actual_state != CaseState.CLARIFYING:
+        if turn.actual_state == CaseState.CONFIRMING:
+            text = CONFIRMATION_REPLY[language]
+        elif turn.actual_state != CaseState.CLARIFYING:
             break
     return replace(
         turns[-1],

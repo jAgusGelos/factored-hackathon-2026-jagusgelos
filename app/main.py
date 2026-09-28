@@ -11,12 +11,12 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from app import auth, cases, config, db, state_machine
+from app import auth, cases, config, db, ratelimit, state_machine
 from app.llm import Language
 
 SESSION_COOKIE_NAME = "session_token"
@@ -44,8 +44,10 @@ CurrentSession = Annotated[auth.Session, Depends(_require_session)]
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    # Bounded so a huge body cannot be used to bloat the rate-limit table or
+    # slow the comparison.
+    username: str = Field(max_length=config.MAX_USERNAME_LENGTH)
+    password: str = Field(max_length=256)
 
 
 class LoginResponse(BaseModel):
@@ -54,10 +56,21 @@ class LoginResponse(BaseModel):
 
 
 @app.post("/auth/login", response_model=LoginResponse)
-def login(payload: LoginRequest, response: Response):
+def login(payload: LoginRequest, request: Request, response: Response):
+    ip = request.client.host if request.client else "unknown"
+    # Checked BEFORE the credentials: a correct password during a lockout must
+    # not succeed, and the refusal is identical for real and unknown usernames.
+    attempt = ratelimit.reserve_attempt(payload.username, ip)
+    if isinstance(attempt, ratelimit.Throttle):
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too many failed attempts. Try again later."},
+            headers={"Retry-After": str(attempt.retry_after_seconds)},
+        )
     customer_id = auth.verify_credentials(payload.username, payload.password)
     if customer_id is None:
         return JSONResponse(status_code=401, content={"detail": "Invalid credentials"})
+    ratelimit.release(attempt, payload.username)
 
     token, expires_at = auth.create_session(customer_id)
     response.set_cookie(
@@ -69,6 +82,17 @@ def login(payload: LoginRequest, response: Response):
         max_age=int((expires_at - datetime.now(UTC)).total_seconds()),
     )
     return LoginResponse(customer_id=customer_id, expires_at=expires_at.isoformat())
+
+
+@app.get("/auth/demo-personas")
+def demo_personas():
+    """Demo-only: lets the login screen offer click-to-autofill for the
+    provisioned test accounts (AD-4 is a simulated identity service over
+    synthetic data). Disabled with `SHOW_DEMO_CREDENTIALS=0`.
+    """
+    if not config.SHOW_DEMO_CREDENTIALS:
+        return []
+    return auth.list_demo_credentials()
 
 
 @app.post("/auth/logout")
@@ -86,7 +110,7 @@ def me(session: CurrentSession):
 
 class ChatRequest(BaseModel):
     case_id: str | None = None
-    message: str
+    message: str = Field(max_length=2000)
     language: Language = Language.ES
 
 

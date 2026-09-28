@@ -33,7 +33,8 @@ app/state_machine.py::evaluate_case() <- deterministic guard function
       |               can only ADD an escalation reason, never auto-resolve or override)
       |
       v
-resolved_auto | clarifying | escalated
+confirming (AD-12) | clarifying | escalated
+      |   (confirming -> resolved_auto only on an explicit "yes" + policy re-check)
       |
       v
 app/llm.py::generate_response()       <- LLM, NLG only, grounded in build_prompt_context()'s
@@ -99,7 +100,7 @@ real amount+date match exists for fewer than 1 in 1,000 real complaints).
 
 | Persona | Case | Outcome |
 |---|---|---|
-| `cliente.claro` | Normal resolution | Confident match, eligible under policy -> `resolved_auto`, simulated provisional credit, reference number |
+| `cliente.claro` | Normal resolution | Confident match, eligible under policy -> the agent names the merchant/amount/date and asks the customer to confirm (`confirming`) -> on an explicit "yes" and a policy re-check, `resolved_auto` with a simulated provisional credit and reference number. A "no", an unclear answer, or a request for a human escalates instead |
 | `cliente.ambiguo` | Ambiguous / abstain | No real matching transaction -> up to 2 clarifying rounds -> escalates with a structured handoff |
 | `cliente.escalado` | Human escalation | Confident match, but fails eligibility (amount/fraud threshold) -> `escalated` with a structured handoff (facts/actions/evidence/open questions) |
 
@@ -135,9 +136,10 @@ real one). 10 cases (3 required demo cases × 2 languages + 6 adversarial/failur
 - Safe automated resolution rate: 0.2 (2/10 — most cases are deliberately ambiguous/escalated/
   adversarial by construction, so a low rate here reflects the test mix, not system quality).
 - Containment rate: 0.2222 (2/9 concluded cases).
-- Pipeline latency (excludes real LLM network time): p50 0.099s, p95 0.76s.
-- Estimated cost (Haiku 4.5 list pricing, not measured billing): ~$0.00054/attempted case,
-  ~$0.0027/successful resolution.
+- Pipeline latency (excludes real LLM network time): p50 0.124s, p95 0.819s.
+- Estimated cost (Haiku 4.5 list pricing, not measured billing): ~$0.0008/attempted case,
+  ~$0.0040/successful resolution (re-measured after AD-12 added the confirmation turn and its
+  classifier call).
 
 ## Known limitations (disclosed, not hidden)
 
@@ -154,6 +156,15 @@ real one). 10 cases (3 required demo cases × 2 languages + 6 adversarial/failur
   provisions test accounts distinct from any dataset field (never `document_number` or similar) —
   this satisfies the organizer's "a customer number alone does not prove identity" rule as a
   *demonstration* of a trusted-identity-service boundary, not a production-grade auth system.
+- **Login throttling is per-process demo-grade.** `/auth/login` locks a username after 5 failures
+  (and an IP after 20) within 15 minutes with exponential backoff (SQLite-backed, `app/ratelimit.py`).
+  The Dockerfile runs uvicorn with `--proxy-headers --forwarded-allow-ips "*"` so the per-IP bucket
+  keys on the client address the Fly/Render proxy forwards (safe only because the container is
+  reachable solely through that proxy; a client can still spoof the header to rotate IP buckets,
+  which the per-username limit does not depend on). A per-username lockout lets an attacker
+  temporarily lock a known account out (capped at 15 min).
+  The login screen also lists the demo personas' credentials for click-to-autofill; set
+  `SHOW_DEMO_CREDENTIALS=0` to hide them on any deployment that is not a labeled demo.
 - **Portuguese support is simulated via the LLM's general multilingual capability.** The dataset
   contains zero Portuguese rows — no training or held-out evaluation claim is made for Portuguese
   specifically. The structured handoff record's `actions_taken`/`open_questions` text (deterministic,

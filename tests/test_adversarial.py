@@ -80,7 +80,9 @@ def test_incorrect_missing_data_null_credit_score_degrades_gracefully(tmp_path, 
 
     extraction = {"amount": 100.0, "currency": "USD", "date": "2024-03-10", "merchant_hint": None, "wants_human": False}
     with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(extraction)):
-        reply = handle_message(SESSION, None, "Tengo un cargo que no reconozco", db_path=app_db_path)
+        first = handle_message(SESSION, None, "Tengo un cargo que no reconozco", db_path=app_db_path)
+        assert first["state"] == CaseState.CONFIRMING
+        reply = handle_message(SESSION, first["case_id"], "Sí, es ese", db_path=app_db_path)
 
     assert reply["state"] == CaseState.RESOLVED_AUTO  # unaffected by the missing credit_score
     assert reply["reply"]
@@ -211,7 +213,7 @@ def test_mixed_language_input_processed_gracefully_never_a_hard_failure(app_db):
     with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(extraction)):
         reply = handle_message(SESSION, None, mixed_text, db_path=app_db)
 
-    assert reply["state"] in (CaseState.RESOLVED_AUTO, CaseState.CLARIFYING, CaseState.ESCALATED)
+    assert reply["state"] in (CaseState.CONFIRMING, CaseState.CLARIFYING, CaseState.ESCALATED)
     assert reply["reply"]  # never an empty/crashed response
 
 

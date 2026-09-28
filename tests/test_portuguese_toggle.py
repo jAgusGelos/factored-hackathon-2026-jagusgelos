@@ -33,7 +33,7 @@ PT_NLG_TEXT = "Seu caso foi processado."
 @pytest.mark.parametrize(
     ("username", "expected_state"),
     [
-        ("cliente.claro", CaseState.RESOLVED_AUTO),
+        ("cliente.claro", CaseState.CONFIRMING),  # AD-12: eligible matches ask first
         ("cliente.escalado", CaseState.ESCALATED),
     ],
 )

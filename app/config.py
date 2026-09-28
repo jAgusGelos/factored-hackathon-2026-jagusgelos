@@ -37,6 +37,13 @@ LLM_TIMEOUT_SECONDS = 15.0
 LLM_MAX_TOKENS = 512
 LLM_RETRY_BACKOFF_SECONDS = (1.0, 2.0)
 
+# The login screen lists the demo personas with a click-to-autofill (AD-4 is a
+# SIMULATED identity service over synthetic data). Set to 0 to hide the
+# credentials, e.g. for anything that is not a labeled demo deployment.
+SHOW_DEMO_CREDENTIALS = os.environ.get("SHOW_DEMO_CREDENTIALS", "1") == "1"
+
+MAX_USERNAME_LENGTH = 128
+
 SESSION_TTL_HOURS = int(os.environ.get("SESSION_TTL_HOURS", "4"))
 
 APP_DB_PATH = REPO_ROOT / "data" / "app.db"

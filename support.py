@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 import duckdb
 
 from app.auth import Session, create_session, get_session, verify_credentials
+from app.llm import CONFIRMATION_MARKER
 
 REPO_ROOT = Path(__file__).resolve().parent
 REAL_FIXTURE_PATH = REPO_ROOT / "data" / "fixture.duckdb"
@@ -25,10 +26,12 @@ def mock_anthropic_client(
     extraction_payload: dict,
     nlg_text: str = "Respuesta generada.",
     *,
+    confirmation_answer: str = "yes",
     captured_prompts: list[str] | None = None,
     captured_completions: list[str] | None = None,
 ) -> MagicMock:
-    """Answers the JSON-extraction system prompt with `extraction_payload` and
+    """Answers the JSON-extraction system prompt with `extraction_payload`, the
+    confirm-before-resolve classifier (AD-12) with `confirmation_answer`, and
     every other call with `nlg_text`; optionally records every system prompt
     and user message sent (privacy/language assertions) and every completion
     returned (eval/run_eval.py's cost estimate).
@@ -39,7 +42,12 @@ def mock_anthropic_client(
             captured_prompts.append(system)
             captured_prompts.extend(m["content"] for m in messages)
         response = MagicMock()
-        text = json.dumps(extraction_payload) if "JSON" in system else nlg_text
+        if CONFIRMATION_MARKER in system:
+            text = confirmation_answer
+        elif "JSON" in system:
+            text = json.dumps(extraction_payload)
+        else:
+            text = nlg_text
         if captured_completions is not None:
             captured_completions.append(text)
         response.content = [MagicMock(type="text", text=text)]

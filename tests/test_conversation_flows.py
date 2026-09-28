@@ -32,7 +32,10 @@ def test_normal_case_clean_auto_resolve(real_fixture_app_db):
 
     extraction = {**report, "merchant_hint": None, "wants_human": False}
     with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(extraction)):
-        reply = handle_message(session, None, "Tengo un cargo que no reconozco", db_path=real_fixture_app_db)
+        first = handle_message(session, None, "Tengo un cargo que no reconozco", db_path=real_fixture_app_db)
+        # AD-12: a policy-eligible match is NOT resolved in the first turn.
+        assert first["state"] == CaseState.CONFIRMING
+        reply = handle_message(session, first["case_id"], "Sí, es ese", db_path=real_fixture_app_db)
 
     assert reply["state"] == CaseState.RESOLVED_AUTO
 

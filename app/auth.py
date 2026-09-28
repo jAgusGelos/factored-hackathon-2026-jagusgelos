@@ -39,6 +39,9 @@ class Session:
 
 _session_db = db.app_connection
 
+# Compared against when the username is unknown (see verify_credentials).
+_DUMMY_PASSWORD = secrets.token_urlsafe(16)
+
 
 def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
@@ -55,14 +58,28 @@ def _load_demo_users(path: Path | None = None) -> dict[str, dict]:
     return json.loads(resolved_path.read_text(encoding="utf-8"))
 
 
+def _digest(secret: str) -> bytes:
+    return hashlib.sha256(secret.encode("utf-8")).digest()
+
+
+def list_demo_credentials() -> list[dict[str, str]]:
+    """Demo-only (`/auth/demo-personas`): the provisioned test accounts."""
+    return [{"username": name, "password": u["password"]} for name, u in _load_demo_users().items()]
+
+
 def verify_credentials(username: str, password: str) -> str | None:
     """Returns the matched `customer_id` if the demo credential is valid, else None."""
     users = _load_demo_users()
     user = users.get(username)
-    if user is None:
-        return None
-    # Constant-time comparison to avoid a trivial timing side-channel on a demo fixture.
-    if not secrets.compare_digest(user["password"], password):
+    # The constant-time comparison runs UNCONDITIONALLY: an unknown username is
+    # compared against a dummy secret, so the timing of this function does not
+    # reveal whether the account exists (username enumeration). Both sides are
+    # hashed first so the comparison always runs over equal-length operands
+    # (`compare_digest` is only constant-time for equal lengths) and accepts
+    # non-ASCII input (it raises on non-ASCII `str`).
+    expected = user["password"] if user is not None else _DUMMY_PASSWORD
+    password_ok = secrets.compare_digest(_digest(expected), _digest(password))
+    if user is None or not password_ok:
         return None
     return user["customer_id"]
 

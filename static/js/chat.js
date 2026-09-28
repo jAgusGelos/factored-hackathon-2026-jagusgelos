@@ -24,6 +24,8 @@ const STRINGS = {
     stepPolicyEscalated: "Derivado a un agente humano",
     badgePending: "Esperando reporte",
     badgeClarifying: "Necesita aclaración",
+    badgeConfirming: "Esperando tu confirmación",
+    stepTransactionAwaitingConfirm: "Cargo encontrado, pendiente de tu confirmación",
     badgeResolved: "Resuelto",
     badgeEscalated: "Escalado",
     verifiedChip: (ref) => `✓ Referencia ${ref}`,
@@ -65,6 +67,8 @@ const STRINGS = {
     stepPolicyEscalated: "Encaminhado a um agente humano",
     badgePending: "Aguardando relato",
     badgeClarifying: "Precisa de esclarecimento",
+    badgeConfirming: "Aguardando sua confirmação",
+    stepTransactionAwaitingConfirm: "Cobrança encontrada, aguardando sua confirmação",
     badgeResolved: "Resolvido",
     badgeEscalated: "Escalado",
     verifiedChip: (ref) => `✓ Referência ${ref}`,
@@ -283,6 +287,10 @@ function renderPanel() {
     badge = badgeHtml("warning", t("badgeClarifying"));
     step2Variant = "warning"; step2Dot = "?";
     step2Detail = t("stepTransactionSearching");
+  } else if (caseState === "confirming") {
+    badge = badgeHtml("warning", t("badgeConfirming"));
+    step2Variant = "warning"; step2Dot = "?";
+    step2Detail = t("stepTransactionAwaitingConfirm");
   } else if (caseState === "resolved_auto") {
     badge = badgeHtml("success", t("badgeResolved"));
     step2Variant = "done"; step2Dot = "✓";
