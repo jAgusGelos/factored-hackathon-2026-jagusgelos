@@ -111,3 +111,39 @@ def test_chat_rejects_an_unsupported_language_with_422_not_500(client):
     client.post("/auth/login", json={"username": "maria.gonzalez", "password": "demo-pass-1"})
     res = client.post("/api/chat", json={"message": "hola", "language": "fr"})
     assert res.status_code == 422
+
+
+def test_get_case_returns_structured_status_for_the_owning_session(client):
+    client.post("/auth/login", json={"username": "maria.gonzalez", "password": "demo-pass-1"})
+    chat_res = client.post("/api/chat", json={"message": "Tengo un cargo que no reconozco"})
+    case_id = chat_res.json()["case_id"]
+
+    res = client.get(f"/api/case/{case_id}")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["case_id"] == case_id
+    assert body["state"] == chat_res.json()["state"]
+    assert "handoff" in body
+
+
+def test_get_case_without_session_rejected(client):
+    res = client.get("/api/case/CASE-DOES-NOT-EXIST")
+    assert res.status_code == 401
+
+
+def test_get_case_unknown_id_returns_404(client):
+    client.post("/auth/login", json={"username": "maria.gonzalez", "password": "demo-pass-1"})
+    res = client.get("/api/case/CASE-DOES-NOT-EXIST")
+    assert res.status_code == 404
+
+
+def test_get_case_belonging_to_another_customer_returns_403(client):
+    from app import cases
+
+    client.post("/auth/login", json={"username": "maria.gonzalez", "password": "demo-pass-1"})
+    other_case = cases.create_case("CLI-OTHER", "es", db_path=config.APP_DB_PATH)
+
+    res = client.get(f"/api/case/{other_case.case_id}")
+
+    assert res.status_code == 403

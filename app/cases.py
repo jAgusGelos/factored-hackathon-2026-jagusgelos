@@ -34,6 +34,7 @@ class Case:
     language: str
     state: str
     reported_amount: float | None
+    reported_currency: str | None
     reported_date: str | None
     matched_transaction_id: str | None
     clarification_rounds: int
@@ -48,6 +49,7 @@ def _row_to_case(row: sqlite3.Row) -> Case:
         language=row["language"],
         state=row["state"],
         reported_amount=row["reported_amount"],
+        reported_currency=row["reported_currency"],
         reported_date=row["reported_date"],
         matched_transaction_id=row["matched_transaction_id"],
         clarification_rounds=row["clarification_rounds"],
@@ -89,7 +91,7 @@ def create_case(customer_id: str, language: str, *, db_path: Path | None = None)
         con.commit()
     return Case(
         case_id=case_id, customer_id=customer_id, language=language, state="awaiting_report",
-        reported_amount=None, reported_date=None, matched_transaction_id=None,
+        reported_amount=None, reported_currency=None, reported_date=None, matched_transaction_id=None,
         clarification_rounds=0, resolution_reference=None, handoff=None,
     )
 
@@ -99,6 +101,7 @@ def update_case(
     *,
     state: str,
     reported_amount: float | None = None,
+    reported_currency: str | None = None,
     reported_date: str | None = None,
     matched_transaction_id: str | None = None,
     clarification_rounds: int | None = None,
@@ -112,6 +115,7 @@ def update_case(
             UPDATE cases SET
                 state = ?,
                 reported_amount = COALESCE(?, reported_amount),
+                reported_currency = COALESCE(?, reported_currency),
                 reported_date = COALESCE(?, reported_date),
                 matched_transaction_id = COALESCE(?, matched_transaction_id),
                 clarification_rounds = COALESCE(?, clarification_rounds),
@@ -121,7 +125,7 @@ def update_case(
             WHERE case_id = ?
             """,
             [
-                state, reported_amount, reported_date, matched_transaction_id,
+                state, reported_amount, reported_currency, reported_date, matched_transaction_id,
                 clarification_rounds, resolution_reference,
                 json.dumps(handoff, ensure_ascii=False) if handoff is not None else None,
                 datetime.now(UTC).isoformat(), case_id,

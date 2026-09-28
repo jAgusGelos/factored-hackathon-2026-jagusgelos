@@ -92,6 +92,8 @@ def test_escalation_case_confident_match_ineligible_produces_structured_handoff(
 
     case = cases.get_case(reply["case_id"], db_path=real_fixture_app_db)
     assert case.state == "escalated"
+    assert case.matched_transaction_id == case.handoff["evidence"][0]
+    assert case.reported_currency is not None
     assert case.handoff is not None
     # Structured handoff (facts/actions/evidence/open_questions) — never a raw transcript.
     assert set(case.handoff.keys()) == {"facts", "actions_taken", "evidence", "open_questions"}

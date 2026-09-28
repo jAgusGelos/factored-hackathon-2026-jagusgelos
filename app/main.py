@@ -90,6 +90,10 @@ class ChatRequest(BaseModel):
     language: Language = Language.ES
 
 
+def _case_forbidden() -> JSONResponse:
+    return JSONResponse(status_code=403, content={"detail": "Case does not belong to this session"})
+
+
 @app.post("/api/chat")
 def chat(payload: ChatRequest, session: CurrentSession):
     try:
@@ -97,7 +101,35 @@ def chat(payload: ChatRequest, session: CurrentSession):
             session, payload.case_id, payload.message, language=payload.language
         )
     except cases.CaseOwnershipError:
-        return JSONResponse(status_code=403, content={"detail": "Case does not belong to this session"})
+        return _case_forbidden()
+
+
+@app.get("/api/case/{case_id}")
+def get_case(case_id: str, session: CurrentSession):
+    """Structured case status for the frontend's live "Ficha del caso" panel
+    (DESIGN.md) — separate from `/api/chat`'s conversational reply, since the
+    panel must reflect the state machine's actual data (never hardcoded),
+    including the full handoff record once a case escalates (Vista Interna).
+    """
+    try:
+        case = cases.get_case_for_session(case_id, session.customer_id)
+    except cases.CaseOwnershipError:
+        return _case_forbidden()
+    if case is None:
+        return JSONResponse(status_code=404, content={"detail": "Case not found"})
+
+    return {
+        "case_id": case.case_id,
+        "state": case.state,
+        "language": case.language,
+        "reported_amount": case.reported_amount,
+        "reported_currency": case.reported_currency,
+        "reported_date": case.reported_date,
+        "matched_transaction_id": case.matched_transaction_id,
+        "resolution_reference": case.resolution_reference,
+        "clarification_rounds": case.clarification_rounds,
+        "handoff": case.handoff,
+    }
 
 
 app.mount("/", StaticFiles(directory=str(config.STATIC_DIR), html=True), name="static")

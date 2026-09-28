@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LATAM Bank — Disputa de transacción</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="/css/app.css" />
+</head>
+<body>
+  <div class="app-frame">
+    <header class="app-header">
+      <div>
+        <div class="bank-name">LATAM Bank</div>
+        <div class="customer-name" id="customer-name">Cargando…</div>
+      </div>
+      <div class="header-right">
+        <div class="lang-toggle" role="group" aria-label="Idioma / Idioma">
+          <button type="button" data-lang="es" class="active" aria-pressed="true">ES</button>
+          <button type="button" data-lang="pt" aria-pressed="false">PT</button>
+        </div>
+        <button type="button" class="btn-link" id="logout-btn">Salir</button>
+      </div>
+    </header>
+
+    <div class="app-body">
+      <section class="chat-column">
+        <div class="chat-log" id="chat-log" aria-live="polite">
+          <div class="empty-state" id="empty-state">
+            <h3 id="empty-state-title">Contanos qué pasó</h3>
+            <p id="empty-state-body">
+              Describí el cargo que no reconocés: monto, fecha aproximada y, si te acordás, el comercio.
+            </p>
+          </div>
+        </div>
+        <form class="chat-input-bar" id="chat-form">
+          <label for="message-input" class="sr-only" id="message-label">Mensaje</label>
+          <input type="text" id="message-input" placeholder="Escribí tu mensaje..." autocomplete="off" required />
+          <button type="submit" class="btn-primary" id="send-btn">Enviar</button>
+        </form>
+      </section>
+
+      <aside class="case-panel" id="case-panel" aria-live="polite">
+        <h3 id="panel-title">Ficha del caso</h3>
+        <div id="panel-content"></div>
+      </aside>
+    </div>
+  </div>
+
+  <script src="/js/chat.js"></script>
+</body>
+</html>

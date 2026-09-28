@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS cases (
     language TEXT NOT NULL DEFAULT 'es',
     state TEXT NOT NULL,
     reported_amount REAL,
+    reported_currency TEXT,
     reported_date TEXT,
     matched_transaction_id TEXT,
     clarification_rounds INTEGER NOT NULL DEFAULT 0,

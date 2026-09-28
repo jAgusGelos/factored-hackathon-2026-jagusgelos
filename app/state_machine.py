@@ -401,7 +401,8 @@ def _finish_clarifying(
     rounds = turn.case.clarification_rounds + 1
     cases.update_case(
         turn.case.case_id, state=CaseState.CLARIFYING, reported_amount=amount,
-        reported_date=reported_date.isoformat(), clarification_rounds=rounds, db_path=turn.db_path,
+        reported_currency=currency, reported_date=reported_date.isoformat(),
+        clarification_rounds=rounds, db_path=turn.db_path,
     )
     context = llm.build_prompt_context(
         case_state=CaseState.CLARIFYING, language=turn.language, reported_amount=amount,
@@ -436,7 +437,8 @@ def _finish_resolved(
     reference = _simulate_provisional_credit(turn, matched)
     cases.update_case(
         turn.case.case_id, state=CaseState.RESOLVED_AUTO, reported_amount=amount,
-        reported_date=reported_date.isoformat(), matched_transaction_id=matched.transaction_id,
+        reported_currency=matched.currency, reported_date=reported_date.isoformat(),
+        matched_transaction_id=matched.transaction_id,
         resolution_reference=reference, db_path=turn.db_path,
     )
     context = llm.build_prompt_context(
@@ -449,12 +451,16 @@ def _finish_resolved(
 
 
 def _finish_escalated(
-    turn: _Turn, handoff: HandoffRecord, *, amount: float | None, reported_date: date | None
+    turn: _Turn, evaluation: CaseEvaluation, *,
+    amount: float | None, currency: str, reported_date: date | None,
 ) -> ChatReply:
+    matched = evaluation.matched_transaction
     cases.update_case(
         turn.case.case_id, state=CaseState.ESCALATED, reported_amount=amount,
+        reported_currency=currency,
         reported_date=reported_date.isoformat() if reported_date is not None else None,
-        handoff=handoff.to_dict(), db_path=turn.db_path,
+        matched_transaction_id=matched.transaction_id if matched is not None else None,
+        handoff=evaluation.handoff.to_dict(), db_path=turn.db_path,
     )
     context = llm.build_prompt_context(case_state=CaseState.ESCALATED, language=turn.language)
     return turn.reply(CaseState.ESCALATED, turn.generate_reply(context))
@@ -529,4 +535,6 @@ def handle_message(
         return _finish_resolved(
             turn, evaluation.matched_transaction, amount=amount, reported_date=reported_date
         )
-    return _finish_escalated(turn, evaluation.handoff, amount=amount, reported_date=reported_date)
+    return _finish_escalated(
+        turn, evaluation, amount=amount, currency=currency, reported_date=reported_date
+    )
