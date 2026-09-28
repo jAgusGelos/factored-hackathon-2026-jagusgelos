@@ -1,0 +1,42 @@
+# Fly.io deployment config for the Transaction Dispute AI Agent (AD-7).
+# See DEPLOY.md for the exact deploy command sequence and the Render fallback.
+
+app = "dispute-agent-hackathon"  # placeholder — `fly launch` prompts to confirm/rename
+primary_region = "gru"           # São Paulo: the only Fly region in South America, closest to the 3 LATAM countries in the demo data; `fly platform regions` to reconsider (verified against https://fly.io/docs/reference/regions/ — "mia" no longer exists)
+
+[build]
+
+[env]
+  # ANTHROPIC_API_KEY is intentionally NOT set here — set it with
+  # `fly secrets set` (encrypted, never written to this file or to git). No
+  # AWS_* vars are set anywhere: the deployed app has zero runtime AWS
+  # dependency by design (AD-2).
+  SESSION_TTL_HOURS = "4"
+
+[[mounts]]
+  source = "dispute_agent_data"
+  destination = "/app/data"
+
+[[services]]
+  internal_port = 8000
+  protocol = "tcp"
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [[services.http_checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "get"
+    path = "/"
+    protocol = "http"

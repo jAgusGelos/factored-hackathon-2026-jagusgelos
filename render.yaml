@@ -1,0 +1,40 @@
+# Render.com deployment config — documented FALLBACK for the Transaction Dispute
+# AI Agent (AD-7), if the Fly.io billing decision (see fly.toml, DEPLOY.md) goes
+# the other way. NOT deployed by this session.
+#
+# Uses a PREBUILT image (runtime: image), not Render's own git-triggered
+# Dockerfile build: data/fixture.duckdb, data/demo_users.json and
+# data/classifier.joblib are gitignored by design (AD-2 — never commit dataset
+# artifacts), so a build from a fresh git checkout has no access to them and
+# fails at the Dockerfile's COPY step. Build the image locally (where those
+# files exist on disk, same prerequisite as fly.toml) and push it to a
+# registry first — see DEPLOY.md Path B for the exact commands.
+#
+# Render's free tier has no persistent disk and cold-starts on idle — both
+# disclosed limitations if this fallback is used instead of Fly.io. A paid
+# instance type adds a persistent disk, which this file assumes (`disk:`
+# below) to satisfy AD-4's restart-persistence claim.
+
+services:
+  - type: web
+    name: dispute-agent-hackathon
+    runtime: image
+    image:
+      url: docker.io/REPLACE_WITH_YOUR_REGISTRY_USER/dispute-agent:latest
+    plan: starter  # smallest paid plan with a persistent disk + no cold-start; free tier lacks both
+    region: virginia  # closer to the 3 LATAM countries in scope than Render's Oregon region
+    healthCheckPath: /
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false  # set manually in the Render dashboard — never in this file or in git
+      - key: SESSION_TTL_HOURS
+        value: "4"
+      - key: PORT
+        value: "8000"  # must match the image's listening port (Render defaults to 10000 otherwise)
+      # No AWS_* vars are set: the deployed app has zero runtime AWS dependency
+      # by design (AD-2) — proving this on the actual platform is Task 6.2's
+      # AWS-unset restart check.
+    disk:
+      name: dispute-agent-data
+      mountPath: /app/data
+      sizeGB: 1

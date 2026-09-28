@@ -1,0 +1,26 @@
+.git
+.gitignore
+.venv
+venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+**/.env
+**/.env.*
+!.env.example
+raw-docs/
+.workspace/
+tests/
+docs/
+CONFORMANCE.md
+DEPLOY.md
+README.md
+
+# AD-2: the deployed image ships ONLY the sanitized fixture + trained classifier
+# (explicitly un-ignored below) — never the full local warehouse, raw ETL
+# manifests, or the eval/training-split artifacts, which stay offline-only.
+data/*
+!data/fixture.duckdb
+!data/demo_users.json
+!data/classifier.joblib

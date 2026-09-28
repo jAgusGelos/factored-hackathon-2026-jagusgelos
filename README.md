@@ -195,7 +195,10 @@ data/           Local ETL artifacts, fixture, trained model (gitignored — neve
 
 - [x] Public GitHub repo named `factored-hackathon-2026-jagusgelos`
 - [ ] Deployed tool link — pending a deployment-platform decision (Fly.io vs. Render; Fly.io
-      requires a credit card on file — see `.workspace/features/dispute-agent/plan.md` Open Questions)
+      requires a credit card on file — see `.workspace/features/dispute-agent/plan.md` Open Questions).
+      Deploy artifacts are ready (`Dockerfile`, `docker-entrypoint.sh`, `fly.toml`, `render.yaml`)
+      and locally verified (a real Docker build + a real container-restart persistence test) —
+      see `DEPLOY.md` for the exact remaining commands and what's proven vs. still pending.
 - [ ] 4-6 slide presentation
 - [ ] Short mandatory video pitch demonstrating the working solution, recorded against `localhost`
       (never the deployed link, per AD-7 — avoids demo-day network flakiness in the recorded artifact)
