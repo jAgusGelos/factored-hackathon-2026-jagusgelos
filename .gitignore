@@ -6,9 +6,14 @@
 # Raw challenge docs (not ours to redistribute; contain AWS credentials)
 raw-docs/
 
-# Data (never commit dataset extracts)
-data/raw/
-data/interim/
+# Planning artifacts (spec-first-cc-cc scratchpad: three-experts transcripts, design
+# cache, plan/todo/findings). Per-machine by convention. Promote specific docs (e.g.
+# the ADR or plan.md) into docs/ manually if you want to showcase them to judges.
+.workspace/
+
+# Data (never commit dataset extracts, the local DuckDB warehouse, or the deployed fixture)
+data/
+*.duckdb
 *.parquet
 *.csv
 !data/**/sample_*.csv
