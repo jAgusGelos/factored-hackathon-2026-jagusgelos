@@ -348,18 +348,18 @@ def _force_escalation(turn: _Turn, *, event_type: str, failed_call: str, action_
         actions_taken=(action_taken,),
         evidence=(),
         open_questions=("Requiere revisión manual del mensaje original del cliente.",),
-    )
-    cases.update_case(
-        turn.case.case_id, state=CaseState.ESCALATED, handoff=handoff.to_dict(), db_path=turn.db_path
-    )
+    ).to_dict()
+    cases.update_case(turn.case.case_id, state=CaseState.ESCALATED, handoff=handoff, db_path=turn.db_path)
+    turn.log_event("case_escalated", handoff)
     return turn.reply(CaseState.ESCALATED, llm.DETERMINISTIC_FALLBACK_MESSAGE[turn.language])
 
 
 def _ask_for_missing_entities(turn: _Turn) -> ChatReply:
+    rounds = turn.case.clarification_rounds + 1
     cases.update_case(
-        turn.case.case_id, state=CaseState.CLARIFYING,
-        clarification_rounds=turn.case.clarification_rounds + 1, db_path=turn.db_path,
+        turn.case.case_id, state=CaseState.CLARIFYING, clarification_rounds=rounds, db_path=turn.db_path,
     )
+    turn.log_event("case_clarifying", {"reason": "missing_entities", "clarification_rounds": rounds})
     return turn.reply(CaseState.CLARIFYING, _MISSING_ENTITIES_REPLY[turn.language])
 
 
@@ -404,6 +404,14 @@ def _finish_clarifying(
         reported_currency=currency, reported_date=reported_date.isoformat(),
         clarification_rounds=rounds, db_path=turn.db_path,
     )
+    turn.log_event(
+        "case_clarifying",
+        {
+            "reported_amount": amount, "reported_currency": currency,
+            "reported_date": reported_date.isoformat(), "candidate_count": len(evaluation.candidates),
+            "clarification_rounds": rounds,
+        },
+    )
     context = llm.build_prompt_context(
         case_state=CaseState.CLARIFYING, language=turn.language, reported_amount=amount,
         reported_currency=currency, reported_date=reported_date.isoformat(),
@@ -441,6 +449,13 @@ def _finish_resolved(
         matched_transaction_id=matched.transaction_id,
         resolution_reference=reference, db_path=turn.db_path,
     )
+    turn.log_event(
+        "case_resolved",
+        {
+            "matched_transaction_id": matched.transaction_id, "amount": matched.amount,
+            "currency": matched.currency, "resolution_reference": reference,
+        },
+    )
     context = llm.build_prompt_context(
         case_state=CaseState.RESOLVED_AUTO, language=turn.language,
         candidate_amount=matched.amount, candidate_currency=matched.currency,
@@ -455,13 +470,15 @@ def _finish_escalated(
     amount: float | None, currency: str, reported_date: date | None,
 ) -> ChatReply:
     matched = evaluation.matched_transaction
+    handoff = evaluation.handoff.to_dict()
     cases.update_case(
         turn.case.case_id, state=CaseState.ESCALATED, reported_amount=amount,
         reported_currency=currency,
         reported_date=reported_date.isoformat() if reported_date is not None else None,
         matched_transaction_id=matched.transaction_id if matched is not None else None,
-        handoff=evaluation.handoff.to_dict(), db_path=turn.db_path,
+        handoff=handoff, db_path=turn.db_path,
     )
+    turn.log_event("case_escalated", handoff)
     context = llm.build_prompt_context(case_state=CaseState.ESCALATED, language=turn.language)
     return turn.reply(CaseState.ESCALATED, turn.generate_reply(context))
 
