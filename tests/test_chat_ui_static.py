@@ -17,8 +17,10 @@ import pytest
 
 from app import replies
 from app.case_model import CustomerAction
-from app.llm import Language
+from app.llm import ConfirmationAnswer, Language
+from app.policy import DisputeReason
 from tests.support import STATIC, chat_js_language_block
+from tests.test_handoff_shape import PRODUCERS
 
 CHAT_JS = (STATIC / "js" / "chat.js").read_text(encoding="utf-8")
 CHAT_HTML = (STATIC / "chat.html").read_text(encoding="utf-8")
@@ -201,14 +203,10 @@ def test_only_two_new_css_rules_for_the_escalation():
 
 
 def _js_object_keys(lang: str, name: str) -> set[str]:
-    block = re.search(rf"^    {name}: \{{\n(.*?)^    \}},$", chat_js_language_block(CHAT_JS, lang), re.MULTILINE | re.DOTALL)
-    assert block, f"STRINGS.{lang}.{name} not found"
-    return set(re.findall(r"(\w+): \"", block.group(1)))
+    return set(re.findall(r"(\w+): \"", _entries(lang)[name]))
 
 
 def _handoff_field_keys() -> set[str]:
-    from tests.test_handoff_shape import PRODUCERS
-
     keys: set[str] = set()
     for build in PRODUCERS.values():
         handoff = build()
@@ -224,9 +222,6 @@ def test_every_handoff_field_has_a_label_in_both_languages(lang):
 
 @pytest.mark.parametrize("lang", ["es", "pt"])
 def test_coded_handoff_values_are_labelled_in_both_languages(lang):
-    from app.llm import ConfirmationAnswer
-    from app.policy import DisputeReason
-
     codes = {str(v) for v in DisputeReason} | {str(v) for v in ConfirmationAnswer}
     assert codes <= _js_object_keys(lang, "handoffValues")
 
