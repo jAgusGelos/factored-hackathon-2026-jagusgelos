@@ -83,8 +83,6 @@ class Turn:
             self.log_event("llm_unavailable", llm.failure_payload("generate_response", exc))
             return fallback
         if register.runtime_findings(reply, self.language):
-            # Voseo or slang despite the prompt (usability-s2 AD-2): the
-            # step's template says the same in the right register.
             self.log_event("nlg_reply_replaced", {"reason": "register", "scene": str(context["case_state"])})
             return fallback
         return reply
