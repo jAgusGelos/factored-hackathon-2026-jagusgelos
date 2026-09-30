@@ -6,7 +6,6 @@ const STRINGS = {
     htmlLang: "es",
     timeLocale: "es-AR",
     starterShowCharges: "Ver mis últimos cargos",
-    starterShowChargesMessage: "Mostrame mis últimos cargos",
     quickHuman: "Hablar con una persona",
     quickNotInList: "No está en la lista",
     quickYes: "Sí, es ese",
@@ -72,7 +71,6 @@ const STRINGS = {
     htmlLang: "pt-BR",
     timeLocale: "pt-BR",
     starterShowCharges: "Ver minhas últimas cobranças",
-    starterShowChargesMessage: "Mostre minhas últimas cobranças",
     quickHuman: "Falar com uma pessoa",
     quickNotInList: "Não está na lista",
     quickYes: "Sim, é essa",
@@ -141,6 +139,7 @@ const ACTIONS = Object.freeze({
   NONE_OF_THESE: "none_of_these",
   CONFIRM_YES: "confirm_yes",
   CONFIRM_NO: "confirm_no",
+  SHOW_CHARGES: "show_charges",
 });
 
 const state = {
@@ -218,7 +217,7 @@ function humanButton() {
 }
 
 function starterButtons() {
-  return [quickButton(t("starterShowCharges"), () => sendToAgent({ message: t("starterShowChargesMessage") }))];
+  return [actionButton("starterShowCharges", ACTIONS.SHOW_CHARGES)];
 }
 
 // The conversation opens with the agent introducing itself and what it can

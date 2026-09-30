@@ -3,7 +3,8 @@
 Reads `static/` as text: every string added for the wait indicator, retry and
 new-claim flow exists in ES and PT without voseo, the wait is announced by a
 `role=status` region outside the chat log, the case panel is no longer a live
-region, and the typing dots stop moving under `prefers-reduced-motion`.
+region, the typing dots stop moving under `prefers-reduced-motion`, and the
+buttons send the server's `CustomerAction` values (AD-9).
 """
 
 from __future__ import annotations
@@ -13,6 +14,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
+
+from app.case_model import CustomerAction
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 CHAT_JS = (STATIC / "js" / "chat.js").read_text(encoding="utf-8")
@@ -129,3 +132,15 @@ def test_new_ui_classes_use_only_existing_tokens():
     new_rules = APP_CSS[start:end]
     assert set(re.findall(r"var\((--[\w-]+)\)", new_rules)) <= defined
     assert not re.search(r"#[0-9a-fA-F]{3,6}\b|rgba?\(", new_rules)
+
+
+def test_the_client_actions_match_the_server_ones():
+    block = re.search(r"const ACTIONS = Object\.freeze\(\{(.*?)\}\);", CHAT_JS, re.DOTALL)
+    assert block, "ACTIONS not found in chat.js"
+    assert set(re.findall(r'"(\w+)"', block.group(1))) == {str(a) for a in CustomerAction}
+
+
+def test_the_show_charges_starter_is_an_action_not_free_text():
+    # Sent as free text it would pay an extraction and an NLG call (AD-9).
+    starter = re.search(r"function starterButtons\(\) \{(.*?)^\}", CHAT_JS, re.MULTILINE | re.DOTALL)
+    assert starter and "ACTIONS.SHOW_CHARGES" in starter.group(1)

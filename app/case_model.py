@@ -32,13 +32,15 @@ NON_TERMINAL_STATES = tuple(str(s) for s in CaseState if s not in TERMINAL_STATE
 
 class CustomerAction(StrEnum):
     """Quick-reply buttons. They carry the customer's intent without going
-    through the LLM classifier, so a tap on "Sí, es ese" is never misread.
+    through the LLM classifier, so a tap on "Sí, es ese" is never misread,
+    and their replies are templates, with no model call at all (AD-9).
     """
 
     CONFIRM_YES = "confirm_yes"
     CONFIRM_NO = "confirm_no"
     NONE_OF_THESE = "none_of_these"
     HUMAN = "human"
+    SHOW_CHARGES = "show_charges"
 
 
 @dataclass(frozen=True)

@@ -33,8 +33,9 @@ offered AND belong to the session (`get_own_transaction`), and AD-11 still
 decides resolve vs escalate in code. A transaction is never credited twice.
 
 `handle_message()` orchestrates one turn: quick-reply actions and taps are
-handled directly; free text goes through NLU entity extraction
-(`app/llm.py`) -> `evaluate_case()` -> grounded NLG. An exhausted LLM retry
+handled directly and answered with templates, never calling the model (AD-9);
+free text goes through NLU entity extraction (`app/llm.py`) ->
+`evaluate_case()` -> grounded NLG. An exhausted LLM retry
 budget (`llm.LLMUnavailable`, also raised once the turn's shared model budget
 `llm.turn_deadline()` is used up) or a failed fixture lookup (`duckdb.Error`)
 forces escalation with the NFR's deterministic fallback message, never a
@@ -570,6 +571,7 @@ _ACTION_STATES = {
     CustomerAction.CONFIRM_YES: CaseState.CONFIRMING,
     CustomerAction.CONFIRM_NO: CaseState.CONFIRMING,
     CustomerAction.NONE_OF_THESE: CaseState.SELECTING,
+    CustomerAction.SHOW_CHARGES: CaseState.AWAITING_REPORT,
 }
 
 
@@ -680,7 +682,8 @@ def _run_turn(
     case = _load_or_create_case(session, case_id, language, db_path)
     if turn_id is not None:
         turns.attach_case(session.customer_id, turn_id, case.case_id, db_path=db_path)
-    turn = Turn(session, case, language, uuid.uuid4().hex, db_path)
+    from_menu = action is not None or selected_transaction_id is not None
+    turn = Turn(session, case, language, uuid.uuid4().hex, db_path, from_menu=from_menu)
     if case_id is not None and case.case_id != case_id:
         turn.log_event("unknown_case_id_new_case_started", {"requested_case_id": case_id})
     cases.log_message(case.case_id, "customer", text, db_path=db_path)
@@ -709,6 +712,8 @@ def _route(
         return _handle_selection(turn, selected_transaction_id)
     if action == CustomerAction.NONE_OF_THESE:
         return _handle_none_of_these(turn)
+    if action == CustomerAction.SHOW_CHARGES:
+        return _offer(turn, recent_charges(turn.session), turn.report, spend_round=False)
     if turn.case.state == CaseState.CONFIRMING:
         return _handle_confirmation(turn, text, action)
     if turn.case.state == CaseState.AWAITING_EXPLANATION:

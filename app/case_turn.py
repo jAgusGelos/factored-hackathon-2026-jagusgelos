@@ -47,6 +47,9 @@ class Turn:
     language: Language
     correlation_id: str
     db_path: Path | None
+    # A menu or button turn (a tapped charge or quick-reply): its replies are
+    # the validated templates, with no model call (AD-9). Typed text is not.
+    from_menu: bool = False
 
     @property
     def report(self) -> ReportedCharge:
@@ -71,6 +74,9 @@ class Turn:
         return current is not None and human_handoff_available(current)
 
     def generate_reply(self, context: llm.PromptContext, *, fallback: str) -> str:
+        if self.from_menu:
+            self.log_event("nlg_skipped_for_menu", {"scene": str(context["case_state"])})
+            return fallback
         try:
             return llm.generate_response(context, language=self.language)
         except llm.LLMUnavailable as exc:
