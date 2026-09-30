@@ -158,22 +158,19 @@ def _add_missing_columns(con: sqlite3.Connection) -> None:
 
 # A completed chat turn's reply is kept this long for replays of a client retry.
 COMPLETED_TURN_RETENTION = timedelta(days=1)
-# Any chat turn row is kept this long, far past any client retry (25 s).
-TURN_ROW_RETENTION = timedelta(days=30)
 
 
 def _expire_old_turns(con: sqlite3.Connection) -> None:
     """Drops old reply payloads but keeps the (customer_id, turn_id) row as an
     expired tombstone (`completed_at` set, no reply): a late reuse of that
     turn_id is answered with the case's current state, never processed a
-    second time. Rows past `TURN_ROW_RETENTION` are deleted.
+    second time. Rows are never deleted: a deleted row would let that
+    turn_id run again.
     """
-    now = datetime.now(UTC)
     con.execute(
         "UPDATE chat_turns SET reply_json = NULL WHERE reply_json IS NOT NULL AND completed_at < ?",
-        [(now - COMPLETED_TURN_RETENTION).isoformat()],
+        [(datetime.now(UTC) - COMPLETED_TURN_RETENTION).isoformat()],
     )
-    con.execute("DELETE FROM chat_turns WHERE created_at < ?", [(now - TURN_ROW_RETENTION).isoformat()])
 
 
 def init_db(db_path: Path) -> None:

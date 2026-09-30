@@ -253,7 +253,7 @@ def test_an_abandoned_turn_never_answers_with_another_customers_case(model, real
 def test_startup_drops_old_replies_but_keeps_a_tombstone_that_is_never_reprocessed(real_fixture_app_db):
     now = datetime.now(UTC)
     two_days_ago = (now - timedelta(days=2)).isoformat()
-    long_ago = (now - db.TURN_ROW_RETENTION - timedelta(days=1)).isoformat()
+    long_ago = (now - timedelta(days=400)).isoformat()
     con = sqlite3.connect(str(real_fixture_app_db))
     try:
         con.executemany(
@@ -276,7 +276,7 @@ def test_startup_drops_old_replies_but_keeps_a_tombstone_that_is_never_reprocess
         "SELECT turn_id, reply_json IS NOT NULL, completed_at IS NOT NULL, failed_at IS NOT NULL "
         "FROM chat_turns ORDER BY turn_id",
     )
-    assert rows == [("old", 0, 1, 0), ("pending", 0, 0, 0), ("recent", 1, 1, 0)]
+    assert rows == [("ancient", 0, 1, 0), ("old", 0, 1, 0), ("pending", 0, 0, 0), ("recent", 1, 1, 0)]
     assert turns.claim("C", "old", db_path=real_fixture_app_db).status == turns.TurnStatus.EXPIRED
 
 
