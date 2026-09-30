@@ -374,6 +374,13 @@ def _offer(
     return turn.reply(CaseState.SELECTING, text, [charge_option(c) for c in search.charges])
 
 
+def _offer_recent_charges(turn: Turn, report: ReportedCharge) -> ChatReply:
+    """The customer asked to see their charges: a request, not a failed
+    attempt, so no round is spent.
+    """
+    return _offer(turn, recent_charges(turn.session), report, spend_round=False)
+
+
 def _ask_for_details(turn: Turn, report: ReportedCharge, *, spend_round: bool) -> ChatReply:
     """Only for a customer with no outgoing charges to list at all."""
     lost = transition(
@@ -713,7 +720,7 @@ def _route(
     if action == CustomerAction.NONE_OF_THESE:
         return _handle_none_of_these(turn)
     if action == CustomerAction.SHOW_CHARGES:
-        return _offer(turn, recent_charges(turn.session), turn.report, spend_round=False)
+        return _offer_recent_charges(turn, turn.report)
     if turn.case.state == CaseState.CONFIRMING:
         return _handle_confirmation(turn, text, action)
     if turn.case.state == CaseState.AWAITING_EXPLANATION:
@@ -776,7 +783,7 @@ def _handle_report(turn: Turn, text: str) -> ChatReply:
 
     report = _merged_report(turn, extraction)
     if not has_details and extraction.intent == llm.ExtractionIntent.SHOW_CHARGES:
-        return _offer(turn, recent_charges(turn.session), report, spend_round=False)
+        return _offer_recent_charges(turn, report)
     brought_new_info = _brings_new_info(extraction, turn.case)
     can_ask_again = brought_new_info or turn.case.clarification_rounds < MAX_CLARIFICATION_ROUNDS
     if report.is_complete:
