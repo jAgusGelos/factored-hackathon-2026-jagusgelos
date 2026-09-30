@@ -337,7 +337,7 @@ def terminal_case(state: CaseState, *, case_number: str, reference: str | None, 
 
 
 def escalation_summary(
-    case_number: str, reason: EscalationReason | None, charge: TransactionCandidate | None, language: Language,
+    case_number: str, reason: EscalationReason | None, *, charge: TransactionCandidate | None, language: Language,
 ) -> EscalationNotice:
     return {
         "case_number": case_number,
@@ -348,13 +348,13 @@ def escalation_summary(
 
 
 def escalation_notice(
-    case_number: str, reason: EscalationReason, charge: TransactionCandidate | None, language: Language,
+    case_number: str, reason: EscalationReason, *, charge: TransactionCandidate | None, language: Language,
 ) -> tuple[str, EscalationNotice]:
     """The message a case gets when it goes to a person, always this template
     (never the model): the charge when the customer identified it, the reason,
     the case number and the contact deadline.
     """
-    notice = escalation_summary(case_number, reason, charge, language)
+    notice = escalation_summary(case_number, reason, charge=charge, language=language)
     text = _ESCALATION_NOTICE[language].format(
         charge=_ESCALATION_CHARGE[language].format(charge=charge_summary(charge, language)) if charge is not None else "",
         reason=notice["reason"], case_number=case_number, days=notice["contact_business_days"],

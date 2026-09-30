@@ -120,7 +120,7 @@ def assert_escalation_notice(
     """
     assert reply["state"] == CaseState.ESCALATED
     escalation = reply["escalation"]
-    reason_text = replies.escalation_summary(reply["case_id"], reason, None, language)["reason"]
+    reason_text = replies.escalation_summary(reply["case_id"], reason, charge=None, language=language)["reason"]
     assert escalation["case_number"] == reply["case_id"]
     assert escalation["reason"] == reason_text
     assert escalation["contact_business_days"] == ESCALATION_CONTACT_BUSINESS_DAYS

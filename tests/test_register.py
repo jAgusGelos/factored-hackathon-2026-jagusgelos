@@ -155,7 +155,10 @@ def test_a_model_reply_off_register_is_replaced_by_the_template(real_fixture_app
     reply = _turn(real_fixture_app_db, language).generate_reply(context, fallback="PLANTILLA")
 
     assert reply == "PLANTILLA"
-    assert logged_events(real_fixture_app_db, "nlg_reply_replaced") == [{"reason": "register", "scene": "greeting"}]
+    [event] = logged_events(real_fixture_app_db, "nlg_reply_replaced")
+    assert {k: event[k] for k in ("reason", "scene")} == {"reason": "register", "scene": "greeting"}
+    # The matched forms come from the closed list, never from the customer.
+    assert event["forms"] and set(event["forms"]) <= set(register.RUNTIME[language])
 
 
 def test_a_model_reply_in_register_is_kept(real_fixture_app_db, monkeypatch):

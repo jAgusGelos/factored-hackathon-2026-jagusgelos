@@ -110,11 +110,9 @@ def _explanation_verdict(
 
 
 def _asks_for_a_person(turn: Turn, text: str) -> bool:
-    """A text too short to be assessed on its own (unless an earlier answer
-    makes the whole long enough, the assessment never sees it) checked for a
-    request for a person, with the extraction call; only its `wants_human` is
-    used.
-    If the model is unavailable the text counts as not asking (logged), so a
+    """An explanation still too short to be assessed (so no model reads it)
+    checked for a request for a person with the extraction call; only its
+    `wants_human` is used. If the model is unavailable the text counts as not asking (logged), so a
     detection failure never escalates by itself.
     """
     try:
@@ -143,10 +141,12 @@ def handle_explanation(
     matched = get_own_transaction(turn.session, case.matched_transaction_id) if case.matched_transaction_id else None
     if matched is None:
         return escalate(turn, handoffs.unidentified_charge(turn.report, case))
-    if _too_short(text) and _asks_for_a_person(turn, text):
-        return on_human_request(turn)
     explanation = f"{case.explanation_text}\n{text}" if case.explanation_text else text
     too_short = _too_short(explanation)
+    # Only when the assessment will not run (it reads `wants_human` itself):
+    # at most one model call per turn, inside the shared turn budget.
+    if too_short and _asks_for_a_person(turn, text):
+        return on_human_request(turn)
     try:
         assessment = _assess(turn, explanation, matched)
     except llm.LLMUnavailable as exc:

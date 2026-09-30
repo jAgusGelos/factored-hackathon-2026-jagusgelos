@@ -7,9 +7,10 @@ Two closed lists per language, matched as whole words and ignoring case:
 - `BROAD`: every form a deterministic text, UI string or ES prompt must never
   contain (voseo, tuteo in ES, colloquialisms). `tests/test_register.py`
   sweeps all of them with it.
-- `RUNTIME`: the forms of `BROAD` minus those that are also plain words (`_ES_PLAIN_WORDS`, `_PT_PLAIN_WORDS`), checked on every
-  model reply by `app/case_turn.py::Turn.generate_reply`. A hit replaces the
-  reply with that step's template.
+- `RUNTIME`: the forms of `BROAD` minus those that are also plain words
+  (`_ES_PLAIN_WORDS`, `_PT_PLAIN_WORDS`), checked on every model reply by
+  `app/case_turn.py::Turn.generate_reply`. A hit replaces the reply with that
+  step's template.
 
 Accents are matched exactly; the unaccented spellings a model tends to write
 ("podes") are listed explicitly instead of stripping accents, which would

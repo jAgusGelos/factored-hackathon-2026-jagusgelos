@@ -725,12 +725,15 @@ function renderTurnActionCard(newState) {
   }
 }
 
-// The first escalation object of a case is kept: later replies about it name
-// no charge (only the escalating turn knows the customer identified one).
+// Later replies about the same case name no charge (only the escalating turn
+// knows the customer identified one): the first charge and time are kept, the
+// rest follows the latest reply (e.g. the reason in the language just chosen).
 function rememberEscalation(escalation) {
   if (!escalation) return;
-  if (state.escalation && state.escalation.case_number === escalation.case_number) return;
-  state.escalation = { ...escalation, time: currentTime() };
+  const sameCase = state.escalation && state.escalation.case_number === escalation.case_number;
+  state.escalation = sameCase
+    ? { ...escalation, charge: state.escalation.charge, time: state.escalation.time }
+    : { ...escalation, time: currentTime() };
 }
 
 // The one builder of the escalation details, for the card and the client
@@ -770,8 +773,9 @@ function badgeHtml(variant, label) {
 
 function renderPanel() {
   const status = state.caseStatus;
-  // Without a case status (its refresh failed) an escalation still shows.
-  const caseState = status ? status.state : state.escalation ? CASE_STATES.ESCALATED : null;
+  // The escalation object wins: a failed refresh may have left the previous
+  // turn's status (or none) behind, and the case is escalated either way.
+  const caseState = state.escalation ? CASE_STATES.ESCALATED : status ? status.state : null;
   const transactionFound = () => t("stepTransactionFound", caseChargeLabel(status));
 
   let badge;
@@ -804,7 +808,13 @@ function renderPanel() {
     step3Detail = t("stepPolicyResolved");
   } else if (caseState === CASE_STATES.ESCALATED) {
     badge = badgeHtml("info", t("badgeEscalated"));
-    if (status && status.matched_transaction_id) {
+    // With an escalation object, only the charge the customer identified (the
+    // stored match may be an unconfirmed proposal, plan.md AD-5).
+    const escalatedCharge = state.escalation ? state.escalation.charge : null;
+    if (escalatedCharge) {
+      step2Variant = "done"; step2Dot = "✓";
+      step2Detail = t("stepTransactionFound", chargeLabel(escalatedCharge));
+    } else if (!state.escalation && status && status.matched_transaction_id) {
       step2Variant = "done"; step2Dot = "✓";
       step2Detail = transactionFound();
     } else {

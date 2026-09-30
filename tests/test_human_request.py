@@ -14,7 +14,7 @@ from unittest.mock import patch
 import anthropic
 import pytest
 
-from app import cases, replies
+from app import cases, llm, replies
 from app.case_model import CaseState, CustomerAction, EscalationReason
 from app.llm import Language
 from tests.support import (
@@ -177,6 +177,25 @@ def test_a_lost_race_gets_no_offer(real_fixture_app_db):
     assert not logged_events(real_fixture_app_db, "human_request_deferred")
 
 
+
+def test_a_lost_race_to_a_request_that_unlocked_the_case_gets_no_offer(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    case_id = reach_confirming(session, real_fixture_app_db, "es")
+    real_update = cases.update_case
+
+    def another_request_deferred_first(case_id_, **kwargs):
+        real_update(case_id_, state=CaseState.SELECTING, unlock_handoff=True, db_path=kwargs["db_path"])
+        return real_update(case_id_, **kwargs)
+
+    with patch("app.cases.update_case", side_effect=another_request_deferred_first):
+        reply = _ask(session, real_fixture_app_db, case_id, via="button")
+
+    # This turn moved nothing: the case-moved reply, without the offer.
+    assert reply["state"] == CaseState.SELECTING
+    assert reply["human_available"] is True
+    assert reply["reply"] == replies.CASE_MOVED_ON["es"]
+    assert not logged_events(real_fixture_app_db, "human_request_deferred")
+
 # -- Detection while the customer explains (Task 3.2) ---------------------------------
 
 
@@ -240,6 +259,26 @@ def test_a_short_explanation_that_asks_for_nobody_is_still_an_explanation(real_f
     assert _case(case_id, real_fixture_app_db).explanation_attempts == 1
     assert not logged_events(real_fixture_app_db, "human_request_detected")
 
+
+
+def test_a_short_answer_after_a_first_explanation_makes_one_model_call(real_fixture_app_db):
+    # The combined explanation is long enough to be assessed, and the
+    # assessment reads `wants_human` itself: no extraction call first.
+    session = demo_session(real_fixture_app_db)
+    case_id = reach_explaining(session, real_fixture_app_db, "es")
+    vague = {"reason": "unclear", "specific": False, "consistent": True, "contradictions": [],
+             "summary": "El cliente no da detalles.", "missing_detail": "card_possession"}
+    first = mocked_turn(session, real_fixture_app_db, "No sé qué es este cargo raro", case_id,
+                        mock={"assessment": vague})
+    assert first["state"] == CaseState.AWAITING_EXPLANATION
+    client = mock_anthropic_client(charge_extraction(wants_human=True), assessment={**vague, "wants_human": True})
+
+    reply = mocked_turn(session, real_fixture_app_db, "una persona", case_id, client=client)
+
+    assert [c.kwargs["system"].startswith(llm.ASSESSMENT_MARKER)
+            for c in client.messages.create.call_args_list] == [True]
+    assert reply["reply"].endswith(replies.HUMAN_OFFER["es"])
+    assert logged_events(real_fixture_app_db, "human_request_detected") == [{"via": "assessment"}]
 
 # -- Policy first and silent unlocks (Task 3.3) ------------------------------------------
 

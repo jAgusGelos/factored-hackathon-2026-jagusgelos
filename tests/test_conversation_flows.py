@@ -14,6 +14,7 @@ from dataclasses import dataclass, replace
 from unittest.mock import patch
 
 from app import cases, db
+from app.case_model import EscalationReason
 from app.case_turn import Turn
 from app.policy import MAX_CASE_TURNS, DisputeReason
 from app.state_machine import CaseState, handle_message
@@ -30,6 +31,7 @@ from tests.support import (
     OPENING,
     OVER_LIMIT_CHARGE,
     SECOND_ONLINE_CHARGE,
+    assert_escalation_notice,
     charge_extraction,
     charge_report,
     demo_session,
@@ -449,6 +451,7 @@ def test_a_typed_report_of_an_already_credited_charge_escalates_instead_of_confi
     again = _say(session, real_fixture_app_db, charge_extraction(AUTO_RESOLVE_CHARGE))
 
     assert again["state"] == CaseState.ESCALATED
+    assert_escalation_notice(again, EscalationReason.ALREADY_CREDITED, charge_named=True)
 
 
 def test_a_rejected_proposal_is_not_kept_as_the_match(real_fixture_app_db):
@@ -492,13 +495,26 @@ def test_repeating_the_same_merchant_is_not_new_information(real_fixture_app_db)
     session = demo_session(real_fixture_app_db)
     extraction = charge_extraction(merchant_hint="Taxi Seguro")
     first = _say(session, real_fixture_app_db, extraction, "un taxi")
-    states = [
-        _say(session, real_fixture_app_db, extraction, "un taxi", case_id=first["case_id"])["state"]
+    turns = [_say(session, real_fixture_app_db, extraction, "un taxi", case_id=first["case_id"]) for _ in range(3)]
+
+    # Same as saying nothing new: two rounds spent, then the third escalates.
+    assert [r["state"] for r in turns] == [CaseState.SELECTING, CaseState.SELECTING, CaseState.ESCALATED]
+    assert_escalation_notice(turns[-1], EscalationReason.CHARGE_NOT_IDENTIFIED, charge_named=False)
+
+
+def test_a_full_report_still_ambiguous_after_the_rounds_escalates_without_naming_a_charge(real_fixture_app_db):
+    # 27.000 COP around 15 June: both Taxi Seguro charges match.
+    session = demo_session(real_fixture_app_db)
+    extraction = charge_extraction(amount=27000.0, currency="COP", date="2026-06-15")
+    first = _say(session, real_fixture_app_db, extraction, "27.000 del 15 de junio")
+    assert first["state"] == CaseState.SELECTING
+    turns = [
+        _say(session, real_fixture_app_db, extraction, "27.000 del 15 de junio", case_id=first["case_id"])
         for _ in range(3)
     ]
 
-    # Same as saying nothing new: two rounds spent, then the third escalates.
-    assert states == [CaseState.SELECTING, CaseState.SELECTING, CaseState.ESCALATED]
+    assert turns[-1]["state"] == CaseState.ESCALATED
+    assert_escalation_notice(turns[-1], EscalationReason.CHARGE_NOT_IDENTIFIED, charge_named=False)
 
 
 def test_greetings_do_not_count_towards_the_turn_cap(real_fixture_app_db):
@@ -887,6 +903,7 @@ def test_two_chats_cannot_both_slip_under_the_credit_limit(real_fixture_app_db, 
     assert probe.calls >= 1 and probe.zeroed >= 1
     assert first["state"] == CaseState.RESOLVED_AUTO
     assert second["state"] == CaseState.ESCALATED
+    assert_escalation_notice(second, EscalationReason.NEEDS_REVIEW, charge_named=True)
     assert logged_events(real_fixture_app_db, "credit_limit_reached")
     assert logged_events(real_fixture_app_db, "credit_already_granted") == []
     assert len(logged_events(real_fixture_app_db, "simulated_credit")) == 1
@@ -1048,6 +1065,7 @@ def test_a_new_case_on_a_charge_already_escalated_after_an_explanation_escalates
 
     assert retry["state"] == CaseState.ESCALATED
     assert retry["case_id"] != prior["case_id"]
+    assert_escalation_notice(retry, EscalationReason.ALREADY_IN_REVIEW, charge_named=True)
     # No second explanation is asked for, and nothing internal reaches the customer.
     assert event_sequence(real_fixture_app_db, retry["case_id"]).count("explanation_requested") == 0
     assert prior["case_id"] not in retry["reply"]

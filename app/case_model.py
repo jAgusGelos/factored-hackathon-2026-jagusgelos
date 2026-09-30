@@ -94,8 +94,8 @@ class CaseEvaluation:
     # The customer's other charges that make the matched one a verifiable
     # duplicate (AD-13); they decide the credit key of a duplicate reversal.
     duplicate_twins: tuple[str, ...] = field(default_factory=tuple)
-    # Set on every ESCALATED verdict (`case_turn.finish_escalated` refuses one
-    # without it): what the escalation notice tells the customer.
+    # Set on every verdict that reaches `case_turn.finish_escalated` (it
+    # refuses one without it): what the escalation notice tells the customer.
     customer_reason: EscalationReason | None = None
 
 

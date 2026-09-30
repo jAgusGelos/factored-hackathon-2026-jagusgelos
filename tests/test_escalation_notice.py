@@ -15,7 +15,7 @@ import anthropic
 import duckdb
 import pytest
 
-from app import cases, db, explanation, handoffs, llm, replies, state_machine, turns
+from app import case_turn, cases, db, explanation, handoffs, llm, replies, state_machine, turns
 from app.case_model import (
     CaseEvaluation,
     CaseState,
@@ -58,7 +58,7 @@ _FORBIDDEN = ("fraud", "score", "umbral", "threshold", "USD", "classifier", "esc
 @pytest.mark.parametrize("reason", list(EscalationReason))
 @pytest.mark.parametrize("charge", [None, COP_CHARGE], ids=["no_charge", "charge"])
 def test_every_reason_gets_a_complete_notice_without_internal_details(reason, language, charge):
-    text, notice = replies.escalation_notice(CASE_NUMBER, reason, charge, language)
+    text, notice = replies.escalation_notice(CASE_NUMBER, reason, charge=charge, language=language)
 
     assert CASE_NUMBER in text
     assert CONTACT_DEADLINE[language] in text
@@ -81,20 +81,20 @@ def test_every_reason_gets_a_complete_notice_without_internal_details(reason, la
 
 def test_every_reason_has_a_text_in_both_languages_and_they_differ():
     for reason in EscalationReason:
-        es = replies.escalation_summary(CASE_NUMBER, reason, None, Language.ES)["reason"]
-        pt = replies.escalation_summary(CASE_NUMBER, reason, None, Language.PT)["reason"]
+        es = replies.escalation_summary(CASE_NUMBER, reason, charge=None, language=Language.ES)["reason"]
+        pt = replies.escalation_summary(CASE_NUMBER, reason, charge=None, language=Language.PT)["reason"]
         assert es and pt and es != pt
 
 
 def test_the_notice_says_the_chat_no_longer_adds_to_the_case():
-    es, _ = replies.escalation_notice(CASE_NUMBER, EscalationReason.NEEDS_REVIEW, None, Language.ES)
-    pt, _ = replies.escalation_notice(CASE_NUMBER, EscalationReason.NEEDS_REVIEW, None, Language.PT)
+    es, _ = replies.escalation_notice(CASE_NUMBER, EscalationReason.NEEDS_REVIEW, charge=None, language=Language.ES)
+    pt, _ = replies.escalation_notice(CASE_NUMBER, EscalationReason.NEEDS_REVIEW, charge=None, language=Language.PT)
     assert "Este chat ya no agrega información al caso" in es
     assert "Este chat não adiciona mais informações ao caso" in pt
 
 
 def test_a_legacy_case_without_a_reason_gets_no_reason_line():
-    notice = replies.escalation_summary(CASE_NUMBER, None, None, Language.ES)
+    notice = replies.escalation_summary(CASE_NUMBER, None, charge=None, language=Language.ES)
     assert notice["reason"] is None and notice["charge"] is None
 
 
@@ -407,7 +407,7 @@ def test_a_later_message_gets_the_escalation_in_the_current_language(session, re
 
     assert later["state"] == CaseState.ESCALATED
     assert later["escalation"] == replies.escalation_summary(
-        escalated["case_id"], EscalationReason.CHARGE_NOT_IDENTIFIED, None, language,
+        escalated["case_id"], EscalationReason.CHARGE_NOT_IDENTIFIED, charge=None, language=language,
     )
     assert escalated["case_id"] in later["reply"]
 
@@ -427,7 +427,7 @@ def test_a_lost_race_into_an_escalated_case_gets_the_escalation(session, real_fi
     assert reply["state"] == CaseState.ESCALATED
     assert reply["escalation"]["case_number"] == stale.case_id
     assert reply["escalation"]["reason"] == replies.escalation_summary(
-        stale.case_id, EscalationReason.HUMAN_REQUESTED, None, Language.PT,
+        stale.case_id, EscalationReason.HUMAN_REQUESTED, charge=None, language=Language.PT,
     )["reason"]
 
 
@@ -487,3 +487,10 @@ def test_the_escalating_turn_makes_no_response_model_call(session, real_fixture_
                 action=CustomerAction.NONE_OF_THESE)
 
     assert client.messages.create.call_count == 0
+
+
+def test_an_unknown_stored_reason_is_answered_like_a_legacy_row():
+    notice = case_turn.escalation_of(
+        _case(state=CaseState.ESCALATED, escalation_reason="renamed_reason"), Language.ES,
+    )
+    assert notice == replies.escalation_summary(CASE_NUMBER, None, charge=None, language=Language.ES)

@@ -104,8 +104,13 @@ class Turn:
         except llm.LLMUnavailable as exc:
             self.log_event("llm_unavailable", llm.failure_payload("generate_response", exc))
             return fallback
-        if register.runtime_findings(reply, self.language):
-            self.log_event("nlg_reply_replaced", {"reason": "register", "scene": str(context["case_state"])})
+        forms = register.runtime_findings(reply, self.language)
+        if forms:
+            # Closed-list words, never the customer's text: which forms to tune.
+            self.log_event(
+                "nlg_reply_replaced",
+                {"reason": "register", "scene": str(context["case_state"]), "forms": sorted(set(forms))[:5]},
+            )
             return fallback
         return reply
 
@@ -122,8 +127,13 @@ def escalation_of(case: cases.Case, language: Language) -> replies.EscalationNot
     """
     if case.state != CaseState.ESCALATED:
         return None
-    reason = EscalationReason(case.escalation_reason) if case.escalation_reason else None
-    return replies.escalation_summary(case.case_id, reason, None, language)
+    # An unknown stored code (a renamed reason) is answered like a legacy
+    # NULL row instead of failing every later message on the case.
+    reason = (
+        EscalationReason(case.escalation_reason)
+        if case.escalation_reason in EscalationReason else None
+    )
+    return replies.escalation_summary(case.case_id, reason, charge=None, language=language)
 
 
 def reply_for_lost_race(turn: Turn, attempted_state: CaseState) -> ChatReply:
@@ -137,8 +147,8 @@ def reply_for_lost_race(turn: Turn, attempted_state: CaseState) -> ChatReply:
     state, text = where_the_case_is(current, turn.language)
     if state in TERMINAL_STATES:
         return turn.reply(state, text)
-    fresh = replace(turn, case=current)
-    return turn.reply(state, text, current_options(fresh))
+    fresh = replace(turn, case=current, human_requested=False)
+    return fresh.reply(state, text, current_options(fresh))
 
 
 def where_the_case_is(case: cases.Case, language: Language) -> tuple[CaseState, str]:
@@ -179,11 +189,11 @@ def current_options(turn: Turn) -> list[ChargeOption]:
 
 
 def _escalation_reply(
-    turn: Turn, reason: EscalationReason, charge: TransactionCandidate | None,
+    turn: Turn, reason: EscalationReason, *, charge: TransactionCandidate | None,
 ) -> ChatReply:
     # A fixed template, not a model call: the case number, reason, deadline
     # and what the chat can still do are promises, so they come from code.
-    text, notice = replies.escalation_notice(turn.case.case_id, reason, charge, turn.language)
+    text, notice = replies.escalation_notice(turn.case.case_id, reason, charge=charge, language=turn.language)
     return turn.reply(CaseState.ESCALATED, text, escalation=notice)
 
 
@@ -203,7 +213,7 @@ def force_escalation(
     if lost:
         return lost
     turn.log_event("case_escalated", handoff)
-    return _escalation_reply(turn, reason, charge)
+    return _escalation_reply(turn, reason, charge=charge)
 
 
 def finish_escalated(
@@ -233,7 +243,7 @@ def finish_escalated(
     if lost:
         return lost
     turn.log_event("case_escalated", handoff)
-    return _escalation_reply(turn, reason, charge if charge is not None else matched)
+    return _escalation_reply(turn, reason, charge=charge if charge is not None else matched)
 
 
 def escalate(turn: Turn, evaluation: CaseEvaluation, *, charge: TransactionCandidate | None = None) -> ChatReply:
