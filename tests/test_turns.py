@@ -250,7 +250,7 @@ def test_an_abandoned_turn_never_answers_with_another_customers_case(model, real
     assert body["state"] == CaseState.AWAITING_REPORT
 
 
-def test_startup_purges_turns_completed_more_than_a_day_ago(real_fixture_app_db):
+def test_startup_drops_old_replies_but_keeps_a_tombstone_that_is_never_reprocessed(real_fixture_app_db):
     now = datetime.now(UTC)
     con = sqlite3.connect(str(real_fixture_app_db))
     try:
@@ -268,6 +268,9 @@ def test_startup_purges_turns_completed_more_than_a_day_ago(real_fixture_app_db)
 
     db.init_db(real_fixture_app_db)
 
-    assert app_db_rows(real_fixture_app_db, "SELECT turn_id FROM chat_turns ORDER BY turn_id") == [
-        ("pending",), ("recent",)
-    ]
+    rows = app_db_rows(
+        real_fixture_app_db,
+        "SELECT turn_id, reply_json IS NOT NULL, failed_at IS NOT NULL FROM chat_turns ORDER BY turn_id",
+    )
+    assert rows == [("old", 0, 1), ("pending", 0, 0), ("recent", 1, 0)]
+    assert turns.claim("C", "old", db_path=real_fixture_app_db).status == turns.TurnStatus.ABANDONED
