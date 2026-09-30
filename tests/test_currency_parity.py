@@ -47,7 +47,7 @@ GUESSED_CURRENCY = {Language.ES: "COP", Language.PT: "MXN"}
         ("USD 20", "USD", "USD"),
         ("cobrança de US$ 20", "USD", "USD"),
         ("cop 38.500", "COP", "COP"),
-        ("38.500 pesos colombianos", "MXN", None),  # names a different currency
+        ("38.500 pesos colombianos", "MXN", None),
         ("20 dólares", "EUR", None),  # outside the extraction's enum
         ("20 dólares", None, None),
         ("20 dólares", 7, None),

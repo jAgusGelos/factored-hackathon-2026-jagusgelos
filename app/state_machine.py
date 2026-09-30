@@ -135,7 +135,6 @@ __all__ = [
 ]
 
 _COUNTRY_CURRENCY = {"México": "MXN", "Colombia": "COP", "Argentina": "ARS"}
-# Search currency of a customer whose profile has no known country.
 DEFAULT_CURRENCY = "USD"
 
 IDENTIFIED_BY_REPORT = "Se localizó una transacción que coincide con el monto y la fecha reportados."
@@ -159,8 +158,7 @@ def evaluate_case(
     """AD-11 Rows 1-5 for a report with an amount and a date: a single
     confident match gets the screening verdict (the customer has not explained
     yet), anything else is `SELECTING` (the customer has to pick; round
-    accounting is the caller's job). `currency` is the one the customer named,
-    if any; otherwise the search uses their profile's currency.
+    accounting is the caller's job).
     """
     report = ReportedCharge(reported_amount, reported_date, currency)
     if customer_requested_human:

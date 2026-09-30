@@ -108,8 +108,6 @@ class ReportedCharge:
 
     amount: float | None
     date: date | None
-    # Only a currency the customer named (`llm.stated_currency`); the charge
-    # search falls back to their profile's, which is never recorded here.
     currency: str | None
     merchant: str | None = None
     reason: DisputeReason | None = None

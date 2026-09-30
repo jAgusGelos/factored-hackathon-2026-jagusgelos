@@ -354,10 +354,7 @@ def _parse_extraction_response(raw: str) -> ExtractedEntities:
         )
 
 
-# What makes a currency "stated" in ES or PT (matched on accent-free,
-# lowercased text). A bare "pesos" or "$" names no country, so it is not here:
-# the model guesses one from the prompt language (COP in ES, MXN in PT for
-# the same message), and the charge search filters by currency.
+# A bare "pesos" or "$" names no country, so it is deliberately not a cue.
 _CURRENCY_CUES = {
     "COP": (r"\bcop\b", r"\bcol\$", r"\bpesos? colombianos?\b"),
     "MXN": (r"\bmxn\b", r"\bmx\$", r"\bpesos? mexicanos?\b"),
@@ -372,10 +369,7 @@ def _fold(text: str) -> str:
 
 
 def stated_currency(customer_text: str, extracted: object) -> str | None:
-    """The model's currency, kept only when the customer's own words name
-    that currency; anything else is "not said" (the caller searches with the
-    customer's profile currency and never records it as reported).
-    """
+    """The model's currency, kept only when the customer's own words name it."""
     if not isinstance(extracted, str) or extracted not in _CURRENCY_CUES:
         return None
     folded = _fold(customer_text)
@@ -387,7 +381,6 @@ def extract_entities(customer_text: str, *, language: Language, today: str) -> E
     exhausted retries (the caller must force-escalate); a malformed (but
     successfully-returned) response degrades to `parse_failed=True` rather
     than raising, since that is a content problem, not an availability one.
-    The currency passes `stated_currency`, the same check in both languages.
     """
     prompt = _build_extraction_prompt(customer_text, language=language, today=today)
     raw = call_llm(prompt, system=_EXTRACTION_SYSTEM_PROMPT[language])
