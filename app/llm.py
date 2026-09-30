@@ -601,13 +601,13 @@ def _parse_assessment(raw: str) -> ExplanationAssessment | None:
             consistent=data["consistent"],
             contradictions=tuple(str(c)[:MAX_CONTRADICTION_CHARS] for c in contradictions[:5]),
             summary=str(data.get("summary") or "")[:300],
-            missing_detail=_missing_detail(data.get("missing_detail")),
+            missing_detail=_parse_missing_detail(data.get("missing_detail")),
         )
     except (json.JSONDecodeError, KeyError, TypeError, ValueError):
         return None
 
 
-def _missing_detail(value: object) -> MissingDetail | None:
+def _parse_missing_detail(value: object) -> MissingDetail | None:
     """Optional and advisory: a missing or unknown value is dropped rather
     than making the whole assessment unusable (which would escalate).
     """
