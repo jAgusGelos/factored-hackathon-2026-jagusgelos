@@ -12,16 +12,13 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 from html.parser import HTMLParser
-from pathlib import Path
 
 import pytest
 
 from app import cases, llm, register, replies
 from app.case_turn import Turn
 from app.llm import Language, PromptScene
-from tests.support import demo_session, logged_events
-
-STATIC = Path(__file__).resolve().parent.parent / "static"
+from tests.support import STATIC, chat_js_language_block, demo_session, logged_events
 
 
 def _strings(value: object) -> Iterator[str]:
@@ -44,12 +41,6 @@ def _by_language(module: object) -> dict[Language, list[tuple[str, str]]]:
         for lang, texts in value.items():
             found[Language(lang)] += [(name, text) for text in _strings(texts)]
     return found
-
-
-def _js_language_block(source: str, lang: str) -> str:
-    match = re.search(rf"^  {lang}: \{{\n(.*?)^  \}},?$", source, re.MULTILINE | re.DOTALL)
-    assert match, f"STRINGS.{lang} not found"
-    return match.group(1)
 
 
 def _js_literals(source: str) -> list[str]:
@@ -79,7 +70,7 @@ def _surfaces() -> Iterator[tuple[str, Language, str]]:
                 yield f"{module.__name__}.{name}", lang, text
     chat_js = (STATIC / "js" / "chat.js").read_text(encoding="utf-8")
     for lang in Language:
-        for text in _js_literals(_js_language_block(chat_js, lang)):
+        for text in _js_literals(chat_js_language_block(chat_js, lang)):
             yield f"chat.js STRINGS.{lang}", lang, text
     for text in _js_literals((STATIC / "js" / "login.js").read_text(encoding="utf-8")):
         yield "login.js", Language.ES, text

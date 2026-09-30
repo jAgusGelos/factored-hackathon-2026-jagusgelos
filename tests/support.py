@@ -7,6 +7,7 @@ pytest-specific bits on top, for `tests/` only.
 
 from __future__ import annotations
 
+import re
 from datetime import date
 
 import pytest
@@ -69,12 +70,23 @@ __all__ = [
     "mock_anthropic_client",
     "session_for",
     "requires_real_fixture",
+    "STATIC",
+    "chat_js_language_block",
 ]
+
+STATIC = REPO_ROOT / "static"
 
 requires_real_fixture = pytest.mark.skipif(
     not (REAL_FIXTURE_PATH.exists() and REAL_DEMO_USERS_PATH.exists()),
     reason="Requires the ETL fixture (run `python etl/extract.py && python etl/build_fixture.py` first)",
 )
+
+
+def chat_js_language_block(chat_js: str, lang: str) -> str:
+    """The body of `STRINGS.<lang>` in chat.js, up to its closing `  },` at the same indent."""
+    match = re.search(rf"^  {lang}: \{{\n(.*?)^  \}},?$", chat_js, re.MULTILINE | re.DOTALL)
+    assert match, f"STRINGS.{lang} not found in chat.js"
+    return match.group(1)
 
 
 def clean_txn(**overrides) -> TransactionCandidate:

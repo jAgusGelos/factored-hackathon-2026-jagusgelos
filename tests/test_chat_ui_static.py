@@ -12,13 +12,12 @@ from __future__ import annotations
 
 import re
 from html.parser import HTMLParser
-from pathlib import Path
 
 import pytest
 
 from app.case_model import CustomerAction
+from tests.support import STATIC, chat_js_language_block
 
-STATIC = Path(__file__).resolve().parent.parent / "static"
 CHAT_JS = (STATIC / "js" / "chat.js").read_text(encoding="utf-8")
 CHAT_HTML = (STATIC / "chat.html").read_text(encoding="utf-8")
 APP_CSS = (STATIC / "css" / "app.css").read_text(encoding="utf-8")
@@ -29,18 +28,11 @@ NEW_KEYS = (
 )
 
 
-def _language_block(lang: str) -> str:
-    # Each language block is `  <lang>: {` ... up to the closing `  },` at the same indent.
-    match = re.search(rf"^  {lang}: \{{\n(.*?)^  \}},?$", CHAT_JS, re.MULTILINE | re.DOTALL)
-    assert match, f"STRINGS.{lang} not found in chat.js"
-    return match.group(1)
-
-
 def _entries(lang: str) -> dict[str, str]:
     """Top-level keys of STRINGS.<lang> mapped to their source line(s)."""
     entries: dict[str, str] = {}
     current = None
-    for line in _language_block(lang).splitlines():
+    for line in chat_js_language_block(CHAT_JS, lang).splitlines():
         key = re.match(r"^    (\w+):", line)
         if key:
             current = key.group(1)
