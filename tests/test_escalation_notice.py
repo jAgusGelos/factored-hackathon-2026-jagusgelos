@@ -15,7 +15,7 @@ import anthropic
 import duckdb
 import pytest
 
-from app import cases, handoffs, llm, replies, state_machine, turns
+from app import cases, db, explanation, handoffs, llm, replies, state_machine, turns
 from app.case_model import (
     CaseEvaluation,
     CaseState,
@@ -29,6 +29,7 @@ from app.policy import ESCALATION_CONTACT_BUSINESS_DAYS, REASONS_REQUIRING_A_PER
 from app.state_machine import handle_message
 from tests.support import (
     AUTO_RESOLVE_CHARGE,
+    CONTACT_DEADLINE,
     CONTRADICTED_ASSESSMENT,
     DUPLICATE_ASSESSMENT,
     EXPLANATION,
@@ -59,8 +60,7 @@ def test_every_reason_gets_a_complete_notice_without_internal_details(reason, la
     text, notice = replies.escalation_notice(CASE_NUMBER, reason, charge, language)
 
     assert CASE_NUMBER in text
-    days = "días hábiles" if language == Language.ES else "dias úteis"
-    assert f"hasta {ESCALATION_CONTACT_BUSINESS_DAYS} {days}" in text or f"até {ESCALATION_CONTACT_BUSINESS_DAYS} {days}" in text
+    assert CONTACT_DEADLINE[language] in text
     assert notice["reason"] and notice["reason"] in text
     assert notice == {
         "case_number": CASE_NUMBER, "charge": notice["charge"], "reason": notice["reason"],
@@ -138,6 +138,10 @@ def test_each_single_cause_builder_sets_its_customer_reason(evaluation, reason):
     assert evaluation.customer_reason == reason
 
 
+def test_every_reason_policy_sends_to_a_person_has_a_customer_reason():
+    assert set(explanation._PERSON_REASONS) == set(REASONS_REQUIRING_A_PERSON)
+
+
 def test_the_builders_that_name_a_charge_carry_it_as_the_match():
     for evaluation in (
         handoffs.ineligible_match(REPORT, COP_CHARGE, ("x",), how_identified="y"),
@@ -194,7 +198,7 @@ def test_a_lost_compare_and_set_writes_neither_the_state_nor_the_reason(real_fix
 
 
 def _turn(session, app_db, text, case_id=None, *, extraction=None, language="es", client=None, **kwargs):
-    client = client or mock_anthropic_client(extraction or charge_extraction(), "Respuesta generada.", **kwargs.pop("mock", {}))
+    client = client or mock_anthropic_client(extraction or charge_extraction(), **kwargs.pop("mock", {}))
     with patch("app.llm.anthropic.Anthropic", return_value=client), patch.object(llm.time, "sleep"):
         return handle_message(session, case_id, text, language=language, db_path=app_db, **kwargs)
 
@@ -325,7 +329,7 @@ def test_not_in_the_list_after_a_detail_names_no_charge(session, real_fixture_ap
 @requires_real_fixture
 def test_the_turn_cap_names_no_charge(session, real_fixture_app_db):
     listed = _turn(session, real_fixture_app_db, "Ver mis últimos cargos", action=CustomerAction.SHOW_CHARGES)
-    with cases.db.app_connection(real_fixture_app_db) as con:
+    with db.app_connection(real_fixture_app_db) as con:
         con.execute("UPDATE cases SET turn_count = 99 WHERE case_id = ?", [listed["case_id"]])
         con.commit()
 

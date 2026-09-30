@@ -81,6 +81,7 @@ __all__ = [
     "STATIC",
     "chat_js_language_block",
     "assert_escalation_notice",
+    "CONTACT_DEADLINE",
 ]
 
 STATIC = REPO_ROOT / "static"
@@ -96,6 +97,13 @@ def chat_js_language_block(chat_js: str, lang: str) -> str:
     match = re.search(rf"^  {lang}: \{{\n(.*?)^  \}},?$", chat_js, re.MULTILINE | re.DOTALL)
     assert match, f"STRINGS.{lang} not found in chat.js"
     return match.group(1)
+
+
+# How the escalation notice words its contact deadline, per language.
+CONTACT_DEADLINE = {
+    Language.ES: f"{ESCALATION_CONTACT_BUSINESS_DAYS} días hábiles",
+    Language.PT: f"{ESCALATION_CONTACT_BUSINESS_DAYS} dias úteis",
+}
 
 
 def assert_escalation_notice(
@@ -114,8 +122,7 @@ def assert_escalation_notice(
     assert (escalation["charge"] is not None) == charge_named
     text = reply["reply"]
     assert reply["case_id"] in text and reason_text in text
-    days = "días hábiles" if language == Language.ES else "dias úteis"
-    assert f"{ESCALATION_CONTACT_BUSINESS_DAYS} {days}" in text
+    assert CONTACT_DEADLINE[language] in text
     assert (("El cargo es" if language == Language.ES else "A cobrança é") in text) == charge_named
     if charge_named:
         assert escalation["charge"]["merchant"] in text

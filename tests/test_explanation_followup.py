@@ -115,13 +115,13 @@ def test_missing_detail_never_changes_the_policy_decision(specific, attempts_lef
 def test_missing_detail_never_changes_the_handoff():
     base = clean_assessment(specific=False, summary="Resumen.")
     report = handoffs.ReportedCharge(amount=100.0, date=None, currency="USD", reason=DisputeReason.UNRECOGNIZED)
-    expected = handoffs.explanation_not_accepted(report, clean_txn(), "motivo", base, too_short=False,
-        customer_reason=EscalationReason.NEEDS_REVIEW,
+    expected = handoffs.explanation_not_accepted(
+        report, clean_txn(), "motivo", base, too_short=False, customer_reason=EscalationReason.NEEDS_REVIEW,
     )
     for detail in MissingDetail:
         with_detail = replace(base, missing_detail=detail)
-        got = handoffs.explanation_not_accepted(report, clean_txn(), "motivo", with_detail, too_short=False,
-            customer_reason=EscalationReason.NEEDS_REVIEW,
+        got = handoffs.explanation_not_accepted(
+            report, clean_txn(), "motivo", with_detail, too_short=False, customer_reason=EscalationReason.NEEDS_REVIEW,
         )
         assert got == expected
 

@@ -126,18 +126,17 @@ def test_the_client_actions_match_the_server_ones():
     assert set(re.findall(r'"(\w+)"', block.group(1))) == {str(a) for a in CustomerAction}
 
 
-def test_the_show_charges_starter_is_an_action_not_free_text():
-    starter = re.search(r"function starterButtons\(\) \{(.*?)^\}", CHAT_JS, re.MULTILINE | re.DOTALL)
-    assert starter and "ACTIONS.SHOW_CHARGES" in starter.group(1)
-
-
-# -- Escalation card and client panel (usability-s2 DESIGN.md, direction B) ------
-
-
 def _function_body(name: str) -> str:
     match = re.search(rf"^(?:async )?function {name}\(.*?\) \{{\n(.*?)^\}}", CHAT_JS, re.MULTILINE | re.DOTALL)
     assert match, f"function {name} not found in chat.js"
     return match.group(1)
+
+
+def test_the_show_charges_starter_is_an_action_not_free_text():
+    assert "ACTIONS.SHOW_CHARGES" in _function_body("starterButtons")
+
+
+# -- Escalation card and client panel (usability-s2 DESIGN.md, direction B) ------
 
 
 def test_the_escalation_copy_follows_the_design():
@@ -190,4 +189,3 @@ def test_the_timeline_states_are_spoken_not_only_drawn():
 def test_only_two_new_css_rules_for_the_escalation():
     assert re.search(r"^\.case-id \{[^}]*tabular-nums", APP_CSS, re.MULTILINE)
     assert re.search(r"^\.action-card__timeline \{", APP_CSS, re.MULTILINE)
-

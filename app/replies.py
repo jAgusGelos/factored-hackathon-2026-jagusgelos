@@ -349,7 +349,7 @@ def escalation_notice(
     """
     notice = escalation_summary(case_number, reason, charge, language)
     text = _ESCALATION_NOTICE[language].format(
-        charge=_ESCALATION_CHARGE[language].format(charge=charge_summary(charge, language)) if charge else "",
+        charge=_ESCALATION_CHARGE[language].format(charge=charge_summary(charge, language)) if charge is not None else "",
         reason=notice["reason"], case_number=case_number, days=notice["contact_business_days"],
     )
     return text, notice
