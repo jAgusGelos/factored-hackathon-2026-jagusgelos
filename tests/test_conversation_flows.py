@@ -643,6 +643,12 @@ def test_a_customer_with_no_charges_can_reach_a_person_after_giving_a_detail(rea
 # -- AD-13: the evidence, not the claim, decides the credit --------------------
 
 
+def _credited_amount_usd(app_db, case_id) -> float | None:
+    """The amount the credit limits count for this case (a column the app only reads in SQL)."""
+    with db.app_connection(app_db) as con:
+        return con.execute("SELECT credited_amount_usd FROM cases WHERE case_id = ?", [case_id]).fetchone()[0]
+
+
 def test_an_unrecognized_credit_is_provisional_and_blocks_the_card(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
     reply = _pick_and_explain(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
@@ -654,7 +660,7 @@ def test_an_unrecognized_credit_is_provisional_and_blocks_the_card(real_fixture_
     case = cases.get_case(reply["case_id"], db_path=real_fixture_app_db)
     assert case.dispute_reason == "unrecognized"
     assert case.credit_key == AUTO_RESOLVE_CHARGE
-    assert case.credited_amount_usd > 0
+    assert _credited_amount_usd(real_fixture_app_db, reply["case_id"]) > 0
 
 
 def test_a_card_present_charge_is_never_credited_on_the_customers_word(real_fixture_app_db):

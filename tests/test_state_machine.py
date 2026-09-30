@@ -29,6 +29,8 @@ import pytest
 from app import cases, db
 from app import transactions as txns_module
 from app.auth import Session
+from app.case_model import ReportedCharge
+from app.policy import DisputeReason
 from app.state_machine import CaseState, evaluate_case, handle_message
 from app.transactions import (
     count_own_charges_at_merchant,
@@ -319,3 +321,14 @@ def test_terminal_case_reply_uses_the_current_turns_language_not_the_stored_one(
 
     assert "REF-TEST" in reply["reply"]
     assert "resolvido" in reply["reply"]  # Portuguese wording, not the Spanish "resuelto"
+
+
+@pytest.mark.parametrize("reason", list(DisputeReason))
+def test_a_stored_dispute_reason_reads_back_as_the_same_reason(tmp_path, reason):
+    app_db = tmp_path / "app.db"
+    db.init_db(app_db)
+    case = cases.create_case("CUST-1", "es", db_path=app_db)
+    assert cases.update_case(case.case_id, state=CaseState.SELECTING, dispute_reason=reason, db_path=app_db)
+
+    stored = cases.get_case(case.case_id, db_path=app_db)
+    assert ReportedCharge.from_case(stored, "USD").reason is reason

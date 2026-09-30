@@ -69,7 +69,6 @@ class Case:
     explanation_attempts: int = 0
     # The automatic credit this case granted, if any (AD-13 exposure limits).
     credit_key: str | None = None
-    credited_amount_usd: float | None = None
     # The charges last shown to the customer to pick from; a selection is only
     # ever accepted if it is one of these (and it is re-checked as their own).
     offered_transaction_ids: tuple[str, ...] = ()
@@ -115,7 +114,6 @@ def _row_to_case(row: sqlite3.Row) -> Case:
         explanation_text=row["explanation_text"],
         explanation_attempts=row["explanation_attempts"],
         credit_key=row["credit_key"],
-        credited_amount_usd=row["credited_amount_usd"],
         offered_transaction_ids=tuple(json.loads(row["offered_transaction_ids"] or "[]")),
     )
 
@@ -173,7 +171,7 @@ def update_case(
     clarification_rounds: int | None = None,
     add_clarification_round: bool = False,
     unlock_handoff: bool = False,
-    dispute_reason: str | None = None,
+    dispute_reason: DisputeReason | None = None,
     append_explanation: str | None = None,
     add_explanation_attempt: bool = False,
     clear_fields: tuple[str, ...] = (),
@@ -198,28 +196,16 @@ def update_case(
     matched_sql = "NULL" if "matched_transaction_id" in clear_fields else "COALESCE(?, matched_transaction_id)"
     matched_params = [] if "matched_transaction_id" in clear_fields else [matched_transaction_id]
 
-    guards = ""
-    guard_params: list[object] = []
-    if expected_states is not None:
-        guards += f" AND state IN ({', '.join('?' for _ in expected_states)})"
-        guard_params += list(expected_states)
-    if expected_offered_transaction_ids is not None:
-        guards += " AND offered_transaction_ids = ?"
-        guard_params.append(json.dumps(list(expected_offered_transaction_ids)))
-    if expected_matched_transaction_id is not None:
-        guards += " AND matched_transaction_id = ?"
-        guard_params.append(expected_matched_transaction_id)
+    guards, guard_params = _expectation_guards(
+        expected_states, expected_offered_transaction_ids, expected_matched_transaction_id,
+    )
     now = datetime.now(UTC)
     credit_params: list[object] = [None, None, None]
     if credit is not None:
         credit_params = [credit.key, credit.amount_usd, now.isoformat()]
-        granted = _granted_since("cases.customer_id")
-        since = _credit_window_start(now)
-        guards += f" AND (SELECT {_CREDITED_USD} {granted}) + ? <= ?"
-        guard_params += [MAX_AUTO_CREDIT_TOTAL_USD, since, credit.amount_usd, MAX_AUTO_CREDIT_TOTAL_USD]
-        if credit.reason == DisputeReason.UNRECOGNIZED:
-            guards += f" AND (SELECT {_UNRECOGNIZED_CREDITS} {granted}) < ?"
-            guard_params += [DisputeReason.UNRECOGNIZED, since, MAX_UNRECOGNIZED_AUTO_CREDITS]
+        limit_guards, limit_params = _credit_limit_guards(credit, now)
+        guards += limit_guards
+        guard_params += limit_params
 
     try:
         with db.app_connection(db_path) as con:
@@ -262,6 +248,38 @@ def update_case(
     except sqlite3.IntegrityError as exc:
         raise DuplicateCreditError(f"Case {case_id}: transaction already credited") from exc
     return cursor.rowcount == 1
+
+
+def _expectation_guards(
+    expected_states: tuple[str, ...] | None,
+    expected_offered_transaction_ids: tuple[str, ...] | None,
+    expected_matched_transaction_id: str | None,
+) -> tuple[str, list[object]]:
+    """The compare-and-set part of update_case's WHERE clause, and its parameters."""
+    guards = ""
+    params: list[object] = []
+    if expected_states is not None:
+        guards += f" AND state IN ({', '.join('?' for _ in expected_states)})"
+        params += list(expected_states)
+    if expected_offered_transaction_ids is not None:
+        guards += " AND offered_transaction_ids = ?"
+        params.append(json.dumps(list(expected_offered_transaction_ids)))
+    if expected_matched_transaction_id is not None:
+        guards += " AND matched_transaction_id = ?"
+        params.append(expected_matched_transaction_id)
+    return guards, params
+
+
+def _credit_limit_guards(credit: CreditGrant, now: datetime) -> tuple[str, list[object]]:
+    """The AD-13 exposure limits, checked inside the same UPDATE that claims the credit."""
+    granted = _granted_since("cases.customer_id")
+    since = _credit_window_start(now)
+    guards = f" AND (SELECT {_CREDITED_USD} {granted}) + ? <= ?"
+    params: list[object] = [MAX_AUTO_CREDIT_TOTAL_USD, since, credit.amount_usd, MAX_AUTO_CREDIT_TOTAL_USD]
+    if credit.reason == DisputeReason.UNRECOGNIZED:
+        guards += f" AND (SELECT {_UNRECOGNIZED_CREDITS} {granted}) < ?"
+        params += [DisputeReason.UNRECOGNIZED, since, MAX_UNRECOGNIZED_AUTO_CREDITS]
+    return guards, params
 
 
 # The credits one customer was granted since a timestamp, for both the policy

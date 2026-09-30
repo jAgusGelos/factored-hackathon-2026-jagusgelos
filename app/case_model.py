@@ -12,6 +12,7 @@ from datetime import date
 from enum import StrEnum
 
 from app import cases
+from app.policy import DisputeReason
 from app.transactions import TransactionCandidate
 
 
@@ -84,7 +85,7 @@ class ReportedCharge:
     date: date | None
     currency: str
     merchant: str | None = None
-    reason: str | None = None
+    reason: DisputeReason | None = None
 
     @classmethod
     def from_case(cls, case: cases.Case, default_currency: str) -> ReportedCharge:
@@ -93,7 +94,7 @@ class ReportedCharge:
             date=date.fromisoformat(case.reported_date) if case.reported_date else None,
             currency=case.reported_currency or default_currency,
             merchant=case.reported_merchant,
-            reason=case.dispute_reason,
+            reason=DisputeReason(case.dispute_reason) if case.dispute_reason else None,
         )
 
     @property
