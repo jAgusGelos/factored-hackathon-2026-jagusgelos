@@ -189,6 +189,12 @@ class ExplanationDecision:
                 f"{self.escalation_reason!r} on {self.verdict.name}"
             )
 
+    @property
+    def reason_to_escalate(self) -> str:
+        if self.escalation_reason is None:
+            raise ValueError(f"ExplanationDecision: {self.verdict} carries no escalation reason")
+        return self.escalation_reason
+
     @classmethod
     def accept(cls) -> ExplanationDecision:
         return cls(ExplanationVerdict.ACCEPT)

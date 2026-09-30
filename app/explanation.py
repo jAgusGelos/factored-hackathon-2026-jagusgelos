@@ -137,13 +137,11 @@ def handle_explanation(turn: Turn, text: str, *, policy_verdict: PolicyVerdict) 
 
     if decision.verdict == ExplanationVerdict.NEEDS_DETAIL:
         return _ask_for_more_detail(turn, text)
-    # Only an ESCALATE carries a reason (ExplanationDecision enforces it), so
-    # this is the ESCALATE branch with the reason narrowed to str.
-    if decision.escalation_reason is not None:
+    if decision.verdict == ExplanationVerdict.ESCALATE:
         return finish_escalated(
             turn,
             handoffs.explanation_not_accepted(
-                report, matched, decision.escalation_reason, assessment, too_short=too_short,
+                report, matched, decision.reason_to_escalate, assessment, too_short=too_short,
             ),
             report,
         )

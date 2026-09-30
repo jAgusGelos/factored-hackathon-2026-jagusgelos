@@ -21,7 +21,7 @@ LAYERS = ("app.case_turn", "app.credit", "app.explanation", "app.state_machine",
 @pytest.mark.parametrize("order", [LAYERS, tuple(reversed(LAYERS))], ids=["bottom_up", "top_down"])
 def test_the_conversation_modules_import_in_any_order(order):
     code = "; ".join(f"import {module}" for module in order)
-    result = subprocess.run([sys.executable, "-c", code], cwd=REPO_ROOT, capture_output=True, text=True)
+    result = subprocess.run([sys.executable, "-c", code], cwd=REPO_ROOT, capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
 
 

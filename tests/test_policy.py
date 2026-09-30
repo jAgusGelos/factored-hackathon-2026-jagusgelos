@@ -251,6 +251,8 @@ def test_an_escalation_always_carries_its_reason(reason):
 def test_only_an_escalation_carries_a_reason(verdict):
     with pytest.raises(ValueError):
         ExplanationDecision(verdict, "why")
+    with pytest.raises(ValueError):
+        _ = ExplanationDecision(verdict).reason_to_escalate
 
 
 # -- One set of automatically creditable reasons ----------------------------------------
