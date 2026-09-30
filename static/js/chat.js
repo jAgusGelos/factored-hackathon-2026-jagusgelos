@@ -688,8 +688,12 @@ function chargeLabel(opt) {
   return `${opt.merchant || t("unknownMerchant")} · ${formatAmount(opt.amount, opt.currency)} · ${formatDay(opt.date)}`;
 }
 
+function categoryLabel(category) {
+  return t("categories")[category] || String(category);
+}
+
 function chargeMeta(opt) {
-  const category = opt.category ? t("categories")[opt.category] || opt.category : null;
+  const category = opt.category ? categoryLabel(opt.category) : null;
   return category ? `${formatDay(opt.date)} · ${category}` : formatDay(opt.date);
 }
 
@@ -924,27 +928,46 @@ function factLabel(key) {
   return t("handoffFields")[key] || humanizeKey(key);
 }
 
+const AMOUNT_FACTS = new Set(["amount", "reported_amount"]);
+const DATE_FACTS = new Set(["date", "reported_date"]);
 const CODED_FACTS = new Set([
   "dispute_reason", "customer_confirmation", "charge_confirmed", "explanation_specific", "explanation_consistent",
 ]);
 
 function factValue(key, value, facts) {
-  if (key === "amount" || key === "reported_amount") return formatAmount(Number(value), facts.currency);
-  if (key === "date" || key === "reported_date") return formatDay(value);
-  if (key === "category") return t("categories")[value] || String(value);
+  if (AMOUNT_FACTS.has(key)) return formatAmount(Number(value), facts.currency);
+  if (DATE_FACTS.has(key)) return formatDay(value);
+  if (key === "category") return categoryLabel(value);
   if (CODED_FACTS.has(key)) return t("handoffValues")[value] || String(value);
   return String(value);
 }
 
+function hasAmount(facts) {
+  return Object.keys(facts).some((key) => AMOUNT_FACTS.has(key));
+}
+
+function isShownFact(facts) {
+  const currencyInAmount = hasAmount(facts);
+  return ([key]) => !(key === "currency" && currencyInAmount);
+}
+
 function factListHtml(facts) {
-  const shown = Object.entries(facts).filter(([key]) => !(key === "currency" && "amount" in facts));
-  const rows = shown.map(([key, value]) => `<div><dt>${escapeHtml(factLabel(key))}</dt><dd>${escapeHtml(factValue(key, value, facts))}</dd></div>`);
+  const rows = Object.entries(facts).filter(isShownFact(facts)).map(factRowHtml(facts));
   return `<dl class="fact-list">${rows.join("")}</dl>`;
+}
+
+function factRowHtml(facts) {
+  return ([key, value]) => `<div><dt>${escapeHtml(factLabel(key))}</dt><dd>${escapeHtml(factValue(key, value, facts))}</dd></div>`;
 }
 
 function handoffSectionHtml(label, body, tag = null) {
   const tagHtml = tag ? ` <span class="verify-tag verify-tag--${tag.kind}">${escapeHtml(tag.text)}</span>` : "";
   return `<div class="handoff-card__section"><div class="label">${escapeHtml(label)}${tagHtml}</div>${body}</div>`;
+}
+
+function listSectionHtml(labelKey, items, listClass = "") {
+  const classAttr = listClass ? ` class="${listClass}"` : "";
+  return handoffSectionHtml(t(labelKey), `<ul${classAttr}>${listItemsHtml(items)}</ul>`);
 }
 
 function hasEntries(obj) {
@@ -963,9 +986,9 @@ function handoffSections(handoff) {
   // A handoff stored before verified and reported values had their own fields.
   if (hasEntries(handoff.facts)) sections.push(handoffSectionHtml(t("handoffLegacyFacts"), factListHtml(handoff.facts)));
   if (handoff.policy_reason_count) sections.push(handoffSectionHtml(t("handoffPolicy"), `<p>${escapeHtml(t("handoffPolicyCount", handoff.policy_reason_count))}</p>`));
-  if (handoff.actions_taken?.length) sections.push(handoffSectionHtml(t("handoffActions"), `<ul class="action-log">${listItemsHtml(handoff.actions_taken)}</ul>`));
-  if (handoff.evidence?.length) sections.push(handoffSectionHtml(t("handoffEvidence"), `<ul>${listItemsHtml(handoff.evidence)}</ul>`));
-  if (handoff.open_questions?.length) sections.push(handoffSectionHtml(t("handoffQuestions"), `<ul class="checklist">${listItemsHtml(handoff.open_questions)}</ul>`));
+  if (handoff.actions_taken?.length) sections.push(listSectionHtml("handoffActions", handoff.actions_taken, "action-log"));
+  if (handoff.evidence?.length) sections.push(listSectionHtml("handoffEvidence", handoff.evidence));
+  if (handoff.open_questions?.length) sections.push(listSectionHtml("handoffQuestions", handoff.open_questions, "checklist"));
   return sections.join("");
 }
 
