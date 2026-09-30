@@ -20,11 +20,11 @@ from app.transactions import TransactionCandidate
 
 WELCOME = {
     Language.ES: (
-        "Hola, soy el asistente de disputas de LATAM Bank. Te ayudo con cargos que no reconocés: "
-        "te muestro tus últimos movimientos para que elijas el cargo, lo reviso contra la política "
-        "del banco y, si corresponde, te aplico un crédito provisional en el momento. Si necesita "
-        "más revisión, lo paso a una persona del equipo con todo el resumen.\n\n"
-        "Contame qué cargo querés revisar (monto, fecha o comercio, lo que recuerdes) o tocá una opción."
+        "Hola, soy el asistente de disputas de LATAM Bank. Le ayudo con cargos que no reconoce: "
+        "le muestro sus últimos movimientos para que elija el cargo, lo reviso según la política "
+        "del banco y, si corresponde, le aplico un crédito provisional en el momento. Si el caso "
+        "necesita más revisión, lo derivo a una persona del equipo con todo el resumen.\n\n"
+        "Cuénteme qué cargo quiere revisar (monto, fecha o comercio, lo que recuerde) o toque una opción."
     ),
     Language.PT: (
         "Olá, sou o assistente de contestações do LATAM Bank. Ajudo com cobranças que você não "
@@ -38,8 +38,8 @@ WELCOME = {
 
 OUT_OF_SCOPE = {
     Language.ES: (
-        "Por este canal solo puedo ayudarte con cargos que no reconocés. Si querés, contame qué "
-        "cargo te llamó la atención o te muestro tus últimos movimientos."
+        "Por este canal solo puedo ayudarle con cargos que no reconoce. Si lo desea, cuénteme qué "
+        "cargo le llamó la atención o le muestro sus últimos movimientos."
     ),
     Language.PT: (
         "Por este canal só posso ajudar com cobranças que você não reconhece. Se quiser, me conte "
@@ -49,20 +49,20 @@ OUT_OF_SCOPE = {
 
 ASK_FOR_DETAILS = {
     Language.ES: (
-        "Para ayudarte necesito el monto exacto y la fecha aproximada del cargo que no "
-        "reconocés. ¿Me los podés compartir?"
+        "Para ayudarle necesito el monto exacto y la fecha aproximada del cargo que no "
+        "reconoce. ¿Me los puede indicar?"
     ),
     Language.PT: (
-        "Para te ajudar preciso do valor exato e da data aproximada da cobrança que você não "
+        "Para ajudar, preciso do valor exato e da data aproximada da cobrança que você não "
         "reconhece. Pode me informar?"
     ),
 }
 
 CHARGE_LIST = {
     Language.ES: {
-        ListFilter.RECENT: "Te muestro abajo tus últimos cargos. Tocá el que no reconocés, o “No está en la lista” si no aparece.",
-        ListFilter.FILTERED: "Te muestro abajo los cargos que coinciden con lo que me contaste. Tocá el que no reconocés, o “No está en la lista” si no aparece.",
-        ListFilter.FALLBACK_RECENT: "No encontré cargos que coincidan con eso, así que te muestro abajo tus últimos cargos. Tocá el que no reconocés, o “No está en la lista” si no aparece.",
+        ListFilter.RECENT: "Abajo tiene sus últimos cargos. Toque el que no reconoce, o “No está en la lista” si no aparece.",
+        ListFilter.FILTERED: "Abajo tiene los cargos que coinciden con lo que me contó. Toque el que no reconoce, o “No está en la lista” si no aparece.",
+        ListFilter.FALLBACK_RECENT: "No encontré cargos que coincidan con eso, así que abajo tiene sus últimos cargos. Toque el que no reconoce, o “No está en la lista” si no aparece.",
     },
     Language.PT: {
         ListFilter.RECENT: "Mostro abaixo suas últimas cobranças. Toque na que você não reconhece, ou em “Não está na lista” se ela não aparecer.",
@@ -72,7 +72,7 @@ CHARGE_LIST = {
 }
 
 SELECTION_UNAVAILABLE = {
-    Language.ES: "Esa opción ya no está disponible. Elegí uno de los cargos de la lista de abajo.",
+    Language.ES: "Esa opción ya no está disponible. Elija uno de los cargos de la lista de abajo.",
     Language.PT: "Essa opção não está mais disponível. Escolha uma das cobranças da lista abaixo.",
 }
 
@@ -85,32 +85,30 @@ ACTION_UNAVAILABLE = {
 
 HUMAN_DEFERRED = {
     Language.ES: (
-        "Antes de pasarte con una persona dejame intentar resolverlo yo, que suele ser mucho más "
-        "rápido. Tocá el cargo que no reconocés o contame monto, fecha o comercio; si no lo "
-        "encuentro, te paso con alguien del equipo."
+        "Antes de derivarlo, intentemos ubicar el cargo, que suele ser mucho más rápido: toque el "
+        "cargo que no reconoce o indíqueme monto, fecha o comercio."
     ),
     Language.PT: (
-        "Antes de passar para uma pessoa, deixa eu tentar resolver, que costuma ser bem mais rápido. "
-        "Toque na cobrança que você não reconhece ou me conte valor, data ou comerciante; se eu não "
-        "encontrar, passo para alguém da equipe."
+        "Antes de encaminhar, vamos tentar localizar a cobrança, o que costuma ser bem mais rápido: "
+        "toque na cobrança que você não reconhece ou informe valor, data ou comerciante."
     ),
 }
 
 HUMAN_DEFERRED_WHILE_CONFIRMING = {
     Language.ES: (
-        "Antes de pasarte con una persona dejame cerrarlo yo, que es más rápido: ¿es ese el cargo "
-        "que no reconocés? Si no es, decime que no y lo buscamos."
+        "Antes de derivarlo, confirmemos el cargo, que es más rápido: ¿es ese el cargo que no "
+        "reconoce? Si no es, indíquelo y lo buscamos."
     ),
     Language.PT: (
-        "Antes de passar para uma pessoa, deixa eu resolver, que é mais rápido: é essa a cobrança "
-        "que você não reconhece? Se não for, diga que não e a gente procura."
+        "Antes de encaminhar, vamos confirmar a cobrança, o que é mais rápido: é essa a cobrança "
+        "que você não reconhece? Se não for, diga que não e procuramos outra."
     ),
 }
 
 ASK_FOR_EXPLANATION = {
     Language.ES: (
-        "Ya ubiqué el cargo: {charge}. Contame con tus palabras qué pasó: cómo te diste cuenta, si "
-        "reconocés el comercio, si tenés la tarjeta, si pagaste algo y no lo recibiste. Con eso "
+        "Ya ubiqué el cargo: {charge}. Cuénteme con sus palabras qué pasó: cómo se dio cuenta, si "
+        "reconoce el comercio, si tiene la tarjeta, si pagó algo y no lo recibió. Con eso "
         "decido si puedo reintegrarlo ahora."
     ),
     Language.PT: (
@@ -151,29 +149,29 @@ _EXPLANATION_FOLLOWUP = {
 
 HUMAN_DEFERRED_WHILE_EXPLAINING = {
     Language.ES: (
-        "Antes de pasarte con una persona dejame intentar resolverlo, que es más rápido: contame "
-        "qué pasó con ese cargo y lo reviso ahora mismo."
+        "Antes de derivarlo, intentemos resolverlo, que es más rápido: cuénteme qué pasó con ese "
+        "cargo y lo reviso ahora mismo."
     ),
     Language.PT: (
-        "Antes de passar para uma pessoa, deixa eu tentar resolver, que é mais rápido: me conte o "
-        "que aconteceu com essa cobrança e eu reviso agora mesmo."
+        "Antes de encaminhar, vamos tentar resolver, o que é mais rápido: conte o que aconteceu "
+        "com essa cobrança e eu reviso agora mesmo."
     ),
 }
 
 ASK_FOR_ONE_DETAIL = {
-    Language.ES: "Contame un dato más del cargo (monto aproximado, fecha o comercio) y lo busco.",
-    Language.PT: "Me conte mais um dado da cobrança (valor aproximado, data ou comerciante) e eu procuro.",
+    Language.ES: "Indíqueme un dato más del cargo (monto aproximado, fecha o comercio) y lo busco.",
+    Language.PT: "Informe mais um dado da cobrança (valor aproximado, data ou comerciante) e eu procuro.",
 }
 
 CASE_MOVED_ON = {
-    Language.ES: "Tu caso cambió mientras te respondía (quizás desde otra pestaña). Seguimos desde acá.",
+    Language.ES: "Su caso cambió mientras le respondía (quizás desde otra pestaña). Seguimos desde aquí.",
     Language.PT: "Seu caso mudou enquanto eu respondia (talvez em outra aba). Seguimos daqui.",
 }
 
 ESCALATED = {
     Language.ES: (
-        "Le paso tu caso a una persona del equipo de disputas, con todo lo que revisamos hasta "
-        "acá. Se va a contactar con vos para seguir."
+        "Derivé su caso a una persona del equipo de disputas, con todo lo que revisamos hasta "
+        "aquí. Le contactará para continuar."
     ),
     Language.PT: (
         "Vou passar seu caso para uma pessoa da equipe de disputas, com tudo o que revisamos até "
@@ -184,12 +182,12 @@ ESCALATED = {
 _RESOLVED = {
     Language.ES: {
         DisputeReason.UNRECOGNIZED: (
-            "Listo: te aplicamos un crédito provisional por ese cargo. Por seguridad bloqueamos tu "
-            "tarjeta. El equipo revisa el caso y, si el cargo resultara tuyo, el crédito se revierte. "
-            "Tu número de referencia es {reference}."
+            "Listo: le aplicamos un crédito provisional por ese cargo. Por seguridad bloqueamos su "
+            "tarjeta. El equipo revisa el caso y, si el cargo resultara suyo, el crédito se revierte. "
+            "Su número de referencia es {reference}."
         ),
         DisputeReason.DUPLICATE: (
-            "Listo: confirmamos que el cargo estaba duplicado y te devolvimos uno de los dos. Tu "
+            "Listo: confirmamos que el cargo estaba duplicado y le devolvimos uno de los dos. Su "
             "número de referencia es {reference}."
         ),
     },
@@ -208,8 +206,8 @@ _RESOLVED = {
 
 _CONFIRMATION_QUESTION = {
     Language.ES: (
-        "Encontré este cargo: {amount} en {merchant} el {date}. ¿Es ese el que no reconocés? Si "
-        "me confirmás, avanzo con tu caso."
+        "Encontré este cargo: {amount} en {merchant} el {date}. ¿Es ese el que no reconoce? Si "
+        "me lo confirma, avanzo con su caso."
     ),
     Language.PT: (
         "Encontrei esta cobrança: {amount} em {merchant} no dia {date}. É essa a que você não "
@@ -224,8 +222,8 @@ _UNKNOWN_MERCHANT = {
 
 _TERMINAL = {
     Language.ES: {
-        CaseState.RESOLVED_AUTO: "Tu caso ya fue resuelto (referencia {reference}).",
-        CaseState.ESCALATED: "Tu caso ya fue derivado a un agente humano; te van a contactar a la brevedad.",
+        CaseState.RESOLVED_AUTO: "Su caso ya fue resuelto (referencia {reference}).",
+        CaseState.ESCALATED: "Su caso ya fue derivado a una persona del equipo, que le contactará.",
     },
     Language.PT: {
         CaseState.RESOLVED_AUTO: "Seu caso já foi resolvido (referência {reference}).",

@@ -133,13 +133,6 @@ def test_every_follow_up_fallback_exists_and_asks_one_question(language, detail)
         assert text.count("?") == 1
 
 
-@pytest.mark.parametrize("detail", [None, *MissingDetail])
-def test_the_spanish_follow_up_fallbacks_do_not_use_voseo(detail):
-    text = replies.explanation_followup(detail, Language.ES).lower()
-    for voseo in ("tenés", "podés", "querés", "contame", "decime", "te diste", "con vos", "recibiste", "pagaste"):
-        assert voseo not in text
-
-
 def test_the_follow_up_instruction_forbids_asking_again_for_what_was_said():
     for language in Language:
         instruction = llm._STATE_INSTRUCTION[language][PromptScene.EXPLANATION_FOLLOWUP]

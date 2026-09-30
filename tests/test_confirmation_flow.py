@@ -113,7 +113,7 @@ def test_model_reply_that_names_the_facts_is_kept(real_fixture_app_db):
         con.close()
     nlg = (
         f"Veo un cargo de {case.reported_amount:,.2f} en {merchant} el {case.reported_date}. "
-        "¿Es ese el que no reconocés?"
+        "¿Es ese el que no reconoce?"
     )
 
     session2 = demo_session(real_fixture_app_db)

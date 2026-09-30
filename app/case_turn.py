@@ -13,7 +13,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TypedDict
 
-from app import cases, handoffs, llm, replies
+from app import cases, handoffs, llm, register, replies
 from app.auth import Session
 from app.case_model import (
     NON_TERMINAL_STATES,
@@ -78,10 +78,16 @@ class Turn:
             self.log_event("nlg_skipped_for_menu", {"scene": str(context["case_state"])})
             return fallback
         try:
-            return llm.generate_response(context, language=self.language)
+            reply = llm.generate_response(context, language=self.language)
         except llm.LLMUnavailable as exc:
             self.log_event("llm_unavailable", llm.failure_payload("generate_response", exc))
             return fallback
+        if register.runtime_findings(reply, self.language):
+            # Voseo or slang despite the prompt (usability-s2 AD-2): the
+            # step's template says the same in the right register.
+            self.log_event("nlg_reply_replaced", {"reason": "register", "scene": str(context["case_state"])})
+            return fallback
+        return reply
 
 
 def human_handoff_available(case: cases.Case) -> bool:

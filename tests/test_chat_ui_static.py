@@ -1,7 +1,8 @@
 """Static checks on the chat UI (usability-s1 DESIGN.md, AD-1/AD-7).
 
 Reads `static/` as text: every string added for the wait indicator, retry and
-new-claim flow exists in ES and PT without voseo, the wait is announced by a
+new-claim flow exists in ES and PT (their register is swept by
+`tests/test_register.py`), the wait is announced by a
 `role=status` region outside the chat log, the case panel is no longer a live
 region, the typing dots stop moving under `prefers-reduced-motion`, and the
 buttons send the server's `CustomerAction` values (AD-9).
@@ -26,7 +27,6 @@ NEW_KEYS = (
     "waitGeneric", "waitSearching", "waitConfirming", "waitExplanation", "waitSlow",
     "turnError", "retry", "quickNewClaim", "claimResolved", "claimEscalated", "claimDivider",
 )
-VOSEO = ("tenés", "podés", "querés", "escribí", "contame", "decime", "mirá", "elegí")
 
 
 def _language_block(lang: str) -> str:
@@ -58,14 +58,6 @@ def test_every_new_string_exists_in_both_languages(lang):
 
 def test_es_and_pt_define_the_same_keys():
     assert set(_entries("es")) == set(_entries("pt"))
-
-
-@pytest.mark.parametrize("lang", ["es", "pt"])
-def test_new_strings_have_no_voseo(lang):
-    entries = _entries(lang)
-    for key in NEW_KEYS:
-        text = entries[key].lower()
-        assert not [word for word in VOSEO if re.search(rf"\b{word}\b", text)], key
 
 
 def test_new_strings_follow_the_design_copy():

@@ -60,6 +60,13 @@ entities from free text and phrases the (code-decided) outcome in natural langua
 `.workspace/features/dispute-agent/plan.md` (Architecture Decisions AD-1 through AD-11) for the
 full rationale, alternatives considered, and the three-experts/Codex adversarial review record.
 
+**Register.** The demo customer is Colombian, so every Spanish text addresses them as "usted", in
+neutral, professional Latin American Spanish (Portuguese uses "você" without slang): the fixed
+replies, the UI and login strings, and the prompts the model reads. `app/register.py` holds closed
+lists of voseo, tuteo and colloquial forms; `tests/test_register.py` sweeps every customer-facing
+text with them, and every model reply is checked at runtime: one with voseo or slang ("mirá",
+"contame", "dale") is replaced by that step's template and logged as `nlg_reply_replaced`.
+
 ## Dispute policy: the evidence decides, not the claim (AD-13)
 
 An agent that credits money because a customer says "no lo reconozco" is a refund button. The
@@ -120,7 +127,7 @@ uvicorn app.main:app --reload --port 8000
 # data/demo_users.json after step 2)
 
 # 5. Tests, lint, eval harness
-pytest                              # 450 tests
+pytest                              # 458 tests
 ruff check .
 python -m eval.run_eval             # -> data/eval_report.json (see "Evaluation results" below)
 ```
@@ -270,7 +277,7 @@ app/            FastAPI backend — auth, state machine, policy, LLM boundary, c
 etl/            Offline ETL: extraction, quality checks, fixture generation, classifier training
 eval/           Eval harness (Milestone 5)
 static/         Frontend (vanilla HTML/CSS/JS, no build step — AD-1)
-tests/          pytest suite (450 tests)
+tests/          pytest suite (458 tests)
 support.py      Shared test/eval mock helpers (no pytest dependency — used by eval/ too)
 docs/           Challenge requirements digest
 data/           Local ETL artifacts, fixture, trained model (gitignored — never commit raw data)

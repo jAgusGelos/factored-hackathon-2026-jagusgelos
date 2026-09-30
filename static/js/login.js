@@ -19,7 +19,7 @@ form.addEventListener("submit", async (event) => {
       body: JSON.stringify({ username, password }),
     });
   } catch {
-    errorEl.textContent = "No se pudo conectar con el servidor. Intentá de nuevo.";
+    errorEl.textContent = "No se pudo conectar con el servidor. Intente de nuevo.";
     return;
   } finally {
     submitBtn.disabled = false;
@@ -28,7 +28,7 @@ form.addEventListener("submit", async (event) => {
   if (response.status === 429) {
     const seconds = parseInt(response.headers.get("Retry-After") || "0", 10);
     const wait = seconds >= 60 ? `${Math.ceil(seconds / 60)} min` : `${Math.max(seconds, 1)} s`;
-    errorEl.textContent = `Demasiados intentos fallidos. Esperá ${wait} e intentá de nuevo.`;
+    errorEl.textContent = `Demasiados intentos fallidos. Espere ${wait} e intente de nuevo.`;
     return;
   }
   if (!response.ok) {
