@@ -21,12 +21,12 @@ from app.case_model import (
     ReportedCharge,
 )
 from app.charge_search import iso_day
+from app.llm import ConfirmationAnswer
 from app.policy import MATCH_DATE_TOLERANCE_DAYS, MAX_CASE_TURNS, ExplanationAssessment
 from app.replies import format_amount
 from app.transactions import TransactionCandidate
 
 CUSTOMER_MESSAGE_OMITTED = "[omitido, ver mensajes del caso]"
-
 
 
 class ChargeIdentification(StrEnum):
@@ -38,6 +38,12 @@ class ChargeIdentification(StrEnum):
 
 
 _IDENTIFIED_WITHOUT_THE_CUSTOMER = frozenset({ChargeIdentification.REPORT, ChargeIdentification.MERCHANT})
+
+
+def _confirmed_by_customer(how_identified: ChargeIdentification) -> bool:
+    return how_identified not in _IDENTIFIED_WITHOUT_THE_CUSTOMER
+
+
 POLICY_REVIEW_QUESTION = "¿Corresponde un reintegro después de revisar los motivos de política?"
 EXPLANATION_REVIEW_QUESTION = (
     "¿Qué pasó con este cargo? Leer la explicación del cliente en los mensajes del caso y decidir "
@@ -168,17 +174,20 @@ def ineligible_match(
 ) -> CaseEvaluation:
     return _escalation(
         report, f"{how_identified} El cargo no cumple las condiciones de auto-resolución.",
-        charge=matched, charge_confirmed=how_identified not in _IDENTIFIED_WITHOUT_THE_CUSTOMER,
+        charge=matched, charge_confirmed=_confirmed_by_customer(how_identified),
         policy_reasons=reasons, evidence=(matched.transaction_id,),
         open_questions=(POLICY_REVIEW_QUESTION,), matched=matched, candidates=(matched,),
         customer_reason=EscalationReason.NEEDS_REVIEW,
     )
 
 
-def already_credited(report: ReportedCharge, matched: TransactionCandidate, credited_case_id: str) -> CaseEvaluation:
+def already_credited(
+    report: ReportedCharge, matched: TransactionCandidate, credited_case_id: str,
+    *, how_identified: ChargeIdentification,
+) -> CaseEvaluation:
     return _escalation(
         report, f"El cargo ya tuvo un crédito provisional en el caso {credited_case_id}; no se acredita dos veces.",
-        charge=matched, charge_confirmed=None, system_facts={"credited_in_case": credited_case_id},
+        charge=matched, charge_confirmed=_confirmed_by_customer(how_identified), system_facts={"credited_in_case": credited_case_id},
         evidence=(matched.transaction_id,),
         open_questions=("El cliente vuelve a disputar un cargo ya acreditado: revisar el caso anterior.",),
         matched=matched, customer_reason=EscalationReason.ALREADY_CREDITED,
@@ -187,6 +196,7 @@ def already_credited(report: ReportedCharge, matched: TransactionCandidate, cred
 
 def prior_escalation_same_charge(
     report: ReportedCharge, matched: TransactionCandidate, prior_case_id: str,
+    *, how_identified: ChargeIdentification,
 ) -> CaseEvaluation:
     """The customer already explained this charge in another case (one a
     person now has, or one still open asking for more detail): a new case on
@@ -196,7 +206,8 @@ def prior_escalation_same_charge(
         report,
         f"La explicación del cliente sobre este cargo ya se evaluó en el caso {prior_case_id} (derivado a "
         "una persona o todavía abierto pidiendo más detalle); no se vuelve a pedir otra explicación.",
-        charge=matched, charge_confirmed=None, system_facts={"prior_case": prior_case_id},
+        charge=matched, charge_confirmed=_confirmed_by_customer(how_identified),
+        system_facts={"prior_case": prior_case_id},
         evidence=(matched.transaction_id,),
         open_questions=(
             f"El cliente abrió otro reclamo por el mismo cargo: revisarlo junto con el caso {prior_case_id}.",
@@ -280,25 +291,42 @@ def turn_limit(report: ReportedCharge, case: cases.Case) -> CaseEvaluation:
 
 
 def confirmation_outcome(
-    report: ReportedCharge, case: cases.Case, *, customer_confirmation: str, action: str, open_question: str,
+    report: ReportedCharge, case: cases.Case, *, customer_confirmation: ConfirmationAnswer, action: str,
+    open_question: str,
     customer_reason: EscalationReason, charge: TransactionCandidate | None = None,
     policy_reasons: tuple[str, ...] = (),
 ) -> CaseEvaluation:
     return _escalation(
-        report, action, charge=charge, charge_confirmed=customer_confirmation == "yes",
-        reported_extra={"customer_confirmation": customer_confirmation}, policy_reasons=policy_reasons,
+        report, action, charge=charge, charge_confirmed=customer_confirmation == ConfirmationAnswer.YES,
+        reported_extra={"customer_confirmation": str(customer_confirmation)}, policy_reasons=policy_reasons,
         evidence=(case.matched_transaction_id,) if case.matched_transaction_id else (),
         open_questions=(open_question,), customer_reason=customer_reason,
     )
 
 
-def service_failure(action: str, charge: TransactionCandidate | None = None) -> HandoffRecord:
-    return HandoffRecord(
-        request_summary=request_summary(EscalationReason.SERVICE_ISSUE, charge, confirmed=True),
-        verified_facts=_verified_charge(charge, confirmed=True),
-        customer_reported={"customer_message": CUSTOMER_MESSAGE_OMITTED},
-        policy_reasons=(),
-        actions_taken=(action,),
-        evidence=_charge_evidence(charge),
-        open_questions=("Requiere revisión manual del mensaje original del cliente.",),
+def reverification_failed(
+    report: ReportedCharge, case: cases.Case, evaluation: CaseEvaluation, charge: TransactionCandidate | None,
+) -> CaseEvaluation:
+    if evaluation.resolution_reasons:
+        question = POLICY_REVIEW_QUESTION
+    elif evaluation.handoff is not None:
+        question = "; ".join(evaluation.handoff.open_questions)
+    else:
+        question = "No se pudo volver a verificar la transacción propuesta."
+    return confirmation_outcome(
+        report, case, customer_confirmation=ConfirmationAnswer.YES,
+        action="El cliente confirmó el cargo propuesto, pero la política no permitió auto-resolverlo al re-verificar.",
+        open_question=question, customer_reason=EscalationReason.NEEDS_REVIEW,
+        charge=charge, policy_reasons=evaluation.resolution_reasons,
     )
+
+
+def service_failure(
+    action: str, report: ReportedCharge, charge: TransactionCandidate | None = None,
+) -> HandoffRecord:
+    """`charge`: one the customer already identified, if any."""
+    return _escalation(
+        report, action, customer_reason=EscalationReason.SERVICE_ISSUE, charge=charge,
+        reported_extra={"customer_message": CUSTOMER_MESSAGE_OMITTED}, evidence=_charge_evidence(charge),
+        open_questions=("Requiere revisión manual del mensaje original del cliente.",),
+    ).handoff

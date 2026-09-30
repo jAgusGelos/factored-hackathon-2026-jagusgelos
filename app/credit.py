@@ -68,7 +68,9 @@ def finish_resolved(
     except cases.DuplicateCreditError:
         credited_in = _case_that_credited(turn, matched, grant)
         turn.log_event("credit_already_granted", {"credit_key": grant.key, "credited_in_case": credited_in})
-        return finish_escalated(turn, handoffs.already_credited(report, matched, credited_in), report)
+        return finish_escalated(turn, handoffs.already_credited(
+            report, matched, credited_in, how_identified=handoffs.ChargeIdentification.EXPLANATION,
+        ), report)
     if not claimed:
         current = cases.get_case(turn.case.case_id, db_path=turn.db_path)
         if current.state == turn.case.state and current.matched_transaction_id == turn.case.matched_transaction_id:

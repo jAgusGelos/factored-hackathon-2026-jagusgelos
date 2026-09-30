@@ -258,7 +258,9 @@ def _load_or_create_case(
     return cases.create_case(session.customer_id, language, db_path=db_path)
 
 
-def _unless_already_handled(turn: Turn, evaluation: CaseEvaluation, report: ReportedCharge) -> CaseEvaluation:
+def _unless_already_handled(
+    turn: Turn, evaluation: CaseEvaluation, report: ReportedCharge, how_identified: handoffs.ChargeIdentification,
+) -> CaseEvaluation:
     """An eligible charge still goes to a person when another case of this
     customer already credited it, or already assessed the customer's
     explanation of it (handed to a person, or still open asking for more
@@ -271,7 +273,7 @@ def _unless_already_handled(turn: Turn, evaluation: CaseEvaluation, report: Repo
     customer_id = turn.session.customer_id
     credited_in = cases.credited_case_for_transaction(customer_id, matched.transaction_id, db_path=turn.db_path)
     if credited_in is not None:
-        return handoffs.already_credited(report, matched, credited_in)
+        return handoffs.already_credited(report, matched, credited_in, how_identified=how_identified)
     explained_in = cases.explained_case_for_transaction(
         customer_id, matched.transaction_id, exclude_case_id=turn.case.case_id, db_path=turn.db_path,
     )
@@ -281,7 +283,7 @@ def _unless_already_handled(turn: Turn, evaluation: CaseEvaluation, report: Repo
         "prior_escalation_same_charge",
         {"matched_transaction_id": matched.transaction_id, "prior_case_id": explained_in},
     )
-    return handoffs.prior_escalation_same_charge(report, matched, explained_in)
+    return handoffs.prior_escalation_same_charge(report, matched, explained_in, how_identified=how_identified)
 
 
 def _policy_verdict(
@@ -291,7 +293,7 @@ def _policy_verdict(
     evaluation = evaluate_transaction(
         turn.session, matched, report=report, how_identified=how_identified, reason=reason, db_path=turn.db_path,
     )
-    return _unless_already_handled(turn, evaluation, report)
+    return _unless_already_handled(turn, evaluation, report, how_identified)
 
 
 # -- Terminal and intermediate outcomes ----------------------------------------
@@ -443,7 +445,7 @@ def _handle_human_request(turn: Turn) -> ChatReply:
     if human_handoff_available(case):
         if case.state == CaseState.CONFIRMING:
             return escalate(turn, handoffs.confirmation_outcome(
-                turn.report, case, customer_confirmation=str(llm.ConfirmationAnswer.HUMAN),
+                turn.report, case, customer_confirmation=llm.ConfirmationAnswer.HUMAN,
                 action="Cliente solicitó explícitamente hablar con un agente humano.",
                 open_question="El cliente prefirió hablar con una persona antes de confirmar el cargo propuesto.",
                 customer_reason=EscalationReason.HUMAN_REQUESTED, charge=_proposed_charge(turn),
@@ -515,7 +517,7 @@ def _handle_confirmation(turn: Turn, text: str, action: CustomerAction | None = 
         return _handle_human_request(turn)
     if case.clarification_rounds >= MAX_CLARIFICATION_ROUNDS:
         return finish_escalated(turn, handoffs.confirmation_outcome(
-            report, case, customer_confirmation=str(answer),
+            report, case, customer_confirmation=answer,
             action=f"Se propuso al cliente la transacción coincidente y no la confirmó (respuesta: {answer}); "
                    "no quedan rondas de aclaración.",
             open_question="¿Cuál es la transacción que el cliente no reconoce?",
@@ -539,20 +541,7 @@ def _confirm_proposed_charge(turn: Turn, report: ReportedCharge) -> ChatReply:
             turn, matched, expected_states=(CaseState.CONFIRMING,), expected_match=matched.transaction_id,
         )
     turn.log_event("confirmation_reverification_failed", {"state": evaluation.state})
-    return escalate(turn, handoffs.confirmation_outcome(
-        report, case, customer_confirmation=str(llm.ConfirmationAnswer.YES),
-        action="El cliente confirmó el cargo propuesto, pero la política no permitió auto-resolverlo al re-verificar.",
-        open_question=_reverification_question(evaluation), customer_reason=EscalationReason.NEEDS_REVIEW,
-        charge=matched, policy_reasons=evaluation.resolution_reasons,
-    ), charge=matched)
-
-
-def _reverification_question(evaluation: CaseEvaluation) -> str:
-    if evaluation.resolution_reasons:
-        return handoffs.POLICY_REVIEW_QUESTION
-    if evaluation.handoff is not None:
-        return "; ".join(evaluation.handoff.open_questions)
-    return "No se pudo volver a verificar la transacción propuesta."
+    return escalate(turn, handoffs.reverification_failed(report, case, evaluation, matched), charge=matched)
 
 
 def _charges_other_than_proposed(turn: Turn, report: ReportedCharge) -> ChargeSearch:
@@ -865,6 +854,7 @@ def _handle_full_report(turn: Turn, report: ReportedCharge, *, spend_round: bool
             db_path=turn.db_path,
         ),
         report,
+        handoffs.ChargeIdentification.REPORT,
     )
     turn.log_event("case_evaluated", {"state": evaluation.state, "candidate_count": len(evaluation.candidates)})
     if evaluation.state == CaseState.RESOLVED_AUTO:

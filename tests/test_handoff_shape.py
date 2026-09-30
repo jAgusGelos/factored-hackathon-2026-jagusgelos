@@ -13,6 +13,7 @@ import pytest
 from app import handoffs
 from app.case_model import EscalationReason, ReportedCharge
 from app.cases import Case
+from app.llm import ConfirmationAnswer
 from tests.support import HANDOFF_KEYS, clean_assessment, clean_txn
 
 CHARGE = clean_txn(transaction_id="TRX-9", merchant_name="Uber", amount=38500.0, currency="COP", channel="App")
@@ -37,8 +38,12 @@ PRODUCERS = {
     "ineligible_match": lambda: handoffs.ineligible_match(
         SAID, CHARGE, (POLICY_REASON,), how_identified=handoffs.ChargeIdentification.PICK,
     ).handoff,
-    "already_credited": lambda: handoffs.already_credited(SAID, CHARGE, "CASE-0").handoff,
-    "prior_escalation": lambda: handoffs.prior_escalation_same_charge(SAID, CHARGE, "CASE-0").handoff,
+    "already_credited": lambda: handoffs.already_credited(
+        SAID, CHARGE, "CASE-0", how_identified=handoffs.ChargeIdentification.REPORT,
+    ).handoff,
+    "prior_escalation": lambda: handoffs.prior_escalation_same_charge(
+        SAID, CHARGE, "CASE-0", how_identified=handoffs.ChargeIdentification.PICK,
+    ).handoff,
     "explanation_not_accepted": lambda: handoffs.explanation_not_accepted(
         SAID, CHARGE, "why", clean_assessment(summary="s"), customer_reason=EscalationReason.NEEDS_REVIEW,
     ).handoff,
@@ -47,11 +52,11 @@ PRODUCERS = {
     "unidentified_charge": lambda: handoffs.unidentified_charge(SAID, _case()).handoff,
     "turn_limit": lambda: handoffs.turn_limit(SAID, _case()).handoff,
     "confirmation_outcome": lambda: handoffs.confirmation_outcome(
-        SAID, _case(matched_transaction_id="TRX-9"), customer_confirmation="human", action="a", open_question="q",
+        SAID, _case(matched_transaction_id="TRX-9"), customer_confirmation=ConfirmationAnswer.HUMAN, action="a", open_question="q",
         customer_reason=EscalationReason.HUMAN_REQUESTED, charge=CHARGE,
     ).handoff,
-    "service_failure": lambda: handoffs.service_failure("a"),
-    "service_failure_with_charge": lambda: handoffs.service_failure("a", CHARGE),
+    "service_failure": lambda: handoffs.service_failure("a", SAID),
+    "service_failure_with_charge": lambda: handoffs.service_failure("a", SAID, CHARGE),
 }
 
 
@@ -116,10 +121,15 @@ def test_a_charge_is_confirmed_only_when_the_customer_picked_or_confirmed_it(how
     assert ("sin confirmar" in handoff.request_summary) == (confirmed == "no")
 
 
-def test_a_charge_with_unknown_confirmation_says_nothing_about_it():
-    handoff = PRODUCERS["already_credited"]()
-    assert "charge_confirmed" not in handoff.verified_facts
-    assert "Cargo en disputa" in handoff.request_summary
+@pytest.mark.parametrize(("producer", "confirmed"), [("already_credited", "no"), ("prior_escalation", "sí")])
+def test_a_charge_already_handled_says_how_it_was_identified(producer, confirmed):
+    assert PRODUCERS[producer]().verified_facts["charge_confirmed"] == confirmed
+
+
+def test_a_service_failure_keeps_what_the_customer_reported():
+    reported = PRODUCERS["service_failure"]().customer_reported
+    assert reported["merchant"] == "Uber" and reported["amount"] == "38500.0"
+    assert reported["customer_message"] == handoffs.CUSTOMER_MESSAGE_OMITTED
 
 
 def test_the_confirmed_charge_of_a_request_while_explaining_is_verified():
@@ -153,3 +163,10 @@ def test_the_request_summary_is_the_template_for_its_reason(reason):
     assert handoffs.request_summary(reason, None, confirmed=True) == handoffs._REQUEST_SUMMARY[reason]
     with_charge = handoffs.request_summary(reason, CHARGE, confirmed=True)
     assert with_charge == f"{handoffs._REQUEST_SUMMARY[reason]} Cargo en disputa: Uber, COP 38.500, 2026-06-09."
+
+
+def test_a_confirmed_charge_found_already_credited_keeps_that_open_question():
+    credited = handoffs.already_credited(SAID, CHARGE, "CASE-0", how_identified=handoffs.ChargeIdentification.PICK)
+    handoff = handoffs.reverification_failed(SAID, _case(), credited, CHARGE).handoff
+    assert handoff.open_questions == credited.handoff.open_questions
+    assert handoff.verified_facts["charge_confirmed"] == "sí"

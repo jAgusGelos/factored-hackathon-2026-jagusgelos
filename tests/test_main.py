@@ -207,3 +207,18 @@ def test_get_case_never_sends_the_policy_reasons_to_the_customer_session(client)
     text = json.dumps(body)
     assert "threshold" not in text and "fraud_score" not in text and "auto-resolve cap" not in text
     assert cases.get_case(case_id).handoff["policy_reasons"] == reasons
+
+
+def test_get_case_never_sends_the_open_questions_of_a_handoff_stored_before_policy_reasons(client):
+    from app import cases
+
+    _login(client)
+    case_id = client.post("/api/chat", json={"message": "hola"}).json()["case_id"]
+    stored = {
+        "facts": {"reported_merchant": "Tienda Online Global"}, "actions_taken": ["x"], "evidence": [],
+        "open_questions": ["fraud_score=91.0 at/above the 30.0 threshold"],
+    }
+    cases.update_case(case_id, state="escalated", handoff=stored)
+
+    handoff = client.get(f"/api/case/{case_id}").json()["handoff"]
+    assert handoff == {"facts": stored["facts"], "actions_taken": ["x"], "evidence": []}

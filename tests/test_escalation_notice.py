@@ -108,6 +108,7 @@ def test_the_terminal_reply_of_an_escalated_case_names_the_case_and_the_deadline
 
 
 REPORT = ReportedCharge(amount=38500.0, date=None, currency="COP")
+PICKED = handoffs.ChargeIdentification.PICK
 
 
 def _case(**overrides) -> cases.Case:
@@ -129,8 +130,8 @@ def _case(**overrides) -> cases.Case:
         (handoffs.turn_limit(REPORT, _case()), EscalationReason.CHARGE_NOT_IDENTIFIED),
         (handoffs.ineligible_match(REPORT, COP_CHARGE, ("x",), how_identified=handoffs.ChargeIdentification.PICK), EscalationReason.NEEDS_REVIEW),
         (handoffs.credit_limit_reached(REPORT, COP_CHARGE), EscalationReason.NEEDS_REVIEW),
-        (handoffs.already_credited(REPORT, COP_CHARGE, "CASE-1"), EscalationReason.ALREADY_CREDITED),
-        (handoffs.prior_escalation_same_charge(REPORT, COP_CHARGE, "CASE-1"), EscalationReason.ALREADY_IN_REVIEW),
+        (handoffs.already_credited(REPORT, COP_CHARGE, "CASE-1", how_identified=PICKED), EscalationReason.ALREADY_CREDITED),
+        (handoffs.prior_escalation_same_charge(REPORT, COP_CHARGE, "CASE-1", how_identified=PICKED), EscalationReason.ALREADY_IN_REVIEW),
     ],
     ids=lambda v: v.value if isinstance(v, EscalationReason) else "",
 )
@@ -147,8 +148,8 @@ def test_the_builders_that_name_a_charge_carry_it_as_the_match():
     for evaluation in (
         handoffs.ineligible_match(REPORT, COP_CHARGE, ("x",), how_identified=handoffs.ChargeIdentification.PICK),
         handoffs.credit_limit_reached(REPORT, COP_CHARGE),
-        handoffs.already_credited(REPORT, COP_CHARGE, "CASE-1"),
-        handoffs.prior_escalation_same_charge(REPORT, COP_CHARGE, "CASE-1"),
+        handoffs.already_credited(REPORT, COP_CHARGE, "CASE-1", how_identified=PICKED),
+        handoffs.prior_escalation_same_charge(REPORT, COP_CHARGE, "CASE-1", how_identified=PICKED),
     ):
         assert evaluation.matched_transaction == COP_CHARGE
 

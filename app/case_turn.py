@@ -205,7 +205,7 @@ def force_escalation(
     in the notice.
     """
     turn.log_event(event_type, llm.failure_payload(failed_call, error) if error else {"call": failed_call})
-    handoff = handoffs.service_failure(action_taken, charge).to_dict()
+    handoff = handoffs.service_failure(action_taken, turn.report, charge).to_dict()
     reason = EscalationReason.SERVICE_ISSUE
     lost = transition(turn, CaseState.ESCALATED, handoff=handoff, escalation_reason=reason)
     if lost:
