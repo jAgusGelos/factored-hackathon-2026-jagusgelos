@@ -11,7 +11,7 @@ from datetime import date
 
 import pytest
 
-from app.policy import DisputeContext, DisputeReason
+from app.policy import DisputeContext, DisputeReason, ExplanationAssessment
 from app.transactions import TransactionCandidate
 from support import (
     AUTO_RESOLVE_CHARGE,
@@ -48,6 +48,7 @@ __all__ = [
     "EXPLANATION",
     "NOT_RECEIVED_ASSESSMENT",
     "SECOND_ONLINE_CHARGE",
+    "clean_assessment",
     "clean_ctx",
     "clean_txn",
     "event_sequence",
@@ -90,3 +91,9 @@ def clean_ctx(**overrides) -> DisputeContext:
     )
     return DisputeContext(**{**base, **overrides})
 
+
+
+def clean_assessment(**overrides) -> ExplanationAssessment:
+    """A specific, consistent `unrecognized` read that `evaluate_explanation` accepts."""
+    base = dict(reason=DisputeReason.UNRECOGNIZED, specific=True, consistent=True, contradictions=(), summary="")
+    return ExplanationAssessment(**{**base, **overrides})

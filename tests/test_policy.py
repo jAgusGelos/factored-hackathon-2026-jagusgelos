@@ -12,7 +12,6 @@ from app.policy import (
     REASONS_REQUIRING_A_PERSON,
     DisputeContext,
     DisputeReason,
-    ExplanationAssessment,
     ExplanationDecision,
     ExplanationVerdict,
     MatchOutcome,
@@ -25,7 +24,7 @@ from app.policy import (
     match_amount_tolerance,
     screening_failures,
 )
-from tests.support import clean_ctx, clean_txn
+from tests.support import clean_assessment, clean_ctx, clean_txn
 
 AS_OF = date(2026, 6, 18)
 
@@ -206,14 +205,8 @@ def test_reasons_accumulate_for_the_handoff():
 # -- The explanation assessment can only ask for more or escalate -------------------
 
 
-def _assessment(**overrides) -> ExplanationAssessment:
-    base = dict(reason=DisputeReason.UNRECOGNIZED, specific=True, consistent=True, contradictions=(), summary="")
-    base.update(overrides)
-    return ExplanationAssessment(**base)
-
-
 def test_a_vague_explanation_asks_for_one_more_detail_then_escalates():
-    vague = _assessment(specific=False)
+    vague = clean_assessment(specific=False)
     assert evaluate_explanation(vague, attempts_left=True) == ExplanationDecision.needs_detail()
     decision = evaluate_explanation(vague, attempts_left=False)
     assert decision.verdict == ExplanationVerdict.ESCALATE and decision.escalation_reason
@@ -221,7 +214,7 @@ def test_a_vague_explanation_asks_for_one_more_detail_then_escalates():
 
 def test_an_inconsistent_explanation_escalates_with_the_contradictions():
     decision = evaluate_explanation(
-        _assessment(consistent=False, contradictions=("dice que fue en marzo",)), attempts_left=True,
+        clean_assessment(consistent=False, contradictions=("dice que fue en marzo",)), attempts_left=True,
     )
     assert decision.verdict == ExplanationVerdict.ESCALATE
     assert "marzo" in decision.escalation_reason
@@ -229,7 +222,7 @@ def test_an_inconsistent_explanation_escalates_with_the_contradictions():
 
 @pytest.mark.parametrize("reason", [DisputeReason.NOT_RECEIVED, DisputeReason.WRONG_AMOUNT, DisputeReason.CARD_LOST_STOLEN])
 def test_explanations_naming_a_person_only_reason_escalate(reason):
-    decision = evaluate_explanation(_assessment(reason=reason), attempts_left=True)
+    decision = evaluate_explanation(clean_assessment(reason=reason), attempts_left=True)
     assert decision.verdict == ExplanationVerdict.ESCALATE and decision.escalation_reason
 
 
@@ -237,7 +230,7 @@ def test_accepting_an_explanation_does_not_make_an_ineligible_charge_creditable(
     """The most convincing explanation possible still leaves the charge to
     the evidence check: a card-present "unrecognized" charge escalates.
     """
-    assert evaluate_explanation(_assessment(), attempts_left=True) == ExplanationDecision.accept()
+    assert evaluate_explanation(clean_assessment(), attempts_left=True) == ExplanationDecision.accept()
     assert evaluate_resolution(clean_txn(channel="POS"), clean_ctx()).decision == ResolutionDecision.FORCED_ESCALATION
 
 

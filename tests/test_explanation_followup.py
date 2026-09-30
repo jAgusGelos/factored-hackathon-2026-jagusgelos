@@ -8,6 +8,8 @@ evidence check still decides (AD-13).
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
+from dataclasses import replace
 from unittest.mock import patch
 
 import pytest
@@ -16,7 +18,6 @@ from app import handoffs, llm, replies
 from app.llm import Language, PromptScene
 from app.policy import (
     DisputeReason,
-    ExplanationAssessment,
     ExplanationVerdict,
     MissingDetail,
     evaluate_explanation,
@@ -26,6 +27,7 @@ from tests.support import (
     AUTO_RESOLVE_CHARGE,
     CONVINCING_ASSESSMENT,
     charge_extraction,
+    clean_assessment,
     clean_txn,
     demo_session,
     logged_events,
@@ -92,25 +94,19 @@ def test_the_allowlist_only_accepts_the_closed_enum():
 @pytest.mark.parametrize("specific", [True, False])
 @pytest.mark.parametrize("attempts_left", [True, False])
 def test_missing_detail_never_changes_the_policy_decision(specific, attempts_left):
-    base = ExplanationAssessment(
-        reason=DisputeReason.UNRECOGNIZED, specific=specific, consistent=True, contradictions=(),
-        summary="Resumen.",
-    )
+    base = clean_assessment(specific=specific, summary="Resumen.")
     expected = evaluate_explanation(base, attempts_left=attempts_left)
     for detail in MissingDetail:
-        with_detail = ExplanationAssessment(**{**base.__dict__, "missing_detail": detail})
+        with_detail = replace(base, missing_detail=detail)
         assert evaluate_explanation(with_detail, attempts_left=attempts_left) == expected
 
 
 def test_missing_detail_never_changes_the_handoff():
-    base = ExplanationAssessment(
-        reason=DisputeReason.UNRECOGNIZED, specific=False, consistent=True, contradictions=(),
-        summary="Resumen.",
-    )
+    base = clean_assessment(specific=False, summary="Resumen.")
     report = handoffs.ReportedCharge(amount=100.0, date=None, currency="USD", reason=DisputeReason.UNRECOGNIZED)
     expected = handoffs.explanation_not_accepted(report, clean_txn(), "motivo", base, too_short=False)
     for detail in MissingDetail:
-        with_detail = ExplanationAssessment(**{**base.__dict__, "missing_detail": detail})
+        with_detail = replace(base, missing_detail=detail)
         got = handoffs.explanation_not_accepted(report, clean_txn(), "motivo", with_detail, too_short=False)
         assert got == expected
 
@@ -173,10 +169,11 @@ def test_with_the_model_down_the_follow_up_asks_for_the_missing_detail(real_fixt
 
     def say(text, case_id=None, nlg_down=False, **kwargs):
         client = mock_anthropic_client(charge_extraction(), assessment=vague)
-        with patch("app.llm.anthropic.Anthropic", return_value=client):
-            if nlg_down:
-                with patch("app.llm.generate_response", side_effect=llm.LLMUnavailable("down")):
-                    return handle_message(session, case_id, text, db_path=real_fixture_app_db, **kwargs)
+        nlg = (
+            patch("app.llm.generate_response", side_effect=llm.LLMUnavailable("down"))
+            if nlg_down else nullcontext()
+        )
+        with patch("app.llm.anthropic.Anthropic", return_value=client), nlg:
             return handle_message(session, case_id, text, db_path=real_fixture_app_db, **kwargs)
 
     listed = say("no sé el monto")
