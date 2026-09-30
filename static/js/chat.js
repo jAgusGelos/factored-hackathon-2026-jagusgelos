@@ -154,10 +154,42 @@ const state = {
   busy: false,
 };
 
-const TERMINAL_STATES = new Set(["resolved_auto", "escalated"]);
+// Must match app/case_model.py::CaseState.
+const CASE_STATES = Object.freeze({
+  AWAITING_REPORT: "awaiting_report",
+  CLARIFYING: "clarifying",
+  SELECTING: "selecting",
+  CONFIRMING: "confirming",
+  AWAITING_EXPLANATION: "awaiting_explanation",
+  RESOLVED_AUTO: "resolved_auto",
+  ESCALATED: "escalated",
+});
+
+const TERMINAL_STATES = new Set([CASE_STATES.RESOLVED_AUTO, CASE_STATES.ESCALATED]);
+
+// What the typing indicator says while a turn from each state is in flight.
+const WAIT_CAPTION_KEYS = Object.freeze({
+  [CASE_STATES.AWAITING_REPORT]: "waitSearching",
+  [CASE_STATES.SELECTING]: "waitSearching",
+  [CASE_STATES.CLARIFYING]: "waitSearching",
+  [CASE_STATES.CONFIRMING]: "waitConfirming",
+  [CASE_STATES.AWAITING_EXPLANATION]: "waitExplanation",
+});
+
+const TURN_OUTCOMES = Object.freeze({
+  DELIVERED: "delivered",
+  IN_PROGRESS: "in_progress",
+  REJECTED: "rejected",
+  FAILED: "failed",
+});
+
+// app/main.py answers 409 while the same turn_id is still being processed.
+const HTTP_TURN_IN_PROGRESS = 409;
 // The server's per-turn model budget is 20 s (AD-5); the client gives up a bit later.
 const TURN_TIMEOUT_MS = 25000;
 const SLOW_TURN_MS = 10000;
+
+let slowTimer = null;
 
 const chatLog = document.getElementById("chat-log");
 const chatStatus = document.getElementById("chat-status");
@@ -196,9 +228,8 @@ function renderWelcome() {
   const bubble = document.createElement("div");
   bubble.className = "msg-bubble msg-bubble--agent welcome";
   bubble.textContent = state.welcome[state.language];
-  const starters = document.createElement("div");
-  starters.className = "quick-replies interactive welcome";
-  starters.append(...starterButtons());
+  const starters = quickRepliesBlock(starterButtons());
+  starters.classList.add("welcome");
   chatLog.prepend(bubble, starters);
 }
 
@@ -265,6 +296,10 @@ function appendBubble(role, text) {
   el.className = `msg-bubble msg-bubble--${role}`;
   el.textContent = text;
   chatLog.appendChild(el);
+  scrollLogToEnd();
+}
+
+function scrollLogToEnd() {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
@@ -284,8 +319,7 @@ function appendActionCard(title, body, { isError = false, actions = [] } = {}) {
     card.appendChild(row);
   }
   chatLog.appendChild(card);
-  chatLog.scrollTop = chatLog.scrollHeight;
-  return card;
+  scrollLogToEnd();
 }
 
 function escapeHtml(str) {
@@ -304,8 +338,7 @@ function onSubmit(event) {
   if (state.busy) return;
   const message = messageInput.value.trim();
   if (!message) return;
-  // A fresh typed message after a closed case opens a new claim (AD-1): the
-  // closed case stays untouched and the message goes out with case_id null.
+  // A typed message after a closed case opens a new claim (AD-1).
   if (state.closedCase) startNewClaim();
   messageInput.value = "";
   sendToAgent({ message });
@@ -321,14 +354,14 @@ function sendToAgent({ message, selectedTransactionId = null, action = null }) {
   // Frozen payload: a retry re-sends exactly this, same turn_id (AD-4), so the
   // server replays the turn instead of applying it twice.
   const turn = {
-    body: {
+    body: Object.freeze({
       case_id: state.caseId,
       message,
       language: state.language,
       selected_transaction_id: selectedTransactionId,
       action,
       turn_id: crypto.randomUUID(),
-    },
+    }),
     retired,
   };
   runTurn(turn);
@@ -337,49 +370,47 @@ function sendToAgent({ message, selectedTransactionId = null, action = null }) {
 async function runTurn(turn) {
   if (state.busy) return;
   const prevState = state.caseState;
-  setBusy(true, waitCaptionKey(prevState));
-  const controller = new AbortController();
-  const abortTimer = setTimeout(() => controller.abort(), TURN_TIMEOUT_MS);
-  let outcome = "failed"; // "delivered" | "in_progress" | "rejected" | "failed"
-  let reply = null;
-  try {
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify(turn.body),
-      signal: controller.signal,
-    });
-    if (res.ok) {
-      reply = await res.json();
-      outcome = "delivered";
-    } else if (res.status === 409) {
-      outcome = "in_progress";
-    } else if (res.status >= 400 && res.status < 500) {
-      outcome = "rejected";
-    }
-  } catch {
-    // Abort (timeout), network error or an unreadable body: the turn may
-    // have been applied on the server, so nothing is given back.
-    outcome = "failed";
-  } finally {
-    clearTimeout(abortTimer);
-  }
+  setBusy(true, WAIT_CAPTION_KEYS[prevState] || "waitGeneric");
+  const { outcome, reply } = await postTurn(turn.body);
 
   hideTyping();
   let focusTarget = messageInput;
   try {
-    if (outcome === "delivered") {
+    if (outcome === TURN_OUTCOMES.DELIVERED) {
       await renderReply(reply, prevState);
     } else {
       // Only a definite rejection proves the turn changed nothing server-side.
-      if (outcome === "rejected") restoreInteractiveBlocks(turn.retired);
-      focusTarget = appendRetryCard(turn, outcome === "in_progress");
+      if (outcome === TURN_OUTCOMES.REJECTED) restoreInteractiveBlocks(turn.retired);
+      focusTarget = appendRetryCard(turn, outcome === TURN_OUTCOMES.IN_PROGRESS);
     }
   } finally {
     setBusy(false);
     focusTarget.focus();
   }
+}
+
+// POSTs one turn, giving up after TURN_TIMEOUT_MS. Never throws.
+async function postTurn(body) {
+  const controller = new AbortController();
+  const abortTimer = setTimeout(() => controller.abort(), TURN_TIMEOUT_MS);
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (res.ok) return { outcome: TURN_OUTCOMES.DELIVERED, reply: await res.json() };
+    if (res.status === HTTP_TURN_IN_PROGRESS) return { outcome: TURN_OUTCOMES.IN_PROGRESS, reply: null };
+    if (res.status >= 400 && res.status < 500) return { outcome: TURN_OUTCOMES.REJECTED, reply: null };
+  } catch {
+    // Abort (timeout), network error or an unreadable body: the turn may
+    // have been applied on the server, so nothing is given back.
+  } finally {
+    clearTimeout(abortTimer);
+  }
+  return { outcome: TURN_OUTCOMES.FAILED, reply: null };
 }
 
 async function renderReply(reply, prevState) {
@@ -404,27 +435,14 @@ async function renderReply(reply, prevState) {
 }
 
 function appendRetryCard(turn, inProgress) {
-  const retryBtn = document.createElement("button");
-  retryBtn.type = "button";
-  retryBtn.className = "btn-secondary";
-  retryBtn.textContent = t("retry");
-  retryBtn.addEventListener("click", () => {
+  const retryBtn = quickButton(t("retry"), () => {
     if (state.busy) return;
     turn.retired = retireInteractiveBlocks();
     runTurn(turn);
-  });
+  }, "btn-secondary");
   appendActionCard(inProgress ? t("waitSlow") : t("turnError"), "", { isError: !inProgress, actions: [retryBtn] });
   return retryBtn;
 }
-
-function waitCaptionKey(caseState) {
-  if (caseState === "awaiting_report" || caseState === "selecting" || caseState === "clarifying") return "waitSearching";
-  if (caseState === "confirming") return "waitConfirming";
-  if (caseState === "awaiting_explanation") return "waitExplanation";
-  return "waitGeneric";
-}
-
-let slowTimer = null;
 
 function setBusy(busy, captionKey = null) {
   state.busy = busy;
@@ -452,7 +470,7 @@ function showTyping(caption) {
   `;
   chatLog.appendChild(bubble);
   setWaitText(caption, false);
-  chatLog.scrollTop = chatLog.scrollHeight;
+  scrollLogToEnd();
 }
 
 function setWaitText(text, slow) {
@@ -483,32 +501,40 @@ function startNewClaim({ fromButton = false } = {}) {
   state.closedCase = null;
   state.personaView = "client";
 
-  if (closed) {
-    const divider = document.createElement("div");
-    divider.className = "claim-divider";
-    const outcome = t(closed.state === "resolved_auto" ? "claimResolved" : "claimEscalated");
-    divider.textContent = t("claimDivider", closed.reference, outcome);
-    chatLog.appendChild(divider);
-  }
+  if (closed) appendClaimDivider(closed);
   renderPanel();
 
   if (fromButton) {
-    const starters = document.createElement("div");
-    starters.className = "quick-replies interactive";
-    starters.append(...starterButtons());
+    const starters = quickRepliesBlock(starterButtons());
     chatLog.appendChild(starters);
     starters.querySelector("button").focus();
   }
-  chatLog.scrollTop = chatLog.scrollHeight;
+  scrollLogToEnd();
 }
 
-function quickButton(label, onClick) {
+function appendClaimDivider(closed) {
+  const divider = document.createElement("div");
+  divider.className = "claim-divider";
+  const outcome = t(closed.state === CASE_STATES.RESOLVED_AUTO ? "claimResolved" : "claimEscalated");
+  divider.textContent = t("claimDivider", closed.reference, outcome);
+  chatLog.appendChild(divider);
+}
+
+function quickButton(label, onClick, className = "quick-reply") {
   const btn = document.createElement("button");
   btn.type = "button";
-  btn.className = "quick-reply";
+  btn.className = className;
   btn.textContent = label;
   btn.addEventListener("click", onClick);
   return btn;
+}
+
+// "interactive": the next send retires the block like any other.
+function quickRepliesBlock(buttons) {
+  const block = document.createElement("div");
+  block.className = "quick-replies interactive";
+  block.append(...buttons);
+  return block;
 }
 
 // Old lists/buttons stay visible as history but can no longer be used. If the
@@ -580,29 +606,26 @@ function appendChargeList(options) {
     block.appendChild(btn);
   });
   chatLog.appendChild(block);
-  chatLog.scrollTop = chatLog.scrollHeight;
+  scrollLogToEnd();
 }
 
 // "Hablar con una persona" only appears once the server says the agent has
 // tried and could not resolve the case (human_available).
 function appendQuickReplies(caseState, humanAvailable) {
   const buttons = [];
-  if (caseState === "selecting") {
+  if (caseState === CASE_STATES.SELECTING) {
     buttons.push(actionButton("quickNotInList", ACTIONS.NONE_OF_THESE));
-  } else if (caseState === "confirming") {
+  } else if (caseState === CASE_STATES.CONFIRMING) {
     buttons.push(actionButton("quickYes", ACTIONS.CONFIRM_YES), actionButton("quickNo", ACTIONS.CONFIRM_NO));
   }
-  if (caseState === "awaiting_report") buttons.push(...starterButtons());
+  if (caseState === CASE_STATES.AWAITING_REPORT) buttons.push(...starterButtons());
   if (TERMINAL_STATES.has(caseState)) {
     buttons.push(quickButton(t("quickNewClaim"), () => startNewClaim({ fromButton: true })));
   }
   if (humanAvailable) buttons.push(humanButton());
   if (!buttons.length) return;
-  const block = document.createElement("div");
-  block.className = "quick-replies interactive";
-  block.append(...buttons);
-  chatLog.appendChild(block);
-  chatLog.scrollTop = chatLog.scrollHeight;
+  chatLog.appendChild(quickRepliesBlock(buttons));
+  scrollLogToEnd();
 }
 
 async function refreshCaseStatus() {
@@ -626,12 +649,12 @@ function caseChargeLabel(status) {
 
 function renderTurnActionCard(newState) {
   const status = state.caseStatus;
-  if (newState === "resolved_auto") {
+  if (newState === CASE_STATES.RESOLVED_AUTO) {
     appendActionCard(
       t("actionCardResolvedTitle"),
       t("actionCardResolvedBody", caseChargeLabel(status), status.resolution_reference),
     );
-  } else if (newState === "escalated") {
+  } else if (newState === CASE_STATES.ESCALATED) {
     appendActionCard(t("actionCardEscalatedTitle"), t("actionCardEscalatedBody"));
   }
 }
@@ -659,31 +682,31 @@ function renderPanel() {
   let step2Variant = "pending", step2Dot = "2", step2Detail = t("stepTransactionPending");
   let step3Variant = "pending", step3Dot = "3", step3Detail = t("stepPolicyPending");
 
-  if (caseState === "clarifying") {
+  if (caseState === CASE_STATES.CLARIFYING) {
     badge = badgeHtml("warning", t("badgeClarifying"));
     step2Variant = "warning"; step2Dot = "?";
     step2Detail = t("stepTransactionSearching");
-  } else if (caseState === "selecting") {
+  } else if (caseState === CASE_STATES.SELECTING) {
     badge = badgeHtml("warning", t("badgeSelecting"));
     step2Variant = "warning"; step2Dot = "?";
     step2Detail = t("stepTransactionSelecting");
-  } else if (caseState === "confirming") {
+  } else if (caseState === CASE_STATES.CONFIRMING) {
     badge = badgeHtml("warning", t("badgeConfirming"));
     step2Variant = "warning"; step2Dot = "?";
     step2Detail = t("stepTransactionAwaitingConfirm");
-  } else if (caseState === "awaiting_explanation") {
+  } else if (caseState === CASE_STATES.AWAITING_EXPLANATION) {
     badge = badgeHtml("warning", t("badgeExplaining"));
     step2Variant = "done"; step2Dot = "✓";
     step2Detail = transactionFound();
     step3Variant = "warning"; step3Dot = "?";
     step3Detail = t("stepPolicyExplaining");
-  } else if (caseState === "resolved_auto") {
+  } else if (caseState === CASE_STATES.RESOLVED_AUTO) {
     badge = badgeHtml("success", t("badgeResolved"));
     step2Variant = "done"; step2Dot = "✓";
     step2Detail = transactionFound();
     step3Variant = "done"; step3Dot = "✓";
     step3Detail = t("stepPolicyResolved");
-  } else if (caseState === "escalated") {
+  } else if (caseState === CASE_STATES.ESCALATED) {
     badge = badgeHtml("info", t("badgeEscalated"));
     if (status.matched_transaction_id) {
       step2Variant = "done"; step2Dot = "✓";
@@ -703,16 +726,16 @@ function renderPanel() {
   html += verifyStepHtml(step2Variant, step2Dot, t("stepTransaction"), step2Detail);
   html += verifyStepHtml(step3Variant, step3Dot, t("stepPolicy"), step3Detail);
 
-  if (caseState === "resolved_auto" && status.resolution_reference) {
+  if (caseState === CASE_STATES.RESOLVED_AUTO && status.resolution_reference) {
     html += `<p><span class="verified-chip">${escapeHtml(t("verifiedChip", status.resolution_reference))}</span></p>`;
   }
-  if (caseState === "escalated") {
+  if (caseState === CASE_STATES.ESCALATED) {
     html += renderPersonaToggle() + renderPersonaView();
   }
 
   panelContent.innerHTML = html;
 
-  if (caseState === "escalated") {
+  if (caseState === CASE_STATES.ESCALATED) {
     document.querySelectorAll(".persona-toggle button").forEach((btn) => {
       btn.addEventListener("click", () => {
         state.personaView = btn.dataset.view;

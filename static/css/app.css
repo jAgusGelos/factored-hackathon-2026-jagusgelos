@@ -144,7 +144,6 @@ button:focus-visible, input:focus-visible, a:focus-visible, [tabindex]:focus-vis
 .action-card--error { border-color: var(--status-critical); background: var(--status-critical-bg); }
 .action-card--error .action-card__head { color: var(--status-critical); }
 .action-card__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
-.action-card__actions.retired { opacity: 0.55; }
 
 /* -- Typing indicator (usability-s1 DESIGN.md): an agent bubble with dots and a
    step-aware caption. The whole bubble is aria-hidden; the wait is announced
