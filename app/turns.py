@@ -18,13 +18,16 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from app import db
+
+if TYPE_CHECKING:
+    from app.case_turn import ChatReply
 
 # How long a pending turn is presumed to be still running. Well above the
 # per-turn model budget (config.TURN_DEADLINE_SECONDS), so a live turn is
@@ -46,7 +49,7 @@ class TurnClaim:
     # case was never created).
     case_id: str | None = None
     # The exact reply the client got, for a COMPLETE turn.
-    reply: dict | None = None
+    reply: ChatReply | None = None
 
 
 class TurnInProgress(Exception):
@@ -68,6 +71,10 @@ def claim(customer_id: str, turn_id: str, *, db_path: Path | None = None) -> Tur
                 "SELECT case_id, reply_json, created_at FROM chat_turns WHERE customer_id = ? AND turn_id = ?",
                 [customer_id, turn_id],
             ).fetchone()
+    if row is None:
+        # The winner was refused and released its claim between our INSERT and
+        # this SELECT: answer "still running" so the client's retry claims it.
+        return TurnClaim(TurnStatus.IN_FLIGHT)
     if row["reply_json"] is not None:
         return TurnClaim(TurnStatus.COMPLETE, row["case_id"], json.loads(row["reply_json"]))
     age = now - datetime.fromisoformat(row["created_at"])
@@ -87,7 +94,7 @@ def attach_case(customer_id: str, turn_id: str, case_id: str, *, db_path: Path |
         con.commit()
 
 
-def complete(customer_id: str, turn_id: str, reply: Mapping[str, object], *, db_path: Path | None = None) -> None:
+def complete(customer_id: str, turn_id: str, reply: ChatReply, *, db_path: Path | None = None) -> None:
     with db.app_connection(db_path) as con:
         con.execute(
             "UPDATE chat_turns SET reply_json = ?, case_id = ?, completed_at = ? "
