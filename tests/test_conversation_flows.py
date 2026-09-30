@@ -1085,6 +1085,43 @@ def test_a_charge_escalated_on_a_request_for_a_person_can_still_be_explained(rea
     assert logged_events(real_fixture_app_db, "prior_escalation_same_charge") == []
 
 
+def test_a_new_case_on_a_charge_still_open_after_an_explanation_attempt_escalates(real_fixture_app_db):
+    """Case A asked for more detail (an attempt spent, no reason stored) and
+    stays open: case B on the same charge must not start over with a new story
+    and fresh attempts.
+    """
+    session = demo_session(real_fixture_app_db)
+    vague = {**CONVINCING_ASSESSMENT, "specific": False}
+    prior = _pick_and_explain(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE, vague)
+    assert prior["state"] == CaseState.AWAITING_EXPLANATION
+    open_case = cases.get_case(prior["case_id"], db_path=real_fixture_app_db)
+    assert open_case.explanation_attempts == 1 and open_case.dispute_reason is None
+
+    retry = _pick(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
+
+    assert retry["state"] == CaseState.ESCALATED
+    assert retry["case_id"] != prior["case_id"]
+    assert prior["case_id"] not in retry["reply"]
+    handoff = cases.get_case(retry["case_id"], db_path=real_fixture_app_db).handoff
+    assert handoff["facts"]["prior_case"] == prior["case_id"]
+    assert logged_events(real_fixture_app_db, "prior_escalation_same_charge") == [
+        {"matched_transaction_id": AUTO_RESOLVE_CHARGE, "prior_case_id": prior["case_id"]}
+    ]
+    assert logged_events(real_fixture_app_db, "simulated_credit") == []
+
+
+def test_an_open_case_that_only_identified_the_charge_does_not_block_a_new_one(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    prior = _pick(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
+    assert prior["state"] == CaseState.AWAITING_EXPLANATION
+
+    retry = _pick(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
+
+    assert retry["state"] == CaseState.AWAITING_EXPLANATION
+    assert retry["case_id"] != prior["case_id"]
+    assert logged_events(real_fixture_app_db, "prior_escalation_same_charge") == []
+
+
 # -- The resolution message (AD-8) -----------------------------------------------
 
 

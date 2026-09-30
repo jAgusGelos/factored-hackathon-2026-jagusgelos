@@ -256,10 +256,11 @@ def _load_or_create_case(
 
 
 def _unless_already_handled(turn: Turn, evaluation: CaseEvaluation, report: ReportedCharge) -> CaseEvaluation:
-    """An eligible charge still goes to a person when an earlier case of this
-    customer already credited it, or already handed it to a person after
-    assessing the customer's explanation: a fresh case must not become a way
-    to retry the same charge with a different story (AD-13).
+    """An eligible charge still goes to a person when another case of this
+    customer already credited it, or already assessed the customer's
+    explanation of it (handed to a person, or still open asking for more
+    detail): a fresh case must not become a way to retry the same charge with
+    a different story and fresh attempts (AD-13).
     """
     if evaluation.state != CaseState.RESOLVED_AUTO:
         return evaluation
@@ -268,16 +269,16 @@ def _unless_already_handled(turn: Turn, evaluation: CaseEvaluation, report: Repo
     credited_in = cases.credited_case_for_transaction(customer_id, matched.transaction_id, db_path=turn.db_path)
     if credited_in is not None:
         return handoffs.already_credited(report, matched, credited_in)
-    escalated_in = cases.escalated_explained_case_for_transaction(
+    explained_in = cases.explained_case_for_transaction(
         customer_id, matched.transaction_id, exclude_case_id=turn.case.case_id, db_path=turn.db_path,
     )
-    if escalated_in is None:
+    if explained_in is None:
         return evaluation
     turn.log_event(
         "prior_escalation_same_charge",
-        {"matched_transaction_id": matched.transaction_id, "prior_case_id": escalated_in},
+        {"matched_transaction_id": matched.transaction_id, "prior_case_id": explained_in},
     )
-    return handoffs.prior_escalation_same_charge(report, matched, escalated_in)
+    return handoffs.prior_escalation_same_charge(report, matched, explained_in)
 
 
 def _policy_verdict(
