@@ -112,8 +112,6 @@ ASK_FOR_EXPLANATION = {
     ),
 }
 
-# The follow-up to a vague explanation asks for the one detail the model says
-# is missing (never one the customer already gave), or for any concrete detail.
 _EXPLANATION_FOLLOWUP = {
     Language.ES: {
         None: (
@@ -142,7 +140,6 @@ _EXPLANATION_FOLLOWUP = {
         MissingDetail.ITEM_RECEIVED: "Obrigado. Para decidir preciso de mais um detalhe: você recebeu o que pagou com esta cobrança?",
     },
 }
-
 
 HUMAN_DEFERRED_WHILE_EXPLAINING = {
     Language.ES: (
