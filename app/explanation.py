@@ -24,6 +24,7 @@ from app.policy import (
     ExplanationAssessment,
     ExplanationDecision,
     ExplanationVerdict,
+    MissingDetail,
     evaluate_explanation,
 )
 from app.transactions import TransactionCandidate, get_own_transaction
@@ -136,7 +137,7 @@ def handle_explanation(turn: Turn, text: str, *, policy_verdict: PolicyVerdict) 
     report = replace(turn.report, reason=assessment.reason if assessment else None)
 
     if decision.verdict == ExplanationVerdict.NEEDS_DETAIL:
-        return _ask_for_more_detail(turn, text)
+        return _ask_for_more_detail(turn, text, assessment.missing_detail if assessment else None)
     if decision.verdict == ExplanationVerdict.ESCALATE:
         return finish_escalated(
             turn,
@@ -158,9 +159,11 @@ def handle_explanation(turn: Turn, text: str, *, policy_verdict: PolicyVerdict) 
     return finish_escalated(turn, replace(evaluation, handoff=handoff), report)
 
 
-def _ask_for_more_detail(turn: Turn, text: str) -> ChatReply:
+def _ask_for_more_detail(turn: Turn, text: str, missing_detail: MissingDetail | None) -> ChatReply:
     """Appends this turn's text in SQL, so two messages sent at the same time
-    both end up in the explanation the next assessment reads.
+    both end up in the explanation the next assessment reads. The question
+    names only the detail the assessment says is missing (a closed enum, never
+    the customer's words), so it does not ask again for what they already said.
     """
     lost = transition(
         turn, CaseState.AWAITING_EXPLANATION, expected_states=(CaseState.AWAITING_EXPLANATION,),
@@ -168,6 +171,8 @@ def _ask_for_more_detail(turn: Turn, text: str) -> ChatReply:
     )
     if lost:
         return lost
-    context = llm.build_prompt_context(case_state=PromptScene.EXPLANATION_FOLLOWUP, language=turn.language)
-    reply = turn.generate_reply(context, fallback=replies.EXPLANATION_FOLLOWUP[turn.language])
+    context = llm.build_prompt_context(
+        case_state=PromptScene.EXPLANATION_FOLLOWUP, language=turn.language, missing_detail=missing_detail,
+    )
+    reply = turn.generate_reply(context, fallback=replies.explanation_followup(missing_detail, turn.language))
     return turn.reply(CaseState.AWAITING_EXPLANATION, reply)

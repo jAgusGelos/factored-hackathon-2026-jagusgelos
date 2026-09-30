@@ -154,6 +154,18 @@ REASONS_REQUIRING_A_PERSON = {
 }
 
 
+class MissingDetail(StrEnum):
+    """The one detail a vague explanation still lacks, as the model reads it.
+    Only the follow-up question uses it (to ask for that and nothing the
+    customer already said); no decision in this module ever reads it.
+    """
+
+    HOW_NOTICED = "how_noticed"
+    CARD_POSSESSION = "card_possession"
+    MERCHANT_KNOWN = "merchant_known"
+    ITEM_RECEIVED = "item_received"
+
+
 @dataclass(frozen=True)
 class ExplanationAssessment:
     reason: DisputeReason
@@ -161,6 +173,7 @@ class ExplanationAssessment:
     consistent: bool
     contradictions: tuple[str, ...]
     summary: str
+    missing_detail: MissingDetail | None = None
 
 
 class ExplanationVerdict(StrEnum):

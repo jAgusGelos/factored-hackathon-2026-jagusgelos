@@ -14,7 +14,7 @@ from datetime import date
 from app.case_model import CaseState
 from app.charge_search import ListFilter, iso_day, txn_day
 from app.llm import Language
-from app.policy import DisputeReason
+from app.policy import DisputeReason, MissingDetail
 from app.transactions import TransactionCandidate
 
 WELCOME = {
@@ -112,16 +112,37 @@ ASK_FOR_EXPLANATION = {
     ),
 }
 
-EXPLANATION_FOLLOWUP = {
-    Language.ES: (
-        "Gracias. Para poder decidir necesito un detalle más concreto: por ejemplo cómo te diste "
-        "cuenta del cargo, si tenés la tarjeta con vos o si recibiste lo que pagaste."
-    ),
-    Language.PT: (
-        "Obrigado. Para decidir preciso de um detalhe mais concreto: por exemplo como você percebeu "
-        "a cobrança, se está com o cartão ou se recebeu o que pagou."
-    ),
+# The follow-up to a vague explanation asks for the one detail the model says
+# is missing (never one the customer already gave), or for any concrete detail.
+_EXPLANATION_FOLLOWUP = {
+    Language.ES: {
+        None: (
+            "Gracias. Para poder decidir necesito un detalle más concreto: por ejemplo cómo se dio "
+            "cuenta del cargo, si tiene la tarjeta consigo o si recibió lo que pagó."
+        ),
+        MissingDetail.HOW_NOTICED: "Gracias. Para poder decidir necesito un detalle más: ¿cómo se dio cuenta de este cargo?",
+        MissingDetail.CARD_POSSESSION: (
+            "Gracias. Para poder decidir necesito un detalle más: ¿tiene la tarjeta consigo en este momento?"
+        ),
+        MissingDetail.MERCHANT_KNOWN: (
+            "Gracias. Para poder decidir necesito un detalle más: ¿conoce este comercio o lo usó alguna vez?"
+        ),
+        MissingDetail.ITEM_RECEIVED: "Gracias. Para poder decidir necesito un detalle más: ¿recibió lo que pagó con este cargo?",
+    },
+    Language.PT: {
+        None: (
+            "Obrigado. Para decidir preciso de um detalhe mais concreto: por exemplo como você percebeu "
+            "a cobrança, se está com o cartão ou se recebeu o que pagou."
+        ),
+        MissingDetail.HOW_NOTICED: "Obrigado. Para decidir preciso de mais um detalhe: como você percebeu esta cobrança?",
+        MissingDetail.CARD_POSSESSION: "Obrigado. Para decidir preciso de mais um detalhe: você está com o cartão neste momento?",
+        MissingDetail.MERCHANT_KNOWN: (
+            "Obrigado. Para decidir preciso de mais um detalhe: você conhece este comerciante ou já o usou alguma vez?"
+        ),
+        MissingDetail.ITEM_RECEIVED: "Obrigado. Para decidir preciso de mais um detalhe: você recebeu o que pagou com esta cobrança?",
+    },
 }
+
 
 HUMAN_DEFERRED_WHILE_EXPLAINING = {
     Language.ES: (
@@ -267,6 +288,10 @@ def charge_summary(matched: TransactionCandidate, language: Language) -> str:
 
 def ask_for_explanation(matched: TransactionCandidate, language: Language) -> str:
     return ASK_FOR_EXPLANATION[language].format(charge=charge_summary(matched, language))
+
+
+def explanation_followup(missing_detail: MissingDetail | None, language: Language) -> str:
+    return _EXPLANATION_FOLLOWUP[language][missing_detail]
 
 
 def confirmation_question(matched: TransactionCandidate, language: Language) -> str:

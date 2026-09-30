@@ -32,7 +32,7 @@ from enum import StrEnum
 import anthropic
 
 from app import config
-from app.policy import DisputeReason, ExplanationAssessment
+from app.policy import DisputeReason, ExplanationAssessment, MissingDetail
 
 logger = logging.getLogger("app.llm")
 
@@ -96,6 +96,7 @@ def build_prompt_context(
     clarification_rounds: int | None = None,
     resolution_reference: str | None = None,
     dispute_reason: str | None = None,
+    missing_detail: MissingDetail | None = None,
 ) -> PromptContext:
     """The single allowlist function ALL prompt construction must go
     through. Returns only the explicitly-listed, non-None fields — this
@@ -119,6 +120,8 @@ def build_prompt_context(
         "clarification_rounds": clarification_rounds,
         "resolution_reference": resolution_reference,
         "dispute_reason": dispute_reason,
+        # A closed enum, validated here: this slot can never carry free text.
+        "missing_detail": MissingDetail(missing_detail) if missing_detail is not None else None,
     }
     return PromptContext({k: v for k, v in context.items() if v is not None})
 
@@ -429,10 +432,12 @@ _STATE_INSTRUCTION = {
             "decidís si podés reintegrarlo ahora. No prometas el reintegro."
         ),
         "explanation_followup": (
-            "Su explicación todavía no alcanza para decidir. Pedile con amabilidad UN detalle "
-            "concreto de lo que pasó (por ejemplo cómo se dio cuenta del cargo, si tiene la tarjeta, "
-            "si reconoce el comercio o si recibió lo que pagó), sin sonar desconfiado y sin repetir "
-            "la pregunta anterior palabra por palabra."
+            "Su explicación todavía no alcanza para decidir. Si missing_detail está en el contexto, "
+            "pida con amabilidad solo ese detalle (how_noticed = cómo se dio cuenta del cargo; "
+            "card_possession = si tiene la tarjeta consigo; merchant_known = si conoce o usó alguna "
+            "vez el comercio; item_received = si recibió lo que pagó). Si no está, pida UN detalle "
+            "concreto de lo que pasó. No pida nada que el cliente ya haya contado, no suene "
+            "desconfiado y no repita la pregunta anterior palabra por palabra."
         ),
         "human_deferred": (
             "El cliente pidió hablar con una persona, pero todavía no intentaste resolver su caso. "
@@ -500,10 +505,12 @@ _STATE_INSTRUCTION = {
             "com isso você decide se pode reembolsar agora. Não prometa o reembolso."
         ),
         "explanation_followup": (
-            "A explicação ainda não é suficiente para decidir. Peça com gentileza UM detalhe "
-            "concreto do que aconteceu (como percebeu a cobrança, se está com o cartão, se "
-            "reconhece o comerciante ou se recebeu o que pagou), sem soar desconfiado e sem repetir "
-            "a pergunta anterior palavra por palavra."
+            "A explicação ainda não é suficiente para decidir. Se missing_detail estiver no "
+            "contexto, peça com gentileza só esse detalhe (how_noticed = como percebeu a cobrança; "
+            "card_possession = se está com o cartão; merchant_known = se conhece ou já usou o "
+            "comerciante; item_received = se recebeu o que pagou). Se não estiver, peça UM detalhe "
+            "concreto do que aconteceu. Não peça nada que o cliente já tenha contado, não soe "
+            "desconfiado e não repita a pergunta anterior palavra por palavra."
         ),
         "human_deferred": (
             "O cliente pediu para falar com uma pessoa, mas você ainda não tentou resolver o caso. "
@@ -543,6 +550,7 @@ _STATE_INSTRUCTION = {
 ASSESSMENT_MARKER = "[ASSESS_EXPLANATION]"
 
 _REASON_CHOICES = "|".join(f'"{reason}"' for reason in DisputeReason)
+_MISSING_DETAIL_CHOICES = "|".join(f'"{detail}"' for detail in MissingDetail)
 
 _ASSESSMENT_SYSTEM_PROMPT = (
     f"{ASSESSMENT_MARKER} You review a bank customer's explanation of why they dispute one "
@@ -552,18 +560,28 @@ _ASSESSMENT_SYSTEM_PROMPT = (
     "with valid JSON, no extra text, in this exact shape: "
     f'{{"reason": <{_REASON_CHOICES}>, '
     '"specific": <true|false>, "consistent": <true|false>, "contradictions": [<string>, ...], '
-    '"summary": <string>}. '
+    f'"summary": <string>, "missing_detail": <{_MISSING_DETAIL_CHOICES}|null>}}. '
     "reason: unrecognized = they did not make this purchase / do not know the merchant; "
     "duplicate = they were charged twice for one purchase; not_received = they paid but did not "
     "receive the product or service; wrong_amount = they made the purchase but the amount is "
     "wrong; card_lost_stolen = their card was lost or stolen; unclear = none of these can be told "
     "from the text. specific = true only if the explanation describes concretely what happened "
     "(how they noticed, the circumstances, what they did or did not do); a bare 'no lo reconozco' "
-    "or 'devuélvanme la plata' is NOT specific. consistent = false if anything they state "
+    "or 'devuélvanme la plata' is NOT specific. For unrecognized, saying they did not use or buy "
+    "from this merchant (for example that they have not used it in months, or never bought there) "
+    "together with one concrete circumstance (they still have the card with them, how they noticed "
+    "the charge, nobody else uses the card) IS specific: 'no uso Uber hace meses, tengo la tarjeta "
+    "conmigo' is specific. specific only judges whether the account is concrete, never whether it "
+    "is believable: the bank checks the charge against its own data separately. consistent = false if anything they state "
     "contradicts the charge facts (merchant, amount, date, channel); list each contradiction in "
     "contradictions as a short neutral Spanish phrase about the charge facts, with no quotes from the "
     "customer and no personal data. summary: one neutral sentence in Spanish, third person, at most "
-    "25 words, no personal data."
+    "25 words, no personal data. missing_detail: when specific is false, the ONE detail that would "
+    "help most and that the customer has NOT already given: how_noticed = how they noticed the "
+    "charge; card_possession = whether they still have the card; merchant_known = whether they know "
+    "or ever used the merchant; item_received = whether they received what they paid for. Never "
+    "pick a detail the customer already stated. null when specific is true or none of these is "
+    "missing."
 )
 
 
@@ -583,8 +601,19 @@ def _parse_assessment(raw: str) -> ExplanationAssessment | None:
             consistent=data["consistent"],
             contradictions=tuple(str(c)[:MAX_CONTRADICTION_CHARS] for c in contradictions[:5]),
             summary=str(data.get("summary") or "")[:300],
+            missing_detail=_missing_detail(data.get("missing_detail")),
         )
     except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        return None
+
+
+def _missing_detail(value: object) -> MissingDetail | None:
+    """Optional and advisory: a missing or unknown value is dropped rather
+    than making the whole assessment unusable (which would escalate).
+    """
+    try:
+        return MissingDetail(value) if value is not None else None
+    except ValueError:
         return None
 
 

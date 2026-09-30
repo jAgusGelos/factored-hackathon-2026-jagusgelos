@@ -47,6 +47,7 @@ ALLOWED_FIELDS = {
     "candidate_count",
     "clarification_rounds",
     "resolution_reference",
+    "missing_detail",
 }
 
 
