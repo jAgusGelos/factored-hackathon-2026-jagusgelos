@@ -437,7 +437,9 @@ async function renderReply(reply, prevState) {
 function appendRetryCard(turn, inProgress) {
   const retryBtn = quickButton(t("retry"), () => {
     if (state.busy) return;
-    turn.retired = retireInteractiveBlocks();
+    // This retry row is retired for good; turn.retired keeps the blocks the
+    // first send took away, the only ones a rejection may give back.
+    retireInteractiveBlocks();
     runTurn(turn);
   }, "btn-secondary");
   appendActionCard(inProgress ? t("waitSlow") : t("turnError"), "", { isError: !inProgress, actions: [retryBtn] });
