@@ -47,7 +47,7 @@ __all__ = [
     "AUTO_RESOLVE_CHARGE", "CARD_PRESENT_CHARGE", "CONVINCING_ASSESSMENT", "DEMO_USERNAME", "DUPLICATE_ASSESSMENT",
     "DUPLICATE_CHARGES", "EXPLANATION", "FRAUD_SCORE_CHARGE", "NOT_RECEIVED_ASSESSMENT", "OVER_LIMIT_CHARGE",
     "REAL_DEMO_USERS_PATH", "REAL_FIXTURE_PATH", "REPO_ROOT", "SECOND_ONLINE_CHARGE", "charge_extraction",
-    "charge_report", "demo_session", "logged_events", "mock_anthropic_client", "session_for",
+    "charge_report", "demo_session", "event_sequence", "logged_events", "mock_anthropic_client", "session_for",
 ]
 
 
@@ -104,14 +104,24 @@ NOT_RECEIVED_ASSESSMENT = {**CONVINCING_ASSESSMENT, "reason": "not_received"}
 EXPLANATION = "No uso Uber hace meses, tengo la tarjeta conmigo y ayer vi el cargo en la app del banco"
 
 
-def logged_events(app_db: Path, event_type: str) -> list[dict]:
-    """The payloads of every audit event of this type in the app db."""
+def _event_rows(app_db: Path, sql: str, params: list[str]) -> list[tuple]:
     con = sqlite3.connect(str(app_db))
     try:
-        rows = con.execute("SELECT payload_json FROM events WHERE event_type = ?", [event_type]).fetchall()
+        return con.execute(sql, params).fetchall()
     finally:
         con.close()
+
+
+def logged_events(app_db: Path, event_type: str) -> list[dict]:
+    """The payloads of every audit event of this type in the app db."""
+    rows = _event_rows(app_db, "SELECT payload_json FROM events WHERE event_type = ?", [event_type])
     return [json.loads(r[0]) for r in rows]
+
+
+def event_sequence(app_db: Path, case_id: str) -> list[str]:
+    """The event types of one case, in the order they were logged."""
+    rows = _event_rows(app_db, "SELECT event_type FROM events WHERE case_id = ? ORDER BY id", [case_id])
+    return [r[0] for r in rows]
 
 
 def demo_session(app_db: Path) -> Session:

@@ -10,6 +10,7 @@ client mocked. Skipped gracefully if the ETL fixture hasn't been generated.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, replace
 from unittest.mock import patch
 
 from app import cases, db
@@ -29,6 +30,7 @@ from tests.support import (
     charge_extraction,
     charge_report,
     demo_session,
+    event_sequence,
     logged_events,
     mock_anthropic_client,
     requires_real_fixture,
@@ -705,6 +707,35 @@ def test_a_verified_duplicate_is_reversed_without_blocking_the_card(real_fixture
     assert case.credit_key == f"duplicate:{min(DUPLICATE_CHARGES)}"
 
 
+def _credit_events(app_db, case_id) -> list[str]:
+    """The events of a resolved case from the assessment to the resolution."""
+    events = event_sequence(app_db, case_id)
+    return events[events.index("explanation_assessed"):events.index("case_resolved") + 1]
+
+
+def test_an_unrecognized_credit_logs_the_card_block_and_the_review_in_order(real_fixture_app_db):
+    """Pins the credit path's event order: after the credit, an unrecognized
+    charge adds the card block and the review, then the case is resolved.
+    """
+    session = demo_session(real_fixture_app_db)
+    reply = _pick_and_explain(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
+
+    assert reply["state"] == CaseState.RESOLVED_AUTO
+    assert _credit_events(real_fixture_app_db, reply["case_id"]) == [
+        "explanation_assessed", "simulated_credit", "simulated_card_block", "credit_review_queued", "case_resolved",
+    ]
+
+
+def test_a_duplicate_reversal_logs_only_the_credit_and_the_resolution(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    reply = _pick_and_explain(session, real_fixture_app_db, DUPLICATE_CHARGES[1], DUPLICATE_ASSESSMENT)
+
+    assert reply["state"] == CaseState.RESOLVED_AUTO
+    assert _credit_events(real_fixture_app_db, reply["case_id"]) == [
+        "explanation_assessed", "simulated_credit", "case_resolved",
+    ]
+
+
 def test_a_duplicate_pair_is_reversed_only_once(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
     first = _pick_and_explain(session, real_fixture_app_db, DUPLICATE_CHARGES[1], DUPLICATE_ASSESSMENT)
@@ -761,23 +792,34 @@ def test_a_high_fraud_score_escalates_before_asking_for_an_explanation(real_fixt
 # -- Review fixes (Milestone 9 review) -------------------------------------------
 
 
-def _stale_limits_read(monkeypatch):
+@dataclass
+class _StaleReadProbe:
+    """How many policy reads went through the patch, and how many of those had
+    a credit history to hide (so a test can prove the patch reached the path).
+    """
+
+    calls: int = 0
+    zeroed: int = 0
+
+
+def _stale_limits_read(monkeypatch) -> _StaleReadProbe:
     """Makes every policy read see no earlier credits, as a second chat that
     read the history before the first one committed would.
     """
-    from dataclasses import replace
-
     from app import state_machine
 
     fresh = state_machine._dispute_context
+    probe = _StaleReadProbe()
 
     def stale(*args, **kwargs):
-        return replace(
-            fresh(*args, **kwargs), duplicate_pair_credited=False, recent_unrecognized_credits=0,
-            recent_credited_usd=0.0,
-        )
+        ctx = fresh(*args, **kwargs)
+        probe.calls += 1
+        if ctx.duplicate_pair_credited or ctx.recent_unrecognized_credits or ctx.recent_credited_usd:
+            probe.zeroed += 1
+        return replace(ctx, duplicate_pair_credited=False, recent_unrecognized_credits=0, recent_credited_usd=0.0)
 
     monkeypatch.setattr(state_machine, "_dispute_context", stale)
+    return probe
 
 
 def test_a_pending_twin_is_not_a_second_charge(real_fixture_app_db, tmp_path, monkeypatch):
@@ -826,12 +868,14 @@ def test_two_chats_cannot_both_slip_under_the_credit_limit(real_fixture_app_db, 
     """
     session = demo_session(real_fixture_app_db)
     first = _pick_and_explain(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
-    _stale_limits_read(monkeypatch)
+    probe = _stale_limits_read(monkeypatch)
     second = _pick_and_explain(session, real_fixture_app_db, SECOND_ONLINE_CHARGE)
 
+    assert probe.calls >= 1 and probe.zeroed >= 1
     assert first["state"] == CaseState.RESOLVED_AUTO
     assert second["state"] == CaseState.ESCALATED
     assert logged_events(real_fixture_app_db, "credit_limit_reached")
+    assert logged_events(real_fixture_app_db, "credit_already_granted") == []
     assert len(logged_events(real_fixture_app_db, "simulated_credit")) == 1
     case = cases.get_case(second["case_id"], db_path=real_fixture_app_db)
     assert case.handoff["facts"]["dispute_reason"] == "unrecognized"
@@ -840,11 +884,13 @@ def test_two_chats_cannot_both_slip_under_the_credit_limit(real_fixture_app_db, 
 def test_two_chats_cannot_reverse_both_charges_of_a_duplicate_pair(real_fixture_app_db, monkeypatch):
     session = demo_session(real_fixture_app_db)
     first = _pick_and_explain(session, real_fixture_app_db, DUPLICATE_CHARGES[1], DUPLICATE_ASSESSMENT)
-    _stale_limits_read(monkeypatch)
+    probe = _stale_limits_read(monkeypatch)
     second = _pick_and_explain(session, real_fixture_app_db, DUPLICATE_CHARGES[0], DUPLICATE_ASSESSMENT)
 
+    assert probe.calls >= 1 and probe.zeroed >= 1
     assert first["state"] == CaseState.RESOLVED_AUTO
     assert second["state"] == CaseState.ESCALATED
+    assert logged_events(real_fixture_app_db, "credit_already_granted")
     handoff = cases.get_case(second["case_id"], db_path=real_fixture_app_db).handoff
     assert handoff["facts"]["credited_in_case"] == first["case_id"]
     assert len(logged_events(real_fixture_app_db, "simulated_credit")) == 1
