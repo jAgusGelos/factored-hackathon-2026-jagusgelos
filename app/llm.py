@@ -15,7 +15,8 @@ credit_score, full transcripts, or any raw DB row/object.
 Haiku 4.5 by default, `config.ANTHROPIC_MODEL` is the single config constant
 every call site uses — never hardcoded per call site). It enforces the NFR's
 bounded-retry contract: a 15s timeout, at most 2 retries with 1s/2s backoff,
-then `LLMUnavailable` — the caller (Task 2.4's orchestration) is required to
+all inside the chat turn's shared model budget (`turn_deadline()`), then
+`LLMUnavailable` — the caller (Task 2.4's orchestration) is required to
 catch that and force escalation with a deterministic fallback message, never
 crash, hang, or hallucinate a best-guess answer.
 """
@@ -26,6 +27,9 @@ import datetime
 import json
 import logging
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -35,6 +39,10 @@ from app import config
 from app.policy import DisputeReason, ExplanationAssessment, MissingDetail
 
 logger = logging.getLogger("app.llm")
+
+# Monotonic time at which the current chat turn's model budget runs out; None
+# outside a turn (tests, eval, scripts), where calls have no shared deadline.
+_turn_deadline: ContextVar[float | None] = ContextVar("turn_deadline", default=None)
 
 
 class Language(StrEnum):
@@ -94,8 +102,6 @@ def build_prompt_context(
     candidate_count: int | None = None,
     list_filter: str | None = None,
     clarification_rounds: int | None = None,
-    resolution_reference: str | None = None,
-    dispute_reason: str | None = None,
     missing_detail: MissingDetail | None = None,
 ) -> PromptContext:
     """The single allowlist function ALL prompt construction must go
@@ -118,20 +124,47 @@ def build_prompt_context(
         "candidate_count": candidate_count,
         "list_filter": list_filter,
         "clarification_rounds": clarification_rounds,
-        "resolution_reference": resolution_reference,
-        "dispute_reason": dispute_reason,
         # A closed enum, validated here: this slot can never carry free text.
         "missing_detail": MissingDetail(missing_detail) if missing_detail is not None else None,
     }
     return PromptContext({k: v for k, v in context.items() if v is not None})
 
 
-def call_llm(prompt: str, *, system: str | None = None) -> str:
+@contextmanager
+def turn_deadline() -> Iterator[None]:
+    """Opens the model budget of one chat turn (`config.TURN_DEADLINE_SECONDS`,
+    shared by every `call_llm()` of the request). Always reset on exit, so a
+    later request, or a call made outside any turn, never inherits it.
+    """
+    token = _turn_deadline.set(time.monotonic() + config.TURN_DEADLINE_SECONDS)
+    try:
+        yield
+    finally:
+        _turn_deadline.reset(token)
+
+
+def _remaining_budget() -> float | None:
+    """Seconds left in the current turn's budget; None outside a turn."""
+    deadline = _turn_deadline.get()
+    return None if deadline is None else deadline - time.monotonic()
+
+
+def _deadline_exceeded(last_exc: Exception | None) -> LLMUnavailable:
+    logger.error("llm_deadline_exceeded: the turn's model budget is used up (last error: %s)", last_exc)
+    return LLMUnavailable("LLM call skipped: the turn's model budget is used up")
+
+
+def call_llm(prompt: str, *, system: str | None = None, max_tokens: int | None = None) -> str:
     """The ONLY function in this codebase allowed to call the Anthropic API.
 
     Bounded retries per the NFR: 15s timeout per attempt, at most 2 retries
-    with 1s then 2s backoff (3 attempts total). Raises `LLMUnavailable` if
-    every attempt fails — never returns a hallucinated/partial answer.
+    with 1s then 2s backoff (3 attempts total). The SDK's own hidden retries
+    are off (`max_retries=0`), so this loop is the whole retry budget. Inside
+    a chat turn (`turn_deadline()`), each attempt's timeout is also capped to
+    what is left of the turn's budget, a backoff that does not fit is not
+    slept, and a used-up budget raises `LLMUnavailable` at once. Raises
+    `LLMUnavailable` if every attempt fails — never returns a
+    hallucinated/partial answer.
 
     A missing `ANTHROPIC_API_KEY` is treated the same as an unavailable LLM
     (fail fast, no retry, `LLMUnavailable`) rather than a bug — retrying with
@@ -144,7 +177,7 @@ def call_llm(prompt: str, *, system: str | None = None) -> str:
         logger.error("ANTHROPIC_API_KEY is not configured — cannot call the LLM.")
         raise LLMUnavailable("ANTHROPIC_API_KEY is not configured")
 
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY, max_retries=0)
     last_exc: Exception | None = None
     retryable = (
         anthropic.APITimeoutError,
@@ -155,15 +188,24 @@ def call_llm(prompt: str, *, system: str | None = None) -> str:
 
     for attempt, delay in enumerate([0.0, *config.LLM_RETRY_BACKOFF_SECONDS], start=1):
         if delay:
+            remaining = _remaining_budget()
+            if remaining is not None and remaining - delay < config.LLM_MIN_ATTEMPT_SECONDS:
+                raise _deadline_exceeded(last_exc) from last_exc
             logger.warning("LLM call attempt %d failed, retrying in %.1fs", attempt - 1, delay)
             time.sleep(delay)
+        timeout = config.LLM_TIMEOUT_SECONDS
+        remaining = _remaining_budget()
+        if remaining is not None:
+            if remaining < config.LLM_MIN_ATTEMPT_SECONDS:
+                raise _deadline_exceeded(last_exc) from last_exc
+            timeout = min(timeout, remaining)
         try:
             response = client.messages.create(
                 model=config.ANTHROPIC_MODEL,
-                max_tokens=config.LLM_MAX_TOKENS,
+                max_tokens=max_tokens if max_tokens is not None else config.LLM_MAX_TOKENS,
                 system=system,
                 messages=[{"role": "user", "content": prompt}],
-                timeout=config.LLM_TIMEOUT_SECONDS,
+                timeout=timeout,
             )
             return "".join(block.text for block in response.content if block.type == "text")
         except retryable as exc:
@@ -396,20 +438,13 @@ def classify_confirmation(customer_text: str, *, language: Language) -> Confirma
 # One fixed instruction per case state, appended to the NLG prompt. Static
 # text only (no customer data), so it does not touch the AD-5 allowlist. The
 # small per-state goal is what keeps a reply on task: without it a weaker model
-# drifts (e.g. never mentions the reference number on resolution).
+# drifts (e.g. asks a closing question after handing the case off).
 _STATE_INSTRUCTION = {
     Language.ES: {
         "confirming": (
             "Nombrá el comercio, el monto y la fecha exactos del contexto (candidate_*) y "
             "preguntale de forma directa si es ese el cargo que no reconoce (por ejemplo: "
             "'¿es ese el cargo que no reconocés?'). Pedile que confirme o que te corrija. NO digas que el caso está resuelto ni que se devuelve dinero todavía."
-        ),
-        "resolved_auto": (
-            "Si dispute_reason es 'duplicate', contale que confirmaste que el cargo estaba duplicado "
-            "y que le devolviste uno de los dos. Si es 'unrecognized', contale que se aplicó un "
-            "crédito PROVISIONAL por ese cargo, que por seguridad se bloqueó su tarjeta, y que si la revisión muestra que el cargo fue suyo el crédito se revierte. "
-            "En los dos casos dale su número de referencia resolution_reference (escribilo tal cual). "
-            "No inventes plazos."
         ),
         "escalated": (
             "Contale que vas a pasar su caso a una persona del equipo que lo va a revisar y "
@@ -476,13 +511,6 @@ _STATE_INSTRUCTION = {
             "de forma direta se é essa a cobrança que ele não reconhece (por exemplo: 'é essa "
             "a cobrança que você não reconhece?'). Peça que confirme ou corrija. NÃO "
             "diga que o caso está resolvido nem que o dinheiro será devolvido ainda."
-        ),
-        "resolved_auto": (
-            "Se dispute_reason for 'duplicate', conte que você confirmou que a cobrança estava "
-            "duplicada e devolveu uma das duas. Se for 'unrecognized', conte que foi aplicado um "
-            "crédito PROVISÓRIO por essa cobrança, que por segurança o cartão foi bloqueado, e que se a análise mostrar que a cobrança foi dele o crédito é revertido. "
-            "Nos dois casos informe o número de referência resolution_reference (escreva exatamente "
-            "como está). Não invente prazos."
         ),
         "escalated": (
             "Conte que vai passar o caso para uma pessoa da equipe, que vai revisá-lo e "
@@ -627,7 +655,10 @@ def assess_explanation(explanation: str, *, charge: PromptContext) -> Explanatio
     if not isinstance(charge, PromptContext):
         raise TypeError("assess_explanation() only accepts build_prompt_context() output (AD-5)")
     facts = "\n".join(f"{k}: {v}" for k, v in charge.items() if k.startswith("candidate_"))
-    raw = call_llm(f"Charge facts:\n{facts}\n\nCustomer explanation:\n{explanation}", system=_ASSESSMENT_SYSTEM_PROMPT)
+    raw = call_llm(
+        f"Charge facts:\n{facts}\n\nCustomer explanation:\n{explanation}",
+        system=_ASSESSMENT_SYSTEM_PROMPT, max_tokens=config.ASSESSMENT_MAX_TOKENS,
+    )
     assessment = _parse_assessment(raw)
     if assessment is None:
         # Length only: a malformed answer tends to echo the customer's own words.

@@ -1,6 +1,7 @@
 """Customer-facing copy (Spanish and Portuguese) and how amounts/dates are
 written in it. These are the deterministic texts: the welcome message the chat
-opens with (served to the frontend by `/api/me`), and every fallback used when
+opens with (served to the frontend by `/api/me`), the resolution message (always
+this template, see `app/credit.py`), and every fallback used when
 the LLM is unavailable or its reply fails a check in a conversation step
 (`app/state_machine.py`, `app/explanation.py`, `app/credit.py`,
 `app/case_turn.py`).
@@ -73,6 +74,13 @@ CHARGE_LIST = {
 SELECTION_UNAVAILABLE = {
     Language.ES: "Esa opción ya no está disponible. Elegí uno de los cargos de la lista de abajo.",
     Language.PT: "Essa opção não está mais disponível. Escolha uma das cobranças da lista abaixo.",
+}
+
+# A quick-reply tapped after the conversation moved past it (an old "Sí, es
+# ese" or "No está en la lista"): it changes nothing.
+ACTION_UNAVAILABLE = {
+    Language.ES: "Esa opción ya no está disponible. Puede continuar desde el último mensaje.",
+    Language.PT: "Essa opção não está mais disponível. Você pode continuar a partir da última mensagem.",
 }
 
 HUMAN_DEFERRED = {
@@ -246,30 +254,6 @@ def format_day(day: date, language: Language) -> str:
 
 def resolved(reference: str, reason: DisputeReason, language: Language) -> str:
     return _RESOLVED[language][reason].format(reference=reference)
-
-
-# What a resolution message must tell the customer, per reason: each entry is
-# one fact, satisfied by any of its word stems (lowercase).
-_REQUIRED_DISCLOSURES = {
-    Language.ES: {
-        DisputeReason.UNRECOGNIZED: (("provisional",), ("bloque",), ("revier", "revert")),
-        DisputeReason.DUPLICATE: (("duplicad",), ("uno de los dos", "devolvimos", "reintegr")),
-    },
-    Language.PT: {
-        DisputeReason.UNRECOGNIZED: (("provisóri", "provisori"), ("bloque",), ("revert",)),
-        DisputeReason.DUPLICATE: (("duplicad",), ("uma das duas", "devolvemos", "reembols")),
-    },
-}
-
-
-def states_required_disclosures(reply: str, reason: DisputeReason, language: Language) -> bool:
-    """Whether a model-written resolution tells the customer everything the
-    policy requires: for an unrecognized charge that the credit is provisional,
-    the card is blocked and the credit is reversed if the charge was theirs;
-    for a duplicate, that it was duplicated and one charge was returned.
-    """
-    text = reply.lower()
-    return all(any(stem in text for stem in fact) for fact in _REQUIRED_DISCLOSURES[language][reason])
 
 
 def terminal_case(state: CaseState, reference: str | None, language: Language) -> str:

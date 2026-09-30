@@ -36,6 +36,13 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 LLM_TIMEOUT_SECONDS = 15.0
 LLM_MAX_TOKENS = 512
 LLM_RETRY_BACKOFF_SECONDS = (1.0, 2.0)
+# Model budget of one /api/chat turn: every call_llm() of the request shares it
+# (app/llm.py::turn_deadline), so the server answers before the browser gives
+# up at 25 s. An attempt is not started with less than LLM_MIN_ATTEMPT_SECONDS left.
+TURN_DEADLINE_SECONDS = 20.0
+LLM_MIN_ATTEMPT_SECONDS = 1.0
+# The explanation assessment is a short JSON object; a tight cap keeps it fast.
+ASSESSMENT_MAX_TOKENS = 300
 
 # The login screen offers an "Autocompletar" button for the demo account (AD-4 is a
 # SIMULATED identity service over synthetic data). Set to 0 to hide the

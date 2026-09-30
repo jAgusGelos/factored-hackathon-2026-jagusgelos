@@ -46,7 +46,6 @@ ALLOWED_FIELDS = {
     "candidate_merchant_category",
     "candidate_count",
     "clarification_rounds",
-    "resolution_reference",
     "missing_detail",
 }
 
@@ -81,7 +80,6 @@ def test_build_prompt_context_returns_exactly_the_documented_allowlist():
         candidate_merchant_category="Retail",
         candidate_count=1,
         clarification_rounds=0,
-        resolution_reference="CASE-ABC123",
     )
     assert set(context.keys()) <= ALLOWED_FIELDS
 

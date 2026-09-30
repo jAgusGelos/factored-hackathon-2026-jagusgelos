@@ -262,7 +262,7 @@ def test_no_creditable_reason_is_also_sent_to_a_person():
 @pytest.mark.parametrize("language", [Language.ES, Language.PT])
 def test_every_creditable_reason_has_a_resolution_message_and_its_disclosures(language):
     assert set(replies._RESOLVED[language]) == AUTO_CREDITABLE_REASONS
-    assert set(replies._REQUIRED_DISCLOSURES[language]) == AUTO_CREDITABLE_REASONS
+    assert set(_REQUIRED_DISCLOSURES[str(language)]) == AUTO_CREDITABLE_REASONS
 
 
 # -- USD pricing ----------------------------------------------------------------------
@@ -300,21 +300,32 @@ def test_a_charge_dated_after_the_data_as_of_date_escalates():
 # -- What a resolution message must disclose ------------------------------------------
 
 
+# One fact per entry, satisfied by any of its word stems (lowercase): an
+# unrecognized charge's credit is provisional, the card is blocked and the
+# credit is reversed if the charge was theirs; a duplicate was duplicated and
+# one of the two charges was returned.
+_REQUIRED_DISCLOSURES = {
+    "es": {
+        DisputeReason.UNRECOGNIZED: (("provisional",), ("bloque",), ("revier", "revert")),
+        DisputeReason.DUPLICATE: (("duplicad",), ("uno de los dos", "devolvimos", "reintegr")),
+    },
+    "pt": {
+        DisputeReason.UNRECOGNIZED: (("provisóri", "provisori"), ("bloque",), ("revert",)),
+        DisputeReason.DUPLICATE: (("duplicad",), ("uma das duas", "devolvemos", "reembols")),
+    },
+}
+
+
 @pytest.mark.parametrize("language", ["es", "pt"])
 @pytest.mark.parametrize("reason", [DisputeReason.UNRECOGNIZED, DisputeReason.DUPLICATE])
-def test_every_resolution_template_states_the_required_disclosures(language, reason):
+def test_every_resolution_template_states_the_reference_and_the_required_disclosures(language, reason):
+    """The resolution message is always this template (never model-written),
+    so the template itself must carry every disclosure the policy requires.
+    """
     from app import replies
     from app.llm import Language
 
-    template = replies.resolved("REF-X", reason, Language(language))
-    assert replies.states_required_disclosures(template, reason, Language(language))
-
-
-def test_an_unrecognized_reply_without_the_provisional_or_reversal_notice_is_rejected():
-    from app import replies
-    from app.llm import Language
-
-    missing_provisional = "Listo, bloqueamos tu tarjeta y si el cargo fue tuyo se revierte. REF-X"
-    missing_reversal = "Listo, crédito provisional aplicado y tarjeta bloqueada. REF-X"
-    for reply in (missing_provisional, missing_reversal):
-        assert not replies.states_required_disclosures(reply, DisputeReason.UNRECOGNIZED, Language.ES)
+    template = replies.resolved("REF-X", reason, Language(language)).lower()
+    assert "ref-x" in template
+    for stems in _REQUIRED_DISCLOSURES[language][reason]:
+        assert any(stem in template for stem in stems), (reason, language, stems)
