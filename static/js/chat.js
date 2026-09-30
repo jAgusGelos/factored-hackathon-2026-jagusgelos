@@ -625,9 +625,9 @@ function restoreInteractiveBlocks(blocks) {
 }
 
 function formatAmount(amount, currency) {
-  if (!currency) return new Intl.NumberFormat(t("timeLocale"), { maximumFractionDigits: 2 }).format(amount);
+  const style = currency ? { style: "currency", currency } : {};
   try {
-    return new Intl.NumberFormat(t("timeLocale"), { style: "currency", currency, maximumFractionDigits: 2 }).format(amount);
+    return new Intl.NumberFormat(t("timeLocale"), { ...style, maximumFractionDigits: 2 }).format(amount);
   } catch {
     return `${amount} ${currency}`;
   }
