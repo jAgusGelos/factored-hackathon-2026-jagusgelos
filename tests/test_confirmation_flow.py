@@ -259,7 +259,7 @@ def test_policy_is_reverified_at_confirmation_time(real_fixture_app_db, tmp_path
     assert logged_events(real_fixture_app_db, "simulated_credit") == []
 
 
-def test_llm_outage_while_confirming_escalates_with_the_fallback_message(real_fixture_app_db):
+def test_llm_outage_while_confirming_escalates_with_the_escalation_notice(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
     first = _first_turn(session, real_fixture_app_db, _client(session))
 

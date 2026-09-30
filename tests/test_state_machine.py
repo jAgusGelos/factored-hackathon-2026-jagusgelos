@@ -259,7 +259,7 @@ def test_customer_requested_human_without_amount_or_date_records_no_fabricated_f
     assert "reported_date" not in evaluation.handoff.facts
 
 
-def test_fixture_lookup_failure_forces_escalation_with_fallback_message(tmp_path, monkeypatch):
+def test_fixture_lookup_failure_forces_escalation_with_the_escalation_notice(tmp_path, monkeypatch):
     from unittest.mock import patch
 
     from app import state_machine

@@ -69,8 +69,8 @@ class PromptContext(dict[str, object]):
 
 class LLMUnavailable(Exception):
     """Raised when the LLM call failed after the full retry budget. The
-    caller MUST catch this and force escalation with a deterministic
-    fallback message (NFR) — never crash, hang, or hallucinate an answer.
+    caller MUST catch this and force escalation with the deterministic
+    escalation notice (NFR): never crash, hang, or hallucinate an answer.
     """
 
 

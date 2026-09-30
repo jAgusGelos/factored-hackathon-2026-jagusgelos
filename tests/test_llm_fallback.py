@@ -4,7 +4,7 @@ Every LLM call has a 15s timeout and at most 2 retries with backoff (1s,
 2s); if every attempt fails, `call_llm` must raise `LLMUnavailable` — never
 hang, crash uncaught, or return a hallucinated answer. The caller (Task 2.4's
 orchestration) is responsible for catching this and forcing escalation with
-the deterministic fallback message.
+the deterministic escalation notice.
 """
 
 from __future__ import annotations

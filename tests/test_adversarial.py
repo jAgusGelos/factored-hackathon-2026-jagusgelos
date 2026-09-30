@@ -210,7 +210,7 @@ def test_tool_failure_fixture_db_exception_forces_escalation_not_a_crash(app_db,
         reply = handle_message(SESSION, None, "Tengo un cargo que no reconozco", db_path=app_db)
 
     assert reply["state"] == CaseState.ESCALATED
-    assert reply["reply"]  # a deterministic fallback message, not an unhandled exception
+    assert reply["reply"]  # the deterministic escalation notice, not an unhandled exception
 
 
 def test_tool_failure_llm_exhausted_retries_forces_escalation_not_a_crash(app_db):
