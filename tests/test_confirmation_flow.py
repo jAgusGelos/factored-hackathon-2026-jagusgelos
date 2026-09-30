@@ -226,7 +226,7 @@ def test_asking_for_a_human_at_the_confirmation_step_first_gets_the_agent_to_try
 
     assert second["state"] == CaseState.ESCALATED
     case = cases.get_case(first["case_id"], db_path=real_fixture_app_db)
-    assert case.escalation_reason == "human_requested"
+    assert case.escalation_reason == EscalationReason.HUMAN_REQUESTED
     # The proposal was never confirmed, so the notice names no charge (AD-5).
     assert second["escalation"]["charge"] is None
 

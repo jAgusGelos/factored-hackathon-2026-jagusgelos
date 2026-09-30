@@ -110,8 +110,10 @@ def _explanation_verdict(
 
 
 def _asks_for_a_person(turn: Turn, text: str) -> bool:
-    """A short text (it never reaches the assessment) checked for a request
-    for a person, with the extraction call; only its `wants_human` is used.
+    """A text too short to be assessed on its own (unless an earlier answer
+    makes the whole long enough, the assessment never sees it) checked for a
+    request for a person, with the extraction call; only its `wants_human` is
+    used.
     If the model is unavailable the text counts as not asking (logged), so a
     detection failure never escalates by itself.
     """

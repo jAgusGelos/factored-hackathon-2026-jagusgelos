@@ -672,8 +672,9 @@ function appendChargeList(options) {
   scrollLogToEnd();
 }
 
-// "Hablar con una persona" only appears once the server says the agent has
-// tried and could not resolve the case (human_available).
+// "Hablar con una persona" only appears once the server says a request for a
+// person escalates (human_available): after the customer's first request, or
+// once the agent could not resolve the case.
 function appendQuickReplies(caseState, humanAvailable) {
   const buttons = [];
   if (caseState === CASE_STATES.SELECTING) {
