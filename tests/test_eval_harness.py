@@ -32,7 +32,7 @@ def test_run_covers_the_adversarial_scenarios(tmp_path):
     # outcome) and are verified in tests/test_adversarial.py, not re-run here.
     assert adversarial_keys == {
         "missing_data", "prompt_injection", "tool_failure", "multilingual_ambiguity",
-        "unoffered_selection", "repeat_credit",
+        "unoffered_selection", "repeat_credit", "early_human_request",
     }
 
 

@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS cases (
     turn_count INTEGER NOT NULL DEFAULT 0,
     offered_transaction_ids TEXT,
     reported_merchant TEXT,
+    handoff_unlocked INTEGER NOT NULL DEFAULT 0,
     predicted_priority TEXT,
     resolution_reference TEXT,
     handoff_json TEXT,
@@ -96,6 +97,7 @@ _ADDED_COLUMNS = {
         ("turn_count", "INTEGER NOT NULL DEFAULT 0"),
         ("offered_transaction_ids", "TEXT"),
         ("reported_merchant", "TEXT"),
+        ("handoff_unlocked", "INTEGER NOT NULL DEFAULT 0"),
     ),
 }
 

@@ -72,6 +72,35 @@ SELECTION_UNAVAILABLE = {
     Language.PT: "Essa opção não está mais disponível. Escolha uma das cobranças da lista abaixo.",
 }
 
+HUMAN_DEFERRED = {
+    Language.ES: (
+        "Antes de pasarte con una persona dejame intentar resolverlo yo, que suele ser mucho más "
+        "rápido. Tocá el cargo que no reconocés o contame monto, fecha o comercio; si no lo "
+        "encuentro, te paso con alguien del equipo."
+    ),
+    Language.PT: (
+        "Antes de passar para uma pessoa, deixa eu tentar resolver, que costuma ser bem mais rápido. "
+        "Toque na cobrança que você não reconhece ou me conte valor, data ou comerciante; se eu não "
+        "encontrar, passo para alguém da equipe."
+    ),
+}
+
+HUMAN_DEFERRED_WHILE_CONFIRMING = {
+    Language.ES: (
+        "Antes de pasarte con una persona dejame cerrarlo yo, que es más rápido: ¿es ese el cargo "
+        "que no reconocés? Si no es, decime que no y lo buscamos."
+    ),
+    Language.PT: (
+        "Antes de passar para uma pessoa, deixa eu resolver, que é mais rápido: é essa a cobrança "
+        "que você não reconhece? Se não for, diga que não e a gente procura."
+    ),
+}
+
+ASK_FOR_ONE_DETAIL = {
+    Language.ES: "Contame un dato más del cargo (monto aproximado, fecha o comercio) y lo busco.",
+    Language.PT: "Me conte mais um dado da cobrança (valor aproximado, data ou comerciante) e eu procuro.",
+}
+
 CASE_MOVED_ON = {
     Language.ES: "Tu caso cambió mientras te respondía (quizás desde otra pestaña). Seguimos desde acá.",
     Language.PT: "Seu caso mudou enquanto eu respondia (talvez em outra aba). Seguimos daqui.",

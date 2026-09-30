@@ -151,10 +151,7 @@ function humanButton() {
 }
 
 function starterButtons() {
-  return [
-    quickButton(t("starterShowCharges"), () => sendToAgent({ message: t("starterShowChargesMessage") })),
-    humanButton(),
-  ];
+  return [quickButton(t("starterShowCharges"), () => sendToAgent({ message: t("starterShowChargesMessage") }))];
 }
 
 // The conversation opens with the agent introducing itself and what it can
@@ -303,7 +300,7 @@ async function sendToAgent({ message, selectedTransactionId = null, action = nul
     state.caseId = reply.case_id;
     appendBubble("agent", reply.reply);
     if (reply.options && reply.options.length) appendChargeList(reply.options);
-    appendQuickReplies(reply.state);
+    appendQuickReplies(reply.state, reply.human_available);
 
     if (await refreshCaseStatus()) {
       renderTurnActionCard(reply.state);
@@ -397,18 +394,17 @@ function appendChargeList(options) {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-function appendQuickReplies(caseState) {
+// "Hablar con una persona" only appears once the server says the agent has
+// tried and could not resolve the case (human_available).
+function appendQuickReplies(caseState, humanAvailable) {
   const buttons = [];
   if (caseState === "selecting") {
     buttons.push(actionButton("quickNotInList", ACTIONS.NONE_OF_THESE));
   } else if (caseState === "confirming") {
     buttons.push(actionButton("quickYes", ACTIONS.CONFIRM_YES), actionButton("quickNo", ACTIONS.CONFIRM_NO));
   }
-  if (caseState === "awaiting_report") {
-    buttons.push(...starterButtons());
-  } else if (["selecting", "confirming", "clarifying"].includes(caseState)) {
-    buttons.push(humanButton());
-  }
+  if (caseState === "awaiting_report") buttons.push(...starterButtons());
+  if (humanAvailable) buttons.push(humanButton());
   if (!buttons.length) return;
   const block = document.createElement("div");
   block.className = "quick-replies interactive";

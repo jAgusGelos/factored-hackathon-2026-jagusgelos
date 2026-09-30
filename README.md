@@ -86,7 +86,7 @@ uvicorn app.main:app --reload --port 8000
 # data/demo_users.json after step 2)
 
 # 5. Tests, lint, eval harness
-pytest                              # 216 tests
+pytest                              # 225 tests
 ruff check .
 python -m eval.run_eval             # -> data/eval_report.json (see "Evaluation results" below)
 ```
@@ -115,10 +115,10 @@ dataset is in USD (there is no MXN transaction at all), a data finding in its ow
 | Automated resolution (typed) | "No reconozco un cargo de 38.500 pesos del 14 de junio" | Confident match (Uber) -> the agent names merchant/amount/date and asks (`confirming`, with "Sí, es ese" / "No es ese" buttons) -> "yes" + policy re-check -> `resolved_auto`, simulated provisional credit + reference |
 | Automated resolution (picked) | "Se me perdió un monto, mostrame mis cargos" -> tap a small charge | The customer's own charges as cards (`selecting`); tapping one is the customer's explicit identification (the AD-12 confirmation) -> policy -> `resolved_auto` |
 | Ambiguous: duplicated charge | "Me cobraron dos veces un taxi de 27 mil" | Two matches (AD-11 Row 3) -> only those two cards are shown -> the customer picks one |
-| Ambiguous: not in the list | Any list -> "No está en la lista" | `escalated` with the charges shown as evidence and an open question for the agent |
+| Ambiguous: not in the list | A list shown after a detail ("fue el 14 de junio") -> "No está en la lista" | `escalated` with the charges shown as evidence and an open question for the agent. With no detail yet, the agent asks for one instead of escalating |
 | Unsupported request | "¿Cuál es mi saldo?" | Declines and says what this channel does; no guess, no state change |
 | Human escalation (policy) | "No reconozco una compra en Tienda Online Global", or tap Boutique Moda / Tienda Don José | Fails AD-11 (fraud score 91 / ~610 USD / Pending) -> `escalated` with a structured handoff (facts, actions, evidence, open questions) |
-| Human escalation (request) | "Hablar con una persona" button or asking for it | `escalated` immediately |
+| Human escalation (request) | Give a detail the agent cannot match (e.g. "fue el 22/04/2024"), then "Hablar con una persona" | The agent tries first: asking for a person before that gets the charge list and a "let me try first" reply. The button only appears once the customer gave details and the agent could not resolve them (nothing matched, a rejected proposal, or a round with nothing new). Each deferral spends a clarification round, so a customer who insists without details reaches a person on the third request |
 
 A turn that brings a new detail (amount, date, merchant) never spends a clarification round; after
 two rounds with nothing new, or more than 6 free-text reports in one case, the case escalates
@@ -147,20 +147,21 @@ classifier is wired as decision support only — a `Critical` prediction can onl
 reason to escalate; it structurally cannot cause an auto-resolution or override any other AD-11
 condition (proven by an exhaustive 16-combination test in `tests/test_policy_not_overridden.py`).
 
-**Conversation/system eval** (`eval/run_eval.py`) — ⚠️ **explicitly OFFLINE/SIMULATED**, not a
-measured-production result: the harness runs scripted multi-turn conversations against a
-deterministic mocked LLM client so every run is reproducible. 18 cases: 6 required scenarios
-(typed resolution, picked resolution, duplicated charge picked, not in list, policy escalation,
-human request) × 2 languages + 6 adversarial/failure-mode fixtures (missing data, prompt injection,
-LLM outage, mixed-language input, a tampered tap on a charge that was not offered, re-disputing an
-already-credited charge). Each scenario runs against its own app database:
+**Conversation/system eval** (`eval/run_eval.py`): ⚠️ **explicitly OFFLINE/SIMULATED**, not a
+measured-production result. The harness runs scripted multi-turn conversations against a
+deterministic mocked LLM client so every run is reproducible. 19 cases: 6 required scenarios
+(typed resolution, picked resolution, duplicated charge picked, not in list after details, policy
+escalation, human request after an unmatched detail) × 2 languages + 7 adversarial/failure-mode
+fixtures (missing data, prompt injection, LLM outage, mixed-language input, a tampered tap on a
+charge that was not offered, re-disputing an already-credited charge, asking for a person before
+giving any detail). Each scenario runs against its own app database:
 
-- **Unsafe outcomes: 0 / 18.**
-- Safe automated resolution rate: 0.33 (6/18; the mix is mostly escalation/adversarial by design).
+- **Unsafe outcomes: 0 / 19.**
+- Safe automated resolution rate: 0.32 (6/19; the mix is mostly escalation/adversarial by design).
 - Containment rate: 0.375 (6/16 concluded cases).
-- Pipeline latency (excludes real LLM network time): p50 0.12s, p95 0.24s.
-- Estimated cost (Haiku 4.5 list pricing, not measured billing): ~$0.0008/attempted case,
-  ~$0.0025/successful resolution.
+- Pipeline latency (excludes real LLM network time): p50 0.17s, p95 0.34s.
+- Estimated cost (Haiku 4.5 list pricing, not measured billing): ~$0.0009/attempted case,
+  ~$0.0029/successful resolution.
 
 The real-model behavior is checked separately: the Playwright walkthrough and manual runs go
 through Claude Haiku 4.5 end to end, and bugs they surfaced (fenced JSON, a currency lost between
@@ -221,7 +222,7 @@ app/            FastAPI backend — auth, state machine, policy, LLM boundary, c
 etl/            Offline ETL: extraction, quality checks, fixture generation, classifier training
 eval/           Eval harness (Milestone 5)
 static/         Frontend (vanilla HTML/CSS/JS, no build step — AD-1)
-tests/          pytest suite (216 tests)
+tests/          pytest suite (225 tests)
 support.py      Shared test/eval mock helpers (no pytest dependency — used by eval/ too)
 docs/           Challenge requirements digest
 data/           Local ETL artifacts, fixture, trained model (gitignored — never commit raw data)

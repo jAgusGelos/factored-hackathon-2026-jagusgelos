@@ -51,6 +51,9 @@ class Case:
     handoff: dict | None
     turn_count: int = 0
     reported_merchant: str | None = None
+    # The customer may ask for a person only after giving details the agent
+    # still could not resolve (see state_machine._unlocks_handoff).
+    handoff_unlocked: bool = False
     # The charges last shown to the customer to pick from; a selection is only
     # ever accepted if it is one of these (and it is re-checked as their own).
     offered_transaction_ids: tuple[str, ...] = ()
@@ -71,6 +74,7 @@ def _row_to_case(row: sqlite3.Row) -> Case:
         handoff=json.loads(row["handoff_json"]) if row["handoff_json"] else None,
         turn_count=row["turn_count"],
         reported_merchant=row["reported_merchant"],
+        handoff_unlocked=bool(row["handoff_unlocked"]),
         offered_transaction_ids=tuple(json.loads(row["offered_transaction_ids"] or "[]")),
     )
 
@@ -127,6 +131,7 @@ def update_case(
     offered_transaction_ids: tuple[str, ...] | None = None,
     clarification_rounds: int | None = None,
     add_clarification_round: bool = False,
+    unlock_handoff: bool = False,
     clear_fields: tuple[str, ...] = (),
     expected_states: tuple[str, ...] | None = None,
     expected_offered_transaction_ids: tuple[str, ...] | None = None,
@@ -174,6 +179,7 @@ def update_case(
                     handoff_json = COALESCE(?, handoff_json),
                     offered_transaction_ids = COALESCE(?, offered_transaction_ids),
                     clarification_rounds = COALESCE(?, clarification_rounds) + ?,
+                    handoff_unlocked = MAX(handoff_unlocked, ?),
                     updated_at = ?
                 WHERE case_id = ?{guards}
                 """,
@@ -183,6 +189,7 @@ def update_case(
                     json.dumps(handoff, ensure_ascii=False) if handoff is not None else None,
                     json.dumps(list(offered_transaction_ids)) if offered_transaction_ids is not None else None,
                     clarification_rounds, 1 if add_clarification_round else 0,
+                    1 if unlock_handoff else 0,
                     datetime.now(UTC).isoformat(), case_id, *guard_params,
                 ],
             )

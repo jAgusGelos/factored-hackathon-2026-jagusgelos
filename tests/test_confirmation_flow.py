@@ -205,17 +205,29 @@ def test_rejection_with_no_rounds_left_escalates(real_fixture_app_db):
     assert set(case.handoff) == {"facts", "actions_taken", "evidence", "open_questions"}
 
 
-def test_asking_for_a_human_at_the_confirmation_step_escalates(real_fixture_app_db):
+def test_asking_for_a_human_at_the_confirmation_step_first_gets_the_agent_to_try(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
     client = _client(session, answer="human")
     first = _first_turn(session, real_fixture_app_db, client)
 
     reply = _confirm(session, real_fixture_app_db, first["case_id"], client, text="quiero un agente")
 
+    assert reply["state"] == CaseState.CONFIRMING
+    assert reply["human_available"] is False
+    assert _events(real_fixture_app_db, "human_request_deferred")
+
+
+def test_asking_for_a_human_at_the_confirmation_step_escalates_once_unlocked(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    client = _client(session, answer="human")
+    first = _first_turn(session, real_fixture_app_db, client)
+    cases.update_case(first["case_id"], state="confirming", unlock_handoff=True, db_path=real_fixture_app_db)
+
+    reply = _confirm(session, real_fixture_app_db, first["case_id"], client, text="quiero un agente")
+
     assert reply["state"] == CaseState.ESCALATED
     case = cases.get_case(reply["case_id"], db_path=real_fixture_app_db)
     assert "humano" in case.handoff["actions_taken"][0]
-
 
 def test_policy_is_reverified_at_confirmation_time(real_fixture_app_db, tmp_path, monkeypatch):
     """A `yes` cannot resolve a case the AD-11 policy would no longer
@@ -378,6 +390,7 @@ def test_human_request_at_confirmation_keeps_the_proposed_transaction_as_evidenc
     session = demo_session(real_fixture_app_db)
     client = _client(session, answer="human")
     first = _first_turn(session, real_fixture_app_db, client)
+    cases.update_case(first["case_id"], state="confirming", unlock_handoff=True, db_path=real_fixture_app_db)
 
     reply = _confirm(session, real_fixture_app_db, first["case_id"], client, text="quiero un agente")
 

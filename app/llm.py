@@ -46,6 +46,8 @@ class PromptScene(StrEnum):
 
     GREETING = "greeting"
     OUT_OF_SCOPE = "out_of_scope"
+    HUMAN_DEFERRED = "human_deferred"
+    ASK_FOR_DETAILS = "ask_for_details"
 
 
 class PromptContext(dict[str, object]):
@@ -223,6 +225,10 @@ class ExtractedEntities:
     # labels (or nothing) is treated as a report, the default that keeps the
     # dispute flow going.
     intent: ExtractionIntent = ExtractionIntent.REPORT
+
+    @property
+    def has_details(self) -> bool:
+        return self.amount is not None or self.date is not None or bool(self.merchant_hint)
 
 
 def _parse_intent(value: object) -> ExtractionIntent:
@@ -408,6 +414,19 @@ _STATE_INSTRUCTION = {
             "revisión, pasar el caso a una persona del equipo. Cerrá preguntando qué cargo quiere "
             "revisar o si quiere ver sus últimos movimientos."
         ),
+        "human_deferred": (
+            "El cliente pidió hablar con una persona, pero todavía no intentaste resolver su caso. "
+            "Decile con calidez que primero querés intentar resolverlo vos, que suele ser mucho más "
+            "rápido, y que si no lo lográs lo pasás con una persona del equipo. Si candidate_count "
+            "está en el contexto, contale que abajo ve candidate_count cargos de su cuenta para tocar "
+            "el que no reconoce; si no, pedile que confirme el cargo que le propusiste o que te dé "
+            "monto, fecha o comercio. No enumeres cargos."
+        ),
+        "ask_for_details": (
+            "El cargo no estaba en la lista que le mostraste y todavía no te dio ningún dato. Pedile "
+            "UN dato para buscarlo mejor (monto aproximado, fecha o comercio). No digas que lo vas a "
+            "pasar con una persona."
+        ),
         "out_of_scope": (
             "El cliente pidió algo que no podés hacer por este canal. Decile con amabilidad que "
             "acá solo ayudás con cargos que no reconoce, sin inventar cómo resolver lo otro ni a "
@@ -451,6 +470,19 @@ _STATE_INSTRUCTION = {
             "política do banco e, se couber, aplicar um crédito provisório na hora; se precisar "
             "de mais análise, passar o caso para uma pessoa da equipe. Termine perguntando qual "
             "cobrança ele quer revisar ou se quer ver as últimas movimentações."
+        ),
+        "human_deferred": (
+            "O cliente pediu para falar com uma pessoa, mas você ainda não tentou resolver o caso. "
+            "Diga com cordialidade que primeiro quer tentar resolver, o que costuma ser bem mais "
+            "rápido, e que se não conseguir passa para uma pessoa da equipe. Se candidate_count "
+            "estiver no contexto, conte que abaixo ele vê candidate_count cobranças da conta para "
+            "tocar na que não reconhece; se não, peça que confirme a cobrança proposta ou informe "
+            "valor, data ou comerciante. Não liste cobranças."
+        ),
+        "ask_for_details": (
+            "A cobrança não estava na lista que você mostrou e ele ainda não deu nenhum dado. Peça "
+            "UM dado para procurar melhor (valor aproximado, data ou comerciante). Não diga que vai "
+            "passar para uma pessoa."
         ),
         "out_of_scope": (
             "O cliente pediu algo que você não pode fazer por este canal. Diga com gentileza que "

@@ -5,6 +5,14 @@ this module owns the STATE TRANSITIONS, `app/policy.py` owns the THRESHOLDS.
 Every guard function that reads customer data takes only a `Session`
 (`app/auth.py`) via `app/transactions.py` — never a bare `customer_id`.
 
+The agent tries first: a request to talk to a person is honored once the
+customer has given details (amount, date or merchant) that the agent still
+could not resolve (`cases.Case.handoff_unlocked`, set by `_offer` /
+`_ask_for_details`), or once the agent has used up its clarification rounds.
+Before that it answers with a charge list or asks again, and each deferral
+spends a round, so insisting always reaches a person eventually. Policy
+escalations (fraud score, amount, status...) are not affected.
+
 States (stored per case; every transition is a compare-and-set):
   awaiting_report -> confirming | selecting | escalated   (first report, AD-11)
   selecting       -> resolved_auto | escalated  (customer picks a listed charge; policy decides)
@@ -110,6 +118,7 @@ class ChatReply(TypedDict):
     customer_id: str
     reply: str
     options: list[ChargeOption]
+    human_available: bool
 
 
 # -- Policy verdicts (no side effects) ----------------------------------------
@@ -199,7 +208,12 @@ class _Turn:
             "customer_id": self.session.customer_id,
             "reply": text,
             "options": options or [],
+            "human_available": state not in TERMINAL_STATES and self._handoff_unlocked_now(),
         }
+
+    def _handoff_unlocked_now(self) -> bool:
+        current = cases.get_case(self.case.case_id, db_path=self.db_path)
+        return current is not None and _human_handoff_available(current)
 
     def generate_reply(self, context: llm.PromptContext, *, fallback: str) -> str:
         try:
@@ -414,7 +428,22 @@ def _propose_or_escalate(
     return _finish_escalated(turn, evaluation, report)
 
 
-def _offer(turn: _Turn, search: ChargeSearch, report: ReportedCharge, *, spend_round: bool) -> ChatReply:
+def _human_handoff_available(case: cases.Case) -> bool:
+    return case.handoff_unlocked or case.clarification_rounds >= MAX_CLARIFICATION_ROUNDS
+
+
+def _unlocks_handoff(report: ReportedCharge, search: ChargeSearch, *, spend_round: bool) -> bool:
+    """The agent has shown it cannot find the charge from what the customer
+    said: they gave details and either nothing matched them or the turn went
+    nowhere (a spent round, e.g. after rejecting the proposed charge).
+    """
+    return report.has_details and (search.list_filter == ListFilter.FALLBACK_RECENT or spend_round)
+
+
+def _offer(
+    turn: _Turn, search: ChargeSearch, report: ReportedCharge, *, spend_round: bool,
+    human_deferred: bool = False,
+) -> ChatReply:
     """Shows the customer their own charges to pick from (AD-11 Row 3's
     clarification, as a list instead of a free-text question). A round is
     only spent when the turn brought nothing new. Entering `selecting` drops
@@ -426,6 +455,7 @@ def _offer(turn: _Turn, search: ChargeSearch, report: ReportedCharge, *, spend_r
     offered = tuple(c.transaction_id for c in search.charges)
     lost = _transition(
         turn, CaseState.SELECTING, offered_transaction_ids=offered, add_clarification_round=spend_round,
+        unlock_handoff=_unlocks_handoff(report, search, spend_round=spend_round),
         clear_fields=("matched_transaction_id",), **report.update_fields(),
     )
     if lost:
@@ -435,17 +465,21 @@ def _offer(turn: _Turn, search: ChargeSearch, report: ReportedCharge, *, spend_r
         {"list_filter": search.list_filter, "offered_transaction_ids": list(offered), "clarification_rounds": rounds},
     )
     context = llm.build_prompt_context(
-        case_state=CaseState.SELECTING, language=turn.language,
-        candidate_count=len(search.charges), list_filter=search.list_filter,
+        case_state=PromptScene.HUMAN_DEFERRED if human_deferred else CaseState.SELECTING,
+        language=turn.language, candidate_count=len(search.charges), list_filter=search.list_filter,
     )
-    text = turn.generate_reply(context, fallback=replies.CHARGE_LIST[turn.language][search.list_filter])
+    fallback = (
+        replies.HUMAN_DEFERRED[turn.language] if human_deferred
+        else replies.CHARGE_LIST[turn.language][search.list_filter]
+    )
+    text = turn.generate_reply(context, fallback=fallback)
     return turn.reply(CaseState.SELECTING, text, [charge_option(c) for c in search.charges])
 
 
 def _ask_for_details(turn: _Turn, report: ReportedCharge, *, spend_round: bool) -> ChatReply:
     """Only for a customer with no outgoing charges to list at all."""
     lost = _transition(
-        turn, CaseState.CLARIFYING, add_clarification_round=spend_round,
+        turn, CaseState.CLARIFYING, add_clarification_round=spend_round, unlock_handoff=report.has_details,
         clear_fields=("matched_transaction_id",), **report.update_fields(),
     )
     if lost:
@@ -473,6 +507,33 @@ def _introduce(turn: _Turn, scene: PromptScene) -> ChatReply:
 
 
 # -- Handlers ------------------------------------------------------------------
+
+
+def _handle_human_request(turn: _Turn) -> ChatReply:
+    """Honored once the agent has shown it cannot resolve the case; before
+    that the agent keeps trying (the charge list, or the pending
+    confirmation) and says it will hand off if it cannot find the charge.
+    """
+    case = turn.case
+    if _human_handoff_available(case):
+        if case.state == CaseState.CONFIRMING:
+            return _escalate(turn, handoffs.confirmation_outcome(
+                turn.report, case, customer_confirmation=str(llm.ConfirmationAnswer.HUMAN),
+                action="Cliente solicitó explícitamente hablar con un agente humano.",
+                open_question="El cliente prefirió hablar con una persona antes de confirmar el cargo propuesto.",
+            ))
+        return _escalate(turn, handoffs.human_request(turn.report))
+    turn.log_event("human_request_deferred", {"state": case.state})
+    if case.state == CaseState.CONFIRMING:
+        lost = _transition(turn, CaseState.CONFIRMING, expected_states=(CaseState.CONFIRMING,), add_clarification_round=True)
+        if lost:
+            return lost
+        context = llm.build_prompt_context(case_state=PromptScene.HUMAN_DEFERRED, language=turn.language)
+        fallback = replies.HUMAN_DEFERRED_WHILE_CONFIRMING[turn.language]
+        return turn.reply(CaseState.CONFIRMING, turn.generate_reply(context, fallback=fallback))
+    report = turn.report
+    search = find_charges(turn.session, report) if report.has_details else recent_charges(turn.session)
+    return _offer(turn, search, report, spend_round=True, human_deferred=True)
 
 
 _ACTION_ANSWERS = {
@@ -508,11 +569,7 @@ def _handle_confirmation(turn: _Turn, text: str, action: CustomerAction | None =
     if answer == llm.ConfirmationAnswer.YES:
         return _confirm_proposed_charge(turn, report)
     if answer == llm.ConfirmationAnswer.HUMAN:
-        return _escalate(turn, handoffs.confirmation_outcome(
-            report, case, customer_confirmation=str(answer),
-            action="Cliente solicitó explícitamente hablar con un agente humano.",
-            open_question="El cliente prefirió hablar con una persona antes de confirmar el cargo propuesto.",
-        ))
+        return _handle_human_request(turn)
     if case.clarification_rounds >= MAX_CLARIFICATION_ROUNDS:
         return _finish_escalated(turn, handoffs.confirmation_outcome(
             report, case, customer_confirmation=str(answer),
@@ -583,10 +640,22 @@ def _handle_selection(turn: _Turn, transaction_id: str) -> ChatReply:
 
 
 def _handle_none_of_these(turn: _Turn) -> ChatReply:
+    """Not in the list: with no details from the customer yet, the agent asks
+    for one and keeps looking; after details, it hands off.
+    """
     case = turn.case
     if case.state != CaseState.SELECTING:
         turn.log_event("selection_rejected", {"reason": "none_of_these_outside_selecting", "state": case.state})
         return turn.reply(CaseState(case.state), replies.SELECTION_UNAVAILABLE[turn.language])
+    if not turn.report.has_details and case.clarification_rounds < MAX_CLARIFICATION_ROUNDS:
+        lost = _transition(turn, CaseState.SELECTING, expected_states=(CaseState.SELECTING,), add_clarification_round=True)
+        if lost:
+            return lost
+        turn.log_event("details_requested", {"reason": "not_in_unfiltered_list"})
+        context = llm.build_prompt_context(case_state=PromptScene.ASK_FOR_DETAILS, language=turn.language)
+        return turn.reply(
+            CaseState.SELECTING, turn.generate_reply(context, fallback=replies.ASK_FOR_ONE_DETAIL[turn.language]),
+        )
     return _finish_escalated(
         turn, handoffs.not_in_list(turn.report, case), turn.report, expected_offered=case.offered_transaction_ids,
     )
@@ -629,7 +698,7 @@ def handle_message(
         )
     try:
         if action == CustomerAction.HUMAN:
-            return _escalate(turn, handoffs.human_request(turn.report))
+            return _handle_human_request(turn)
         if selected_transaction_id is not None:
             return _handle_selection(turn, selected_transaction_id)
         if action == CustomerAction.NONE_OF_THESE:
@@ -684,9 +753,12 @@ def _handle_report(turn: _Turn, text: str) -> ChatReply:
         )
     if extraction.parse_failed:
         turn.log_event("extraction_parse_failed", {"call": "extract_entities"})
+    has_details = extraction.has_details
+    if extraction.wants_human and (_human_handoff_available(turn.case) or not has_details):
+        return _handle_human_request(turn)
     if extraction.wants_human:
-        return _escalate(turn, handoffs.human_request(turn.report))
-    has_details = extraction.amount is not None or extraction.date is not None or bool(extraction.merchant_hint)
+        # Asked for a person but also gave details: try them first.
+        turn.log_event("human_request_deferred", {"state": turn.case.state, "reason": "details_to_try"})
     if not has_details and extraction.intent == llm.ExtractionIntent.GREETING:
         return _introduce(turn, PromptScene.GREETING)
     if not has_details and extraction.intent == llm.ExtractionIntent.OTHER:

@@ -191,7 +191,8 @@ def _required_scripts(language: Language) -> dict[str, tuple[list[Step], CaseSta
     """The challenge's required situations as six scripts, all on the ONE
     demo customer: automated resolution (typed, and picked from the list),
     ambiguity resolved by picking, abstention when the charge is not in the
-    list, and escalation on policy and on request.
+    list after giving details, and escalation on policy and on request (after
+    the agent could not match what the customer said).
     """
     opening = DISPUTE_OPENING[language]
     return {
@@ -208,13 +209,14 @@ def _required_scripts(language: Language) -> dict[str, tuple[list[Step], CaseSta
             Step("Taxi Seguro", selected_transaction_id=DUPLICATE_CHARGES[1]),
         ], CaseState.RESOLVED_AUTO),
         "ambiguous_not_in_list": ([
-            Step(opening),
+            Step(opening, charge_extraction(date="2026-06-14")),
             Step(NOT_IN_LIST[language], action=CustomerAction.NONE_OF_THESE),
         ], CaseState.ESCALATED),
         "escalate_policy": ([
             Step(opening, charge_extraction(FRAUD_SCORE_CHARGE)),
         ], CaseState.ESCALATED),
         "escalate_human_request": ([
+            Step(opening, charge_extraction(date="2024-04-22")),
             Step(HUMAN_REQUEST[language], charge_extraction(wants_human=True)),
         ], CaseState.ESCALATED),
     }
@@ -284,6 +286,17 @@ def _run_unoffered_selection(app_db_path: Path) -> CaseOutcome:
     )
 
 
+def _run_early_human_request(app_db_path: Path) -> CaseOutcome:
+    """Asking for a person before giving any detail: the agent tries first
+    (shows the charge list) instead of handing off.
+    """
+    return _run_script(
+        GROUP_ADVERSARIAL, "early_human_request",
+        [Step(HUMAN_REQUEST[Language.ES], charge_extraction(wants_human=True))],
+        expected_state=CaseState.SELECTING, app_db_path=app_db_path,
+    )
+
+
 def _run_repeat_credit(app_db_path: Path) -> CaseOutcome:
     """The same charge disputed again in a new case after it was already
     credited: it must go to a person, never be credited twice.
@@ -305,7 +318,7 @@ def _run_repeat_credit(app_db_path: Path) -> CaseOutcome:
 
 ADVERSARIAL_SCENARIOS: tuple[Callable[[Path], CaseOutcome], ...] = (
     _run_missing_data, _run_prompt_injection, _run_tool_failure, _run_multilingual_ambiguity,
-    _run_unoffered_selection, _run_repeat_credit,
+    _run_unoffered_selection, _run_repeat_credit, _run_early_human_request,
 )
 
 

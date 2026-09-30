@@ -90,6 +90,10 @@ class ReportedCharge:
         )
 
     @property
+    def has_details(self) -> bool:
+        return self.amount is not None or self.date is not None or bool(self.merchant)
+
+    @property
     def is_complete(self) -> bool:
         return self.amount is not None and self.date is not None
 

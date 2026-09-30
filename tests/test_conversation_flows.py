@@ -105,15 +105,25 @@ def test_escalation_case_confident_match_ineligible_produces_structured_handoff(
     assert OPENING not in json.dumps(case.handoff)
 
 
-def test_customer_requesting_human_escalates_immediately(real_fixture_app_db):
+def test_an_early_human_request_gets_the_agent_to_try_first(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
     reply = _say(session, real_fixture_app_db, charge_extraction(wants_human=True), "Quiero hablar con una persona")
 
+    assert reply["state"] == CaseState.SELECTING
+    assert reply["options"]
+    assert reply["human_available"] is False
+    assert _events(real_fixture_app_db, "human_request_deferred")
+
+
+def test_a_human_request_is_honored_after_details_the_agent_could_not_match(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    unmatched = _say(session, real_fixture_app_db, charge_extraction(date="2024-04-22"), "fue el 22/04/2024")
+    assert unmatched["human_available"] is True
+
+    reply = _say(session, real_fixture_app_db, charge_extraction(wants_human=True), "Quiero hablar con una persona",
+                 case_id=unmatched["case_id"])
+
     assert reply["state"] == CaseState.ESCALATED
-
-
-# -- Picking from the list ----------------------------------------------------
-
 
 def _open_list(session, app_db):
     return _say(session, app_db, charge_extraction(), "no sé el monto")
@@ -191,9 +201,22 @@ def test_another_customers_transaction_id_is_never_accepted(real_fixture_app_db,
     assert _events(real_fixture_app_db, "simulated_credit") == []
 
 
-def test_not_in_the_list_escalates_with_what_was_shown_as_evidence(real_fixture_app_db):
+def test_not_in_the_list_without_any_detail_asks_for_one(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
     listed = _open_list(session, real_fixture_app_db)
+
+    reply = _say(
+        session, real_fixture_app_db, charge_extraction(), "No está en la lista",
+        case_id=listed["case_id"], action="none_of_these",
+    )
+
+    assert reply["state"] == CaseState.SELECTING
+    assert _events(real_fixture_app_db, "details_requested")
+
+
+def test_not_in_the_list_after_details_escalates_with_what_was_shown_as_evidence(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    listed = _say(session, real_fixture_app_db, charge_extraction(date="2026-06-14"), "fue el 14 de junio")
 
     reply = _say(
         session, real_fixture_app_db, charge_extraction(), "No está en la lista",
@@ -205,19 +228,31 @@ def test_not_in_the_list_escalates_with_what_was_shown_as_evidence(real_fixture_
     assert handoff["evidence"] == [o["transaction_id"] for o in listed["options"]]
     assert handoff["open_questions"]
 
-
-def test_human_button_escalates_from_any_open_state(real_fixture_app_db):
+def test_human_button_escalates_once_the_agent_could_not_resolve(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
-    listed = _open_list(session, real_fixture_app_db)
+    early = _open_list(session, real_fixture_app_db)
+    deferred = _say(session, real_fixture_app_db, charge_extraction(), "Hablar con una persona",
+                    case_id=early["case_id"], action="human")
+    assert deferred["state"] == CaseState.SELECTING
 
-    reply = _say(
-        session, real_fixture_app_db, charge_extraction(), "Hablar con una persona",
-        case_id=listed["case_id"], action="human",
-    )
+    _say(session, real_fixture_app_db, charge_extraction(date="2024-04-22"), "fue el 22/04/2024",
+         case_id=early["case_id"])
+    reply = _say(session, real_fixture_app_db, charge_extraction(), "Hablar con una persona",
+                 case_id=early["case_id"], action="human")
 
     assert reply["state"] == CaseState.ESCALATED
     assert "humano" in cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff["actions_taken"][0]
 
+
+def test_rejecting_the_proposed_charge_unlocks_the_human_option(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    first = _say(session, real_fixture_app_db, charge_extraction(AUTO_RESOLVE_CHARGE))
+    assert first["human_available"] is False
+
+    reply = _say(session, real_fixture_app_db, charge_extraction(), "No es ese", case_id=first["case_id"],
+                 action="confirm_no")
+
+    assert reply["human_available"] is True
 
 def test_naming_a_single_merchant_proposes_that_charge_for_confirmation(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
@@ -516,3 +551,65 @@ def test_a_stale_yes_cannot_credit_a_charge_the_customer_rejected(real_fixture_a
 
     assert _events(real_fixture_app_db, "simulated_credit") == []
     assert cases.get_case(first["case_id"], db_path=real_fixture_app_db).matched_transaction_id == "SYN-DEMO-FARMACIA"
+
+
+# -- Try first, but never trap the customer -----------------------------------
+
+
+def test_insisting_on_a_person_without_details_reaches_one_after_the_agent_tried(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    case_id = None
+    states = []
+    for _ in range(3):
+        reply = _say(session, real_fixture_app_db, charge_extraction(), "Hablar con una persona",
+                     case_id=case_id, action="human")
+        case_id = reply["case_id"]
+        states.append(reply["state"])
+
+    assert states == [CaseState.SELECTING, CaseState.SELECTING, CaseState.ESCALATED]
+
+
+def test_repeating_not_in_the_list_without_details_eventually_escalates(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    listed = _open_list(session, real_fixture_app_db)
+    states = [
+        _say(session, real_fixture_app_db, charge_extraction(), "No está en la lista",
+             case_id=listed["case_id"], action="none_of_these")["state"]
+        for _ in range(3)
+    ]
+
+    assert states[-1] == CaseState.ESCALATED
+    assert CaseState.SELECTING in states
+
+
+def test_insisting_on_a_person_while_confirming_is_bounded(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    first = _say(session, real_fixture_app_db, charge_extraction(AUTO_RESOLVE_CHARGE))
+    states = [
+        _say(session, real_fixture_app_db, charge_extraction(), "Hablar con una persona",
+             case_id=first["case_id"], action="human")["state"]
+        for _ in range(3)
+    ]
+
+    assert states == [CaseState.CONFIRMING, CaseState.CONFIRMING, CaseState.ESCALATED]
+
+
+def test_a_human_request_with_details_tries_the_details_first(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    reply = _say(session, real_fixture_app_db, charge_extraction(AUTO_RESOLVE_CHARGE, wants_human=True),
+                 "quiero una persona, es un Uber de 38.500 del 14 de junio")
+
+    assert reply["state"] == CaseState.CONFIRMING
+    assert _events(real_fixture_app_db, "human_request_deferred")[0]["reason"] == "details_to_try"
+
+
+def test_a_customer_with_no_charges_can_reach_a_person_after_giving_a_detail(real_fixture_app_db):
+    other = session_for("CLI-SOMEONE-ELSE", real_fixture_app_db)
+    asked = _say(other, real_fixture_app_db, charge_extraction(date="2026-06-05"), "fue el 5 de junio")
+    assert asked["state"] == CaseState.CLARIFYING
+    assert asked["human_available"] is True
+
+    reply = _say(other, real_fixture_app_db, charge_extraction(), "Hablar con una persona",
+                 case_id=asked["case_id"], action="human")
+
+    assert reply["state"] == CaseState.ESCALATED
