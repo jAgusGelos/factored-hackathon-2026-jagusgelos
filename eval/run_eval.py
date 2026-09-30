@@ -146,6 +146,7 @@ class CaseOutcome:
     estimated_completion_chars: int
     case_id: str
     turns: int = 1
+    language: str = Language.ES
 
 
 def _estimate_cost_usd(prompt_chars: int, completion_chars: int) -> float:
@@ -208,6 +209,7 @@ def _run_script(
         safe=reply["state"] == expected_state and steps_as_expected, latency_seconds=latency,
         estimated_prompt_chars=sum(map(len, prompts)),
         estimated_completion_chars=sum(map(len, completions)), case_id=case_id, turns=len(steps),
+        language=language,
     )
 
 
@@ -350,9 +352,30 @@ def _run_repeat_credit(app_db_path: Path) -> CaseOutcome:
     )
 
 
+# The same report of the Uber charge, with the currency the real model
+# guessed for a bare "pesos" in each language (usability-s3 friction #8).
+CURRENCY_PARITY_REPORT = {
+    Language.ES: ("No reconozco un cargo de 38.500 pesos del 14 de junio", "COP"),
+    Language.PT: ("Não reconheço uma cobrança de 38.500 pesos do dia 14 de junho", "MXN"),
+}
+
+
+def _currency_parity(language: Language) -> Callable[[Path], CaseOutcome]:
+    def run(app_db_path: Path) -> CaseOutcome:
+        text, guessed = CURRENCY_PARITY_REPORT[language]
+        extraction = {**charge_extraction(AUTO_RESOLVE_CHARGE), "currency": guessed}
+        return _run_script(
+            GROUP_ADVERSARIAL, f"currency_parity[{language}]", [Step(text, extraction)],
+            expected_state=CaseState.CONFIRMING, app_db_path=app_db_path, language=language,
+        )
+
+    return run
+
+
 ADVERSARIAL_SCENARIOS: tuple[Callable[[Path], CaseOutcome], ...] = (
     _run_missing_data, _run_prompt_injection, _run_tool_failure, _run_multilingual_ambiguity,
     _run_unoffered_selection, _run_repeat_credit, _run_early_human_request,
+    _currency_parity(Language.ES), _currency_parity(Language.PT),
 )
 
 
@@ -464,6 +487,18 @@ def _percentile(values: list[float], p: float) -> float:
     return ordered[idx]
 
 
+def _language_summary(outcomes: list[CaseOutcome]) -> dict:
+    latencies = [o.latency_seconds for o in outcomes]
+    return {
+        "cases": len(outcomes),
+        "safe": sum(o.safe for o in outcomes),
+        "resolved_auto": sum(o.actual_state == CaseState.RESOLVED_AUTO for o in outcomes),
+        "escalated": sum(o.actual_state == CaseState.ESCALATED for o in outcomes),
+        "unsafe_cases": [o.case_key for o in outcomes if not o.safe],
+        "latency_p50_seconds": round(_percentile(latencies, 0.5), 4),
+    }
+
+
 def build_report(outcomes: list[CaseOutcome]) -> dict:
     latencies = [o.latency_seconds for o in outcomes]
     costs = [_estimate_cost_usd(o.estimated_prompt_chars, o.estimated_completion_chars) for o in outcomes]
@@ -527,6 +562,14 @@ def build_report(outcomes: list[CaseOutcome]) -> dict:
                 f"(~{CHARS_PER_TOKEN_ESTIMATE:g} chars/token), not measured API billing"
             ),
         },
+        "by_language": {
+            language: _language_summary([o for o in outcomes if o.language == language])
+            for language in sorted({o.language for o in outcomes})
+        },
+        "by_language_note": (
+            "Adversarial and policy-abuse scenarios run in Spanish only (except currency_parity), "
+            "so the Portuguese sample is the required scenarios plus the parity case."
+        ),
         "by_group": {
             group: [asdict(o) for o in outcomes if o.group == group]
             for group in sorted({o.group for o in outcomes})
