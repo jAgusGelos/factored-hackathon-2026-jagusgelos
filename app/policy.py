@@ -12,15 +12,41 @@ AD-11's rows, in order:
   2. Confident match: exactly one candidate.
   3. Ambiguous match: 0 or 2+ candidates -> clarify (max 2 rounds), then
      escalate if still ambiguous.
-  4. Auto-resolution eligible: confident match AND amount_usd <= 200 AND
-     fraud_score < 30 AND status == "Approved" AND < 3 disputes in the same
-     category in the trailing 90 days.
+  4. Auto-resolution eligible (AD-13). Before anything else the charge must
+     pass the SCREENING conditions, common to every reason: status ==
+     "Approved", fraud_score < 30, amount_usd <= 200, no older than MAX_TRANSACTION_AGE_DAYS,
+     customer_status == "Active", < 3 dataset disputes in the same category
+     in the trailing 90 days, the classifier does not predict Critical, and
+     the automatic credits this system granted the customer in the trailing
+     CREDIT_WINDOW_DAYS plus this one stay within MAX_AUTO_CREDIT_TOTAL_USD.
+     Then the customer explains what happened (Milestone 9). The LLM only
+     ASSESSES that explanation (`ExplanationAssessment`); here the
+     assessment can only ask for one more detail or force escalation, never
+     make a charge eligible (`evaluate_explanation`). The reason it names
+     picks which evidence check applies, and that check runs on the DATA,
+     never on the claim:
+       - duplicate: a verifiable twin exists (same merchant, exact amount,
+         currency and type, at most DUPLICATE_WINDOW_DAYS apart) and no
+         charge of the pair was credited before -> reverse it.
+       - unrecognized: card-not-present purchase (Web/App), no other charge
+         of theirs at the same merchant (an existing relationship with the
+         merchant contradicts "I never used it"), and
+         fewer than MAX_UNRECOGNIZED_AUTO_CREDITS such credits in the
+         trailing CREDIT_WINDOW_DAYS -> provisional credit + simulated card
+         block + back-office review. A second "I don't recognize it" right
+         after a card block goes to a person.
+       - not_received / wrong_amount / card_lost_stolen / unclear: never an
+         automatic credit (a chargeback against the merchant, a partial
+         amount, or a fraud investigation across several charges needs a
+         person).
   5. Forced escalation: confident match but fails a Row-4 condition, OR the
      classifier (AD-6, Milestone 3) predicts Critical, OR the customer
      explicitly requests a human, OR any tool/LLM call fails after its retry
      budget is exhausted.
-  6. Auto-resolution action: simulated provisional credit + case reference +
-     expected-timeframe message — never a real transfer.
+  6. Auto-resolution action: simulated provisional credit + case reference —
+     never a real transfer. An unrecognized charge also logs a simulated card
+     block and queues the credit for back-office review (it is reversed if
+     the investigation shows the customer made the charge).
 
 Simplification, disclosed: the "2 USD-equivalent" floor in Row 1 is applied
 as a flat 2-unit floor in the complaint's OWN currency, not currency-converted
@@ -36,6 +62,7 @@ hackathon-scope simplification, not a validated FX-aware threshold.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
 from enum import StrEnum
 
 from app.transactions import TransactionCandidate
@@ -47,9 +74,27 @@ MATCH_AMOUNT_MIN_TOLERANCE = 2.0
 AUTO_RESOLVE_MAX_AMOUNT_USD = 200.0
 AUTO_RESOLVE_MAX_FRAUD_SCORE = 30.0
 AUTO_RESOLVE_REQUIRED_STATUS = "Approved"
+AUTO_RESOLVE_REQUIRED_CUSTOMER_STATUS = "Active"
+MAX_TRANSACTION_AGE_DAYS = 60
 
 ABUSE_GUARD_MAX_DISPUTES = 3
 ABUSE_GUARD_WINDOW_DAYS = 90
+
+# AD-13 exposure limits, over the credits THIS system granted (the dataset's
+# complaints history above is a separate, independent signal).
+CREDIT_WINDOW_DAYS = 90
+MAX_UNRECOGNIZED_AUTO_CREDITS = 1
+MAX_AUTO_CREDIT_TOTAL_USD = 200.0
+
+# "Card not present": the card was not physically used, so a leaked card
+# number is a plausible explanation. A chip/PIN charge at a POS or an ATM
+# operation needs an investigation, not a same-minute credit.
+CARD_NOT_PRESENT_CHANNELS = ("Web", "App")
+UNRECOGNIZED_ELIGIBLE_TYPES = ("Purchase",)
+DUPLICATE_ELIGIBLE_TYPES = ("Purchase", "Payment")
+# A duplicate settlement can post the next day, so the twin may be one day
+# apart. Two equal charges a week apart are two purchases, not a duplicate.
+DUPLICATE_WINDOW_DAYS = 1
 
 MAX_CLARIFICATION_ROUNDS = 2
 
@@ -70,6 +115,84 @@ DISPUTE_COMPLAINT_CATEGORY = "Transactions"
 # docstring for the hard boundary on what this can and cannot do.
 CLASSIFIER_ESCALATION_LABEL = "Critical"
 
+# Milestone 9: the customer's own explanation of what happened. The LLM only
+# ASSESSES it (ExplanationAssessment, a strict JSON contract); what that
+# assessment is allowed to change is decided here, in code.
+MIN_EXPLANATION_WORDS = 5
+MAX_EXPLANATION_ATTEMPTS = 2
+
+
+class DisputeReason(StrEnum):
+    UNRECOGNIZED = "unrecognized"
+    DUPLICATE = "duplicate"
+    NOT_RECEIVED = "not_received"
+    WRONG_AMOUNT = "wrong_amount"
+    CARD_LOST_STOLEN = "card_lost_stolen"
+    UNCLEAR = "unclear"
+
+
+# The only reasons that can ever be credited automatically, each with its own
+# evidence check in evaluate_resolution().
+AUTO_CREDITABLE_REASONS = frozenset({DisputeReason.UNRECOGNIZED, DisputeReason.DUPLICATE})
+
+# Why every other reason goes to a person (Spanish: the handoff is internal).
+REASONS_REQUIRING_A_PERSON = {
+    DisputeReason.NOT_RECEIVED: (
+        "El cliente reconoce la compra pero dice que no recibió el producto o servicio: es una "
+        "disputa con el comercio (contracargo), no un reintegro automático."
+    ),
+    DisputeReason.WRONG_AMOUNT: (
+        "El cliente reconoce la compra pero discute el monto: requiere determinar el monto "
+        "correcto (un reintegro parcial no se automatiza)."
+    ),
+    DisputeReason.CARD_LOST_STOLEN: (
+        "El cliente reporta tarjeta perdida o robada: posible fraude. Bloquear la tarjeta y "
+        "revisar otros cargos recientes."
+    ),
+}
+
+
+@dataclass(frozen=True)
+class ExplanationAssessment:
+    reason: DisputeReason
+    specific: bool
+    consistent: bool
+    contradictions: tuple[str, ...]
+    summary: str
+
+
+class ExplanationVerdict(StrEnum):
+    ACCEPT = "accept"
+    NEEDS_DETAIL = "needs_detail"
+    ESCALATE = "escalate"
+
+
+def evaluate_explanation(
+    assessment: ExplanationAssessment, *, attempts_left: bool
+) -> tuple[ExplanationVerdict, str | None]:
+    """What the model's read of the explanation may change: ask for one more
+    detail, or force escalation. ACCEPT is NOT eligibility: it only means the
+    explanation raised no red flag, and the charge still has to pass the
+    evidence check for its reason in evaluate_resolution(). A persuasive
+    story therefore cannot credit anything by itself.
+    """
+    if not assessment.specific or assessment.reason == DisputeReason.UNCLEAR:
+        if attempts_left:
+            return ExplanationVerdict.NEEDS_DETAIL, None
+        return ExplanationVerdict.ESCALATE, (
+            "La explicación del cliente no fue lo bastante concreta para decidir, aun después de "
+            "pedirle más detalle."
+        )
+    if not assessment.consistent:
+        contradictions = "; ".join(assessment.contradictions) or "sin detalle"
+        return ExplanationVerdict.ESCALATE, (
+            f"La explicación contradice los datos del cargo: {contradictions}."
+        )
+    person_needed = REASONS_REQUIRING_A_PERSON.get(assessment.reason)
+    if person_needed is not None:
+        return ExplanationVerdict.ESCALATE, person_needed
+    return ExplanationVerdict.ACCEPT, None
+
 
 class MatchOutcome(StrEnum):
     CONFIDENT = "confident"
@@ -79,6 +202,31 @@ class MatchOutcome(StrEnum):
 class ResolutionDecision(StrEnum):
     AUTO_RESOLVE = "auto_resolve"
     FORCED_ESCALATION = "forced_escalation"
+
+
+@dataclass(frozen=True)
+class DisputeContext:
+    """Everything the Row 4/5 verdict needs besides the transaction itself,
+    gathered by the state machine through session-scoped reads. No field has a
+    default: a caller that forgets one fails loudly instead of silently
+    getting the permissive value.
+    """
+
+    # None until the customer's explanation names one: only screening applies.
+    reason: DisputeReason | None
+    as_of: date
+    customer_status: str | None
+    prior_disputes_in_window: int
+    classifier_priority: str | None
+    # How many OTHER charges of this customer are at the same merchant (None:
+    # the merchant has no name, so the relationship cannot be checked).
+    other_charges_at_merchant: int | None
+    # Ids of this customer's charges that make this one a verifiable duplicate.
+    duplicate_twins: tuple[str, ...]
+    # A charge of the duplicate pair was already credited by this system.
+    duplicate_pair_credited: bool
+    recent_unrecognized_credits: int
+    recent_credited_usd: float
 
 
 @dataclass(frozen=True)
@@ -106,56 +254,113 @@ def effective_amount_usd(txn: TransactionCandidate) -> float | None:
     return None
 
 
-def evaluate_resolution(
-    txn: TransactionCandidate,
-    *,
-    prior_disputes_in_window: int,
-    classifier_priority: str | None = None,
-) -> ResolutionEvaluation:
-    """Row 4/5 of AD-11, given a single CONFIDENT match. Never called for an
-    ambiguous match — that path is Row 3's clarification loop, not this.
-
-    `classifier_priority` (Milestone 3, AD-6) is DECISION SUPPORT ONLY: a
-    "Critical" prediction is one OR-condition among several that can force
-    `FORCED_ESCALATION`, exactly like the amount/fraud/status/abuse-guard
-    conditions above. It is structurally incapable of ever causing
-    `AUTO_RESOLVE` by itself or overriding any of the other conditions —
-    there is no code path in this function where the classifier's opinion
-    can flip a `FORCED_ESCALATION` result back to `AUTO_RESOLVE`. Enforced
-    by `tests/test_policy_not_overridden.py`.
+def credit_key(txn: TransactionCandidate, reason: DisputeReason, twins: tuple[str, ...]) -> str:
+    """What the app db's unique index allows to be credited once. A duplicate
+    PAIR shares one key, whichever of its charges the customer picked.
     """
-    amount_usd = effective_amount_usd(txn)
+    if reason == DisputeReason.DUPLICATE:
+        return f"duplicate:{min((txn.transaction_id, *twins))}"
+    return txn.transaction_id
+
+
+def _day(value: date) -> date:
+    # The fixture's timestamps come back as datetimes (a subclass of date).
+    return value.date() if isinstance(value, datetime) else value
+
+
+def screening_failures(txn: TransactionCandidate, ctx: DisputeContext) -> tuple[str, ...]:
+    """Conditions every automatic credit must meet, whatever the reason: a
+    charge failing one goes to a person without asking the customer to explain.
+    """
     reasons: list[str] = []
-
-    amount_ok = amount_usd is not None and amount_usd <= AUTO_RESOLVE_MAX_AMOUNT_USD
-    if not amount_ok:
+    amount_usd = effective_amount_usd(txn)
+    if amount_usd is None or amount_usd > AUTO_RESOLVE_MAX_AMOUNT_USD:
+        reasons.append(f"amount_usd={amount_usd} exceeds the {AUTO_RESOLVE_MAX_AMOUNT_USD} auto-resolve cap")
+    elif ctx.recent_credited_usd + amount_usd > MAX_AUTO_CREDIT_TOTAL_USD:
         reasons.append(
-            f"amount_usd={amount_usd} exceeds the {AUTO_RESOLVE_MAX_AMOUNT_USD} auto-resolve cap"
+            f"automatic credits in the trailing {CREDIT_WINDOW_DAYS} days ({ctx.recent_credited_usd} USD) "
+            f"plus this one exceed the {MAX_AUTO_CREDIT_TOTAL_USD} USD cap"
         )
-
-    fraud_ok = txn.fraud_score is not None and txn.fraud_score < AUTO_RESOLVE_MAX_FRAUD_SCORE
-    if not fraud_ok:
-        reasons.append(
-            f"fraud_score={txn.fraud_score} at/above the {AUTO_RESOLVE_MAX_FRAUD_SCORE} threshold"
-        )
-
-    status_ok = txn.transaction_status == AUTO_RESOLVE_REQUIRED_STATUS
-    if not status_ok:
+    if txn.transaction_status != AUTO_RESOLVE_REQUIRED_STATUS:
         reasons.append(f"transaction_status={txn.transaction_status!r}, not Approved")
-
-    abuse_ok = prior_disputes_in_window < ABUSE_GUARD_MAX_DISPUTES
-    if not abuse_ok:
+    if txn.fraud_score is None or txn.fraud_score >= AUTO_RESOLVE_MAX_FRAUD_SCORE:
+        reasons.append(f"fraud_score={txn.fraud_score} at/above the {AUTO_RESOLVE_MAX_FRAUD_SCORE} threshold")
+    age_days = (ctx.as_of - _day(txn.transaction_date)).days
+    if age_days > MAX_TRANSACTION_AGE_DAYS:
+        reasons.append(f"charge is {age_days} days old, over the {MAX_TRANSACTION_AGE_DAYS}-day window")
+    if ctx.customer_status != AUTO_RESOLVE_REQUIRED_CUSTOMER_STATUS:
+        reasons.append(f"customer_status={ctx.customer_status!r}, not Active")
+    if ctx.prior_disputes_in_window >= ABUSE_GUARD_MAX_DISPUTES:
         reasons.append(
-            f"{prior_disputes_in_window} prior disputes in the trailing "
+            f"{ctx.prior_disputes_in_window} prior disputes in the trailing "
             f"{ABUSE_GUARD_WINDOW_DAYS} days (abuse guard)"
         )
+    if ctx.classifier_priority == CLASSIFIER_ESCALATION_LABEL:
+        reasons.append(f"priority classifier predicted {CLASSIFIER_ESCALATION_LABEL!r} (decision support only)")
+    return tuple(reasons)
 
-    classifier_ok = classifier_priority != CLASSIFIER_ESCALATION_LABEL
-    if not classifier_ok:
+
+def _unrecognized_failures(txn: TransactionCandidate, ctx: DisputeContext) -> list[str]:
+    reasons: list[str] = []
+    if txn.channel not in CARD_NOT_PRESENT_CHANNELS:
+        reasons.append(f"channel={txn.channel!r}: card-present charge, needs a fraud investigation")
+    if txn.transaction_type not in UNRECOGNIZED_ELIGIBLE_TYPES:
+        reasons.append(f"transaction_type={txn.transaction_type!r}: not a card purchase")
+    if ctx.other_charges_at_merchant is None:
+        reasons.append("merchant has no name: the customer's history with it cannot be checked")
+    elif ctx.other_charges_at_merchant > 0:
         reasons.append(
-            f"priority classifier predicted {CLASSIFIER_ESCALATION_LABEL!r} (decision support only)"
+            f"customer has {ctx.other_charges_at_merchant} other charge(s) at {txn.merchant_name!r} "
+            "they do not dispute"
         )
+    if ctx.recent_unrecognized_credits >= MAX_UNRECOGNIZED_AUTO_CREDITS:
+        reasons.append(
+            f"{ctx.recent_unrecognized_credits} unrecognized-charge credit(s) already granted in the "
+            f"trailing {CREDIT_WINDOW_DAYS} days (limit {MAX_UNRECOGNIZED_AUTO_CREDITS})"
+        )
+    return reasons
 
-    if amount_ok and fraud_ok and status_ok and abuse_ok and classifier_ok:
-        return ResolutionEvaluation(decision=ResolutionDecision.AUTO_RESOLVE, reasons=())
-    return ResolutionEvaluation(decision=ResolutionDecision.FORCED_ESCALATION, reasons=tuple(reasons))
+
+def _duplicate_failures(txn: TransactionCandidate, ctx: DisputeContext) -> list[str]:
+    reasons: list[str] = []
+    if txn.transaction_type not in DUPLICATE_ELIGIBLE_TYPES:
+        reasons.append(f"transaction_type={txn.transaction_type!r}: not a purchase or payment")
+    if not ctx.duplicate_twins:
+        reasons.append(
+            "customer reports a duplicate but no other charge at the same merchant and amount "
+            f"within {DUPLICATE_WINDOW_DAYS} day(s) was found"
+        )
+    if ctx.duplicate_pair_credited:
+        reasons.append("the other charge of the duplicate pair was already credited")
+    return reasons
+
+
+def evaluate_resolution(txn: TransactionCandidate, ctx: DisputeContext) -> ResolutionEvaluation:
+    """Row 4/5 of AD-11 (with AD-13's reason-specific rows), given a single
+    CONFIDENT match. Never called for an ambiguous match — that path is Row
+    3's clarification loop, not this.
+
+    With `ctx.reason` None (the customer has not explained yet) only the
+    screening conditions run, and AUTO_RESOLVE means "may go on to the
+    explanation", never "credit it": `app/state_machine.py` only credits
+    after a verdict WITH a reason.
+
+    `ctx.classifier_priority` (Milestone 3, AD-6) is DECISION SUPPORT ONLY: a
+    "Critical" prediction is one OR-condition among several that can force
+    `FORCED_ESCALATION`. It is structurally incapable of ever causing
+    `AUTO_RESOLVE` by itself or overriding any of the other conditions —
+    every condition can only ADD a reason, and only an empty reason list
+    auto-resolves. Enforced by `tests/test_policy_not_overridden.py`.
+    """
+    reasons = list(screening_failures(txn, ctx))
+    if ctx.reason == DisputeReason.DUPLICATE:
+        reasons += _duplicate_failures(txn, ctx)
+    elif ctx.reason == DisputeReason.UNRECOGNIZED:
+        reasons += _unrecognized_failures(txn, ctx)
+    elif ctx.reason is not None:
+        reasons.append(REASONS_REQUIRING_A_PERSON.get(
+            ctx.reason, f"dispute reason {ctx.reason!r} is never credited automatically",
+        ))
+    if reasons:
+        return ResolutionEvaluation(decision=ResolutionDecision.FORCED_ESCALATION, reasons=tuple(reasons))
+    return ResolutionEvaluation(decision=ResolutionDecision.AUTO_RESOLVE, reasons=())

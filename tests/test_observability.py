@@ -38,7 +38,7 @@ def app_db(tmp_path, monkeypatch):
         "merchant_category VARCHAR, channel VARCHAR, _is_synthetic VARCHAR)"
     )
     con.execute(
-        "INSERT INTO transactions VALUES ('TRX-1', '2024-03-09', 'CLI-1', '500.0', 'USD', "
+        "INSERT INTO transactions VALUES ('TRX-1', '2026-06-09', 'CLI-1', '500.0', 'USD', "
         "'500.0', '5.0', 'Approved', 'Comercio', 'Retail', 'App', 'false')"  # amount_usd > 200 -> ineligible
     )
     con.execute(
@@ -68,7 +68,7 @@ def _events_for_case(app_db_path, case_id: str, event_type: str) -> list[dict]:
 
 
 def test_escalation_log_event_reconstructs_the_same_handoff_the_case_record_shows(app_db):
-    extraction = {"amount": 500.0, "currency": "USD", "date": "2024-03-10", "merchant_hint": None, "wants_human": False}
+    extraction = {"amount": 500.0, "currency": "USD", "date": "2026-06-10", "merchant_hint": None, "wants_human": False}
 
     with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(extraction)):
         reply = handle_message(SESSION, None, "Tengo un cargo que no reconozco", db_path=app_db)
@@ -86,7 +86,7 @@ def test_escalation_log_event_reconstructs_the_same_handoff_the_case_record_show
 
 
 def test_every_event_for_a_conversation_shares_one_correlation_id_per_turn(app_db):
-    extraction = {"amount": 500.0, "currency": "USD", "date": "2024-03-10", "merchant_hint": None, "wants_human": False}
+    extraction = {"amount": 500.0, "currency": "USD", "date": "2026-06-10", "merchant_hint": None, "wants_human": False}
 
     with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(extraction)):
         reply = handle_message(SESSION, None, "Tengo un cargo que no reconozco", db_path=app_db)
@@ -108,7 +108,7 @@ def test_case_evaluated_breadcrumb_and_case_escalated_detail_are_both_logged(app
     "every state-machine transition... is logged" isn't satisfied by only
     the detailed event, which not every transition produces.
     """
-    extraction = {"amount": 500.0, "currency": "USD", "date": "2024-03-10", "merchant_hint": None, "wants_human": False}
+    extraction = {"amount": 500.0, "currency": "USD", "date": "2026-06-10", "merchant_hint": None, "wants_human": False}
 
     with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(extraction)):
         reply = handle_message(SESSION, None, "Tengo un cargo que no reconozco", db_path=app_db)

@@ -45,6 +45,12 @@ CREATE TABLE IF NOT EXISTS cases (
     offered_transaction_ids TEXT,
     reported_merchant TEXT,
     handoff_unlocked INTEGER NOT NULL DEFAULT 0,
+    dispute_reason TEXT,
+    explanation_text TEXT,
+    explanation_attempts INTEGER NOT NULL DEFAULT 0,
+    credit_key TEXT,
+    credited_amount_usd REAL,
+    credited_at TEXT,
     predicted_priority TEXT,
     resolution_reference TEXT,
     handoff_json TEXT,
@@ -98,6 +104,12 @@ _ADDED_COLUMNS = {
         ("offered_transaction_ids", "TEXT"),
         ("reported_merchant", "TEXT"),
         ("handoff_unlocked", "INTEGER NOT NULL DEFAULT 0"),
+        ("dispute_reason", "TEXT"),
+        ("explanation_text", "TEXT"),
+        ("explanation_attempts", "INTEGER NOT NULL DEFAULT 0"),
+        ("credit_key", "TEXT"),
+        ("credited_amount_usd", "REAL"),
+        ("credited_at", "TEXT"),
     ),
 }
 
@@ -107,6 +119,12 @@ _ADDED_COLUMNS = {
 _ONE_CREDIT_PER_TRANSACTION = (
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_cases_one_credit_per_transaction "
     "ON cases (customer_id, matched_transaction_id) WHERE state = 'resolved_auto'"
+)
+# At most one credit per credit key: a duplicate PAIR shares one key, so it is
+# reversed once whichever of its two charges the customer picks (AD-13).
+_ONE_CREDIT_PER_KEY = (
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_cases_one_credit_per_key "
+    "ON cases (customer_id, credit_key) WHERE state = 'resolved_auto' AND credit_key IS NOT NULL"
 )
 
 
@@ -123,10 +141,11 @@ def init_db(db_path: Path) -> None:
     try:
         con.executescript(SCHEMA)
         _add_missing_columns(con)
-        try:
-            con.execute(_ONE_CREDIT_PER_TRANSACTION)
-        except sqlite3.IntegrityError:
-            logger.warning("Existing duplicate credits: unique credit index not created")
+        for index in (_ONE_CREDIT_PER_TRANSACTION, _ONE_CREDIT_PER_KEY):
+            try:
+                con.execute(index)
+            except sqlite3.IntegrityError:
+                logger.warning("Existing duplicate credits: unique credit index not created")
         con.commit()
     finally:
         con.close()

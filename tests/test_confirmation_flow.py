@@ -21,6 +21,7 @@ from app import cases, config, llm
 from app.state_machine import CaseState, handle_message
 from tests.support import (
     AUTO_RESOLVE_CHARGE,
+    EXPLANATION,
     charge_extraction,
     charge_report,
     demo_session,
@@ -46,6 +47,11 @@ def _first_turn(session, db, client):
 def _confirm(session, db, case_id, client, text="Sí, es ese"):
     with patch("app.llm.anthropic.Anthropic", return_value=client):
         return handle_message(session, case_id, text, db_path=db)
+
+
+def _explain(session, db, case_id, client):
+    """Milestone 9: after the "yes", the customer explains what happened."""
+    return _confirm(session, db, case_id, client, text=EXPLANATION)
 
 
 def _events(db, event_type):
@@ -131,7 +137,10 @@ def test_explicit_yes_resolves_with_a_simulated_credit(real_fixture_app_db):
     client = _client(session, answer="yes")
     first = _first_turn(session, real_fixture_app_db, client)
 
-    reply = _confirm(session, real_fixture_app_db, first["case_id"], client)
+    confirmed = _confirm(session, real_fixture_app_db, first["case_id"], client)
+    assert confirmed["state"] == CaseState.AWAITING_EXPLANATION
+    assert _events(real_fixture_app_db, "simulated_credit") == []
+    reply = _explain(session, real_fixture_app_db, first["case_id"], client)
 
     assert reply["state"] == CaseState.RESOLVED_AUTO
     case = cases.get_case(reply["case_id"], db_path=real_fixture_app_db)
@@ -173,7 +182,7 @@ def test_no_button_skips_the_classifier(real_fixture_app_db):
     assert _events(real_fixture_app_db, "confirmation_received")[0] == {"answer": "no", "via": "button"}
 
 
-def test_yes_button_resolves_without_calling_the_classifier(real_fixture_app_db):
+def test_yes_button_confirms_without_calling_the_classifier(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
     client = _client(session, answer="no")  # the classifier would say no
     first = _first_turn(session, real_fixture_app_db, client)
@@ -183,8 +192,8 @@ def test_yes_button_resolves_without_calling_the_classifier(real_fixture_app_db)
             session, first["case_id"], "Sí, es ese", db_path=real_fixture_app_db, action="confirm_yes"
         )
 
-    assert reply["state"] == CaseState.RESOLVED_AUTO
-    assert len(_events(real_fixture_app_db, "simulated_credit")) == 1
+    assert reply["state"] == CaseState.AWAITING_EXPLANATION
+    assert _events(real_fixture_app_db, "confirmation_received")[0] == {"answer": "yes", "via": "button"}
 
 
 def test_rejection_with_no_rounds_left_escalates(real_fixture_app_db):
@@ -310,7 +319,7 @@ def test_confirmation_classifier_only_accepts_an_exact_label():
         assert llm.classify_confirmation("sí", language=llm.Language.ES) == llm.ConfirmationAnswer.UNCLEAR
 
 
-def test_two_concurrent_yes_replies_issue_exactly_one_credit(real_fixture_app_db):
+def test_two_concurrent_yes_replies_move_the_case_once(real_fixture_app_db):
     """Both requests loaded the case as `confirming` before either finished
     (a double-submit / second tab): only one may win the transition.
     """
@@ -327,6 +336,26 @@ def test_two_concurrent_yes_replies_issue_exactly_one_credit(real_fixture_app_db
             turn = state_machine._Turn(session, stale_case, llm.Language.ES, "corr", real_fixture_app_db)
             replies.append(state_machine._handle_confirmation(turn, "Sí, es ese"))
 
+    assert [r["state"] for r in replies] == [CaseState.AWAITING_EXPLANATION] * 2
+    assert len(_events(real_fixture_app_db, "explanation_requested")) == 1
+    assert _events(real_fixture_app_db, "case_transition_lost_race")
+
+
+def test_two_concurrent_explanations_issue_exactly_one_credit(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    client = _client(session)
+    first = _first_turn(session, real_fixture_app_db, client)
+    _confirm(session, real_fixture_app_db, first["case_id"], client)
+    stale_case = cases.get_case(first["case_id"], db_path=real_fixture_app_db)
+
+    from app import state_machine
+
+    replies = []
+    with patch("app.llm.anthropic.Anthropic", return_value=client):
+        for _ in range(2):
+            turn = state_machine._Turn(session, stale_case, llm.Language.ES, "corr", real_fixture_app_db)
+            replies.append(state_machine._handle_explanation(turn, EXPLANATION))
+
     assert [r["state"] for r in replies] == [CaseState.RESOLVED_AUTO, CaseState.RESOLVED_AUTO]
     assert len(_events(real_fixture_app_db, "simulated_credit")) == 1
     final = cases.get_case(first["case_id"], db_path=real_fixture_app_db)
@@ -340,6 +369,7 @@ def test_late_no_cannot_overwrite_a_resolved_case(real_fixture_app_db):
     first = _first_turn(session, real_fixture_app_db, yes_client)
     stale_case = cases.get_case(first["case_id"], db_path=real_fixture_app_db)
     _confirm(session, real_fixture_app_db, first["case_id"], yes_client)
+    _explain(session, real_fixture_app_db, first["case_id"], yes_client)
 
     from app import state_machine
 

@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 import duckdb
 
 from app.auth import Session, create_session, get_session, verify_credentials
-from app.llm import CONFIRMATION_MARKER
+from app.llm import ASSESSMENT_MARKER, CONFIRMATION_MARKER
 from etl.build_fixture import (
     AUTO_RESOLVE_CHARGE_ID as AUTO_RESOLVE_CHARGE,
 )
@@ -37,7 +37,7 @@ REAL_FIXTURE_PATH = REPO_ROOT / "data" / "fixture.duckdb"
 REAL_DEMO_USERS_PATH = REPO_ROOT / "data" / "demo_users.json"
 
 __all__ = [
-    "AUTO_RESOLVE_CHARGE", "DEMO_USERNAME", "DUPLICATE_CHARGES", "FRAUD_SCORE_CHARGE", "OVER_LIMIT_CHARGE",
+    "AUTO_RESOLVE_CHARGE", "CONVINCING_ASSESSMENT", "DEMO_USERNAME", "EXPLANATION", "DUPLICATE_CHARGES", "FRAUD_SCORE_CHARGE", "OVER_LIMIT_CHARGE",
     "REAL_DEMO_USERS_PATH", "REAL_FIXTURE_PATH", "REPO_ROOT", "charge_extraction", "charge_report",
     "demo_session", "mock_anthropic_client", "session_for",
 ]
@@ -48,6 +48,7 @@ def mock_anthropic_client(
     nlg_text: str = "Respuesta generada.",
     *,
     confirmation_answer: str = "yes",
+    assessment: dict | None = None,
     captured_prompts: list[str] | None = None,
     captured_completions: list[str] | None = None,
 ) -> MagicMock:
@@ -65,6 +66,8 @@ def mock_anthropic_client(
         response = MagicMock()
         if CONFIRMATION_MARKER in system:
             text = confirmation_answer
+        elif ASSESSMENT_MARKER in system:
+            text = json.dumps(assessment or CONVINCING_ASSESSMENT)
         elif "JSON" in system:
             text = json.dumps(extraction_payload)
         else:
@@ -77,6 +80,15 @@ def mock_anthropic_client(
     client = MagicMock()
     client.messages.create.side_effect = create
     return client
+
+
+# What the mocked model answers when asked to assess an explanation, unless a
+# test passes its own `assessment`.
+CONVINCING_ASSESSMENT = {
+    "reason": "unrecognized", "specific": True, "consistent": True, "contradictions": [],
+    "summary": "El cliente no reconoce el comercio y tiene la tarjeta consigo.",
+}
+EXPLANATION = "No uso Uber hace meses, tengo la tarjeta conmigo y ayer vi el cargo en la app del banco"
 
 
 def demo_session(app_db: Path) -> Session:

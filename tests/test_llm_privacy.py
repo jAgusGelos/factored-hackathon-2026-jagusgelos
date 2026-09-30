@@ -72,9 +72,9 @@ def test_build_prompt_context_returns_exactly_the_documented_allowlist():
         case_state="matching",
         reported_amount=100.0,
         reported_currency="USD",
-        reported_date="2024-03-10",
+        reported_date="2026-06-10",
         candidate_amount=100.0,
-        candidate_date="2024-03-09",
+        candidate_date="2026-06-09",
         candidate_currency="USD",
         candidate_merchant_name="Comercio Demo",
         candidate_merchant_category="Retail",
@@ -139,7 +139,7 @@ def _build_sentinel_fixture(db_path):
         "merchant_category VARCHAR, channel VARCHAR, _is_synthetic VARCHAR)"
     )
     con.execute(
-        "INSERT INTO transactions VALUES ('TRX-1', '2024-03-09', 'CLI-SENTINEL', '100.0', "
+        "INSERT INTO transactions VALUES ('TRX-1', '2026-06-09', 'CLI-SENTINEL', '100.0', "
         "'USD', '100.0', '5.0', 'Approved', 'Comercio Demo', 'Retail', 'App', 'false')"
     )
     con.execute(
@@ -170,7 +170,7 @@ def test_sentinel_pii_never_appears_in_any_prompt_across_a_full_conversation(tmp
 
     captured_prompts: list[str] = []
     mock_client = mock_anthropic_client(
-        {"amount": 100.0, "currency": "USD", "date": "2024-03-09", "merchant_hint": None, "wants_human": False},
+        {"amount": 100.0, "currency": "USD", "date": "2026-06-09", "merchant_hint": None, "wants_human": False},
         "Tu caso fue resuelto.",
         captured_prompts=captured_prompts,
     )

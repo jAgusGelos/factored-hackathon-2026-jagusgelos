@@ -17,7 +17,7 @@ import json
 import sqlite3
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from app import db
@@ -54,9 +54,41 @@ class Case:
     # The customer may ask for a person only after giving details the agent
     # still could not resolve (see state_machine._unlocks_handoff).
     handoff_unlocked: bool = False
+    dispute_reason: str | None = None
+    # The customer's explanation so far (their own words, kept in the app db
+    # only; handoffs carry the model's neutral summary, never this text).
+    explanation_text: str | None = None
+    explanation_attempts: int = 0
+    # The automatic credit this case granted, if any (AD-13 exposure limits).
+    credit_key: str | None = None
+    credited_amount_usd: float | None = None
     # The charges last shown to the customer to pick from; a selection is only
     # ever accepted if it is one of these (and it is re-checked as their own).
     offered_transaction_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class CreditHistory:
+    """The automatic credits THIS system granted a customer in a window."""
+
+    unrecognized_count: int
+    total_usd: float
+
+
+@dataclass(frozen=True)
+class CreditGrant:
+    """An automatic credit claimed together with the `resolved_auto`
+    transition. The limits are re-checked INSIDE the same UPDATE, so two
+    concurrent cases of one customer cannot both slip under them.
+    """
+
+    key: str
+    reason: str
+    amount_usd: float
+    window_days: int
+    max_unrecognized: int
+    max_total_usd: float
+    unrecognized_reason: str = "unrecognized"
 
 
 def _row_to_case(row: sqlite3.Row) -> Case:
@@ -75,6 +107,11 @@ def _row_to_case(row: sqlite3.Row) -> Case:
         turn_count=row["turn_count"],
         reported_merchant=row["reported_merchant"],
         handoff_unlocked=bool(row["handoff_unlocked"]),
+        dispute_reason=row["dispute_reason"],
+        explanation_text=row["explanation_text"],
+        explanation_attempts=row["explanation_attempts"],
+        credit_key=row["credit_key"],
+        credited_amount_usd=row["credited_amount_usd"],
         offered_transaction_ids=tuple(json.loads(row["offered_transaction_ids"] or "[]")),
     )
 
@@ -132,10 +169,14 @@ def update_case(
     clarification_rounds: int | None = None,
     add_clarification_round: bool = False,
     unlock_handoff: bool = False,
+    dispute_reason: str | None = None,
+    explanation_text: str | None = None,
+    add_explanation_attempt: bool = False,
     clear_fields: tuple[str, ...] = (),
     expected_states: tuple[str, ...] | None = None,
     expected_offered_transaction_ids: tuple[str, ...] | None = None,
     expected_matched_transaction_id: str | None = None,
+    credit: CreditGrant | None = None,
     db_path: Path | None = None,
 ) -> bool:
     """A compare-and-set: returns False (and writes nothing) when the case no
@@ -144,7 +185,8 @@ def update_case(
     two concurrent requests on the same case cannot both win a transition.
     None arguments leave a column as it is; `clear_fields` resets one to NULL.
     Raises DuplicateCreditError if the write would credit an already-credited
-    transaction a second time.
+    transaction (or duplicate pair) a second time. With `credit`, the write
+    also returns False when the customer's credit limits would be exceeded.
     """
     unknown = set(clear_fields) - CLEARABLE_FIELDS
     if unknown:
@@ -163,6 +205,16 @@ def update_case(
     if expected_matched_transaction_id is not None:
         guards += " AND matched_transaction_id = ?"
         guard_params.append(expected_matched_transaction_id)
+    now = datetime.now(UTC)
+    credit_params: list[object] = [None, None, None]
+    if credit is not None:
+        credit_params = [credit.key, credit.amount_usd, now.isoformat()]
+        since = (now - timedelta(days=credit.window_days)).isoformat()
+        guards += f" AND ({_CREDITED_USD_SQL}) + ? <= ?"
+        guard_params += [since, credit.amount_usd, credit.max_total_usd]
+        if credit.reason == credit.unrecognized_reason:
+            guards += f" AND ({_UNAUTHORIZED_COUNT_SQL}) < ?"
+            guard_params += [since, credit.unrecognized_reason, credit.max_unrecognized]
 
     try:
         with db.app_connection(db_path) as con:
@@ -180,6 +232,12 @@ def update_case(
                     offered_transaction_ids = COALESCE(?, offered_transaction_ids),
                     clarification_rounds = COALESCE(?, clarification_rounds) + ?,
                     handoff_unlocked = MAX(handoff_unlocked, ?),
+                    dispute_reason = COALESCE(?, dispute_reason),
+                    explanation_text = COALESCE(?, explanation_text),
+                    explanation_attempts = explanation_attempts + ?,
+                    credit_key = COALESCE(?, credit_key),
+                    credited_amount_usd = COALESCE(?, credited_amount_usd),
+                    credited_at = COALESCE(?, credited_at),
                     updated_at = ?
                 WHERE case_id = ?{guards}
                 """,
@@ -190,13 +248,52 @@ def update_case(
                     json.dumps(list(offered_transaction_ids)) if offered_transaction_ids is not None else None,
                     clarification_rounds, 1 if add_clarification_round else 0,
                     1 if unlock_handoff else 0,
-                    datetime.now(UTC).isoformat(), case_id, *guard_params,
+                    dispute_reason, explanation_text, 1 if add_explanation_attempt else 0,
+                    *credit_params, now.isoformat(), case_id, *guard_params,
                 ],
             )
             con.commit()
     except sqlite3.IntegrityError as exc:
         raise DuplicateCreditError(f"Case {case_id}: transaction already credited") from exc
     return cursor.rowcount == 1
+
+
+# Credits granted to the updated case's own customer since a timestamp. A row
+# from before these columns existed has no credited_at: its updated_at stands in.
+_CREDITED_SINCE = (
+    "FROM cases AS granted WHERE granted.customer_id = cases.customer_id "
+    "AND granted.state = 'resolved_auto' AND COALESCE(granted.credited_at, granted.updated_at) >= ?"
+)
+_CREDITED_USD_SQL = f"SELECT COALESCE(SUM(granted.credited_amount_usd), 0) {_CREDITED_SINCE}"
+_UNAUTHORIZED_COUNT_SQL = f"SELECT COUNT(*) {_CREDITED_SINCE} AND granted.dispute_reason = ?"
+
+
+def credit_history(
+    customer_id: str, *, window_days: int, unrecognized_reason: str = "unrecognized",
+    db_path: Path | None = None,
+) -> CreditHistory:
+    """The automatic credits this system granted `customer_id` in the trailing
+    `window_days` (AD-13's exposure limits).
+    """
+    since = (datetime.now(UTC) - timedelta(days=window_days)).isoformat()
+    with db.app_connection(db_path) as con:
+        row = con.execute(
+            "SELECT COALESCE(SUM(credited_amount_usd), 0) AS total_usd, "
+            "COALESCE(SUM(dispute_reason = ?), 0) AS unrecognized_count FROM cases "
+            "WHERE customer_id = ? AND state = 'resolved_auto' AND COALESCE(credited_at, updated_at) >= ?",
+            [unrecognized_reason, customer_id, since],
+        ).fetchone()
+    return CreditHistory(unrecognized_count=row["unrecognized_count"], total_usd=row["total_usd"])
+
+
+def credited_case_for_key(customer_id: str, credit_key: str, *, db_path: Path | None = None) -> str | None:
+    """The case that already used this credit key (e.g. a duplicate pair), if any."""
+    with db.app_connection(db_path) as con:
+        row = con.execute(
+            "SELECT case_id FROM cases WHERE customer_id = ? AND credit_key = ? AND state = 'resolved_auto' LIMIT 1",
+            [customer_id, credit_key],
+        ).fetchone()
+    return row["case_id"] if row else None
 
 
 def credited_case_for_transaction(

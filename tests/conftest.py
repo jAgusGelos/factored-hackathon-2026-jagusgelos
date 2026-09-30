@@ -16,6 +16,20 @@ def _dummy_anthropic_api_key(monkeypatch):
     monkeypatch.setattr(config, "ANTHROPIC_API_KEY", "test-dummy-key-not-real")
 
 
+@pytest.fixture(autouse=True)
+def _isolated_app_db(tmp_path, monkeypatch):
+    """Every test gets its own empty app db by default, so a policy read of
+    the customer's past credits (AD-13) never touches the real data/app.db.
+    Tests that need a specific one still override `config.APP_DB_PATH`.
+    """
+    from app import db
+
+    db_path = tmp_path / "default-app.db"
+    monkeypatch.setattr(config, "APP_DB_PATH", db_path)
+    db.init_db(db_path)
+    return db_path
+
+
 @pytest.fixture()
 def real_fixture_app_db(tmp_path, monkeypatch):
     from app import db

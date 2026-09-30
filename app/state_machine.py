@@ -19,7 +19,9 @@ States (stored per case; every transition is a compare-and-set):
   selecting       -> escalated  ("not in the list", or still ambiguous after
                                  MAX_CLARIFICATION_ROUNDS turns with nothing new)
   clarifying      -> ...        (only when the customer has no charges to list)
-  confirming      -> resolved_auto  (customer confirms AND policy re-verifies, AD-12)
+  selecting / confirming -> awaiting_explanation  (charge identified and policy-eligible)
+  awaiting_explanation   -> resolved_auto  (convincing explanation + policy re-check)
+  awaiting_explanation   -> escalated      (not convincing, or a reason a person must handle)
   confirming      -> selecting      (customer says it is not that charge)
   confirming      -> escalated      (customer asks for a human)
 
@@ -78,12 +80,25 @@ from app.charge_search import (
 from app.llm import Language, PromptScene
 from app.policy import (
     ABUSE_GUARD_WINDOW_DAYS,
+    CREDIT_WINDOW_DAYS,
     DISPUTE_COMPLAINT_CATEGORY,
+    DUPLICATE_WINDOW_DAYS,
     MATCH_DATE_TOLERANCE_DAYS,
+    MAX_AUTO_CREDIT_TOTAL_USD,
     MAX_CASE_TURNS,
     MAX_CLARIFICATION_ROUNDS,
+    MAX_EXPLANATION_ATTEMPTS,
+    MAX_UNRECOGNIZED_AUTO_CREDITS,
+    MIN_EXPLANATION_WORDS,
+    DisputeContext,
+    DisputeReason,
+    ExplanationAssessment,
+    ExplanationVerdict,
     MatchOutcome,
     ResolutionDecision,
+    credit_key,
+    effective_amount_usd,
+    evaluate_explanation,
     evaluate_match,
     evaluate_resolution,
     match_amount_tolerance,
@@ -91,7 +106,9 @@ from app.policy import (
 from app.transactions import (
     CustomerProfile,
     TransactionCandidate,
+    count_own_charges_at_merchant,
     count_prior_complaints,
+    find_own_duplicate_twins,
     get_case_history,
     get_customer_profile,
     get_own_transaction,
@@ -110,6 +127,7 @@ IDENTIFIED_BY_REPORT = "Se localizó una transacción que coincide con el monto 
 IDENTIFIED_BY_PICK = "El cliente eligió este cargo de la lista de sus movimientos."
 IDENTIFIED_BY_MERCHANT = "El cliente nombró el comercio y es su único cargo que coincide."
 IDENTIFIED_BY_CONFIRMATION = "El cliente confirmó el cargo propuesto."
+IDENTIFIED_AND_EXPLAINED = "El cliente identificó el cargo y explicó qué pasó."
 
 
 class ChatReply(TypedDict):
@@ -131,10 +149,12 @@ def evaluate_case(
     reported_date: date,
     currency: str,
     customer_requested_human: bool = False,
+    db_path: Path | None = None,
 ) -> CaseEvaluation:
     """AD-11 Rows 1-5 for a report with an amount and a date: a single
-    confident match gets the Row 4/5 verdict, anything else is `SELECTING`
-    (the customer has to pick; round accounting is the caller's job).
+    confident match gets the screening verdict (the customer has not explained
+    yet), anything else is `SELECTING` (the customer has to pick; round
+    accounting is the caller's job).
     """
     report = ReportedCharge(reported_amount, reported_date, currency)
     if customer_requested_human:
@@ -146,33 +166,74 @@ def evaluate_case(
     )
     if evaluate_match(candidates) == MatchOutcome.AMBIGUOUS:
         return CaseEvaluation(state=CaseState.SELECTING, candidates=tuple(candidates))
-    return evaluate_transaction(session, candidates[0], report=report, how_identified=IDENTIFIED_BY_REPORT)
+    return evaluate_transaction(
+        session, candidates[0], report=report, how_identified=IDENTIFIED_BY_REPORT, db_path=db_path,
+    )
 
 
-def evaluate_transaction(
-    session: Session, matched: TransactionCandidate, *, report: ReportedCharge, how_identified: str,
-) -> CaseEvaluation:
-    """AD-11 Rows 4-5 for ONE identified transaction, which must already be
-    known to belong to `session`. The policy inputs are the transaction's own
-    amount and date, whichever way the customer identified it.
+def _dispute_context(
+    session: Session, matched: TransactionCandidate, reason: DisputeReason | None, db_path: Path | None,
+) -> DisputeContext:
+    """Every policy input for ONE of this session's transactions: its fixture
+    history (session-scoped reads) and the credits this system already granted
+    the customer (the app db).
     """
     day = txn_day(matched)
-    prior_disputes = get_case_history(
-        session, DISPUTE_COMPLAINT_CATEGORY, day, window_days=ABUSE_GUARD_WINDOW_DAYS
-    )
+    profile = get_customer_profile(session)
     predicted_priority = classifier.predict_priority(
         classifier.build_live_features(
-            get_customer_profile(session),
+            profile,
             claimed_amount=matched.amount,
             currency=matched.currency,
             prior_complaint_count=count_prior_complaints(session, day),
         )
     )
-    resolution = evaluate_resolution(
-        matched, prior_disputes_in_window=prior_disputes, classifier_priority=predicted_priority
+    twins = find_own_duplicate_twins(session, matched, window_days=DUPLICATE_WINDOW_DAYS)
+    pair_credited = bool(twins) and (
+        any(cases.credited_case_for_transaction(session.customer_id, t, db_path=db_path) for t in twins)
+        or cases.credited_case_for_key(
+            session.customer_id, credit_key(matched, DisputeReason.DUPLICATE, twins), db_path=db_path,
+        ) is not None
     )
+    credits = cases.credit_history(session.customer_id, window_days=CREDIT_WINDOW_DAYS, db_path=db_path)
+    return DisputeContext(
+        reason=reason,
+        as_of=date.fromisoformat(config.DATA_AS_OF),
+        customer_status=profile.customer_status if profile is not None else None,
+        prior_disputes_in_window=get_case_history(
+            session, DISPUTE_COMPLAINT_CATEGORY, day, window_days=ABUSE_GUARD_WINDOW_DAYS
+        ),
+        classifier_priority=predicted_priority,
+        other_charges_at_merchant=(
+            count_own_charges_at_merchant(
+                session, matched.merchant_name, exclude_transaction_id=matched.transaction_id,
+            ) if matched.merchant_name else None
+        ),
+        duplicate_twins=twins,
+        duplicate_pair_credited=pair_credited,
+        recent_unrecognized_credits=credits.unrecognized_count,
+        recent_credited_usd=credits.total_usd,
+    )
+
+
+def evaluate_transaction(
+    session: Session, matched: TransactionCandidate, *, report: ReportedCharge, how_identified: str,
+    reason: DisputeReason | None = None, db_path: Path | None = None,
+) -> CaseEvaluation:
+    """AD-11 Rows 4-5 for ONE identified transaction, which must already be
+    known to belong to `session`. The policy inputs are the transaction's own
+    amount and date, whichever way the customer identified it.
+
+    Without a `reason` this is the SCREENING verdict: `RESOLVED_AUTO` then
+    only means "ask the customer what happened", never "credit it".
+    """
+    ctx = _dispute_context(session, matched, reason, db_path)
+    resolution = evaluate_resolution(matched, ctx)
     if resolution.decision == ResolutionDecision.AUTO_RESOLVE:
-        return CaseEvaluation(state=CaseState.RESOLVED_AUTO, matched_transaction=matched, candidates=(matched,))
+        return CaseEvaluation(
+            state=CaseState.RESOLVED_AUTO, matched_transaction=matched, candidates=(matched,),
+            duplicate_twins=ctx.duplicate_twins,
+        )
     return handoffs.ineligible_match(report, matched, resolution.reasons, how_identified=how_identified)
 
 
@@ -281,8 +342,11 @@ def _unless_already_credited(turn: _Turn, evaluation: CaseEvaluation, report: Re
 
 def _policy_verdict(
     turn: _Turn, matched: TransactionCandidate, report: ReportedCharge, how_identified: str,
+    *, reason: DisputeReason | None = None,
 ) -> CaseEvaluation:
-    evaluation = evaluate_transaction(turn.session, matched, report=report, how_identified=how_identified)
+    evaluation = evaluate_transaction(
+        turn.session, matched, report=report, how_identified=how_identified, reason=reason, db_path=turn.db_path,
+    )
     return _unless_already_credited(turn, evaluation, report)
 
 
@@ -334,61 +398,93 @@ def _escalate(turn: _Turn, evaluation: CaseEvaluation) -> ChatReply:
     return _finish_escalated(turn, evaluation, turn.report)
 
 
-def _simulate_provisional_credit(turn: _Turn, matched: TransactionCandidate, reference: str) -> None:
+def _simulate_provisional_credit(
+    turn: _Turn, matched: TransactionCandidate, reference: str, reason: DisputeReason,
+) -> None:
     """AD-11 Row 6's auto-resolution action: a SIMULATED provisional credit,
     logged as such — never a real transfer, never a call to any payment
-    provider (there is no such integration in this codebase).
+    provider (there is no such integration in this codebase). An unrecognized
+    charge also blocks the card (simulated) and queues the credit for
+    back-office review, where it is reversed if the charge was the customer's.
     """
     turn.log_event(
         "simulated_credit",
         {
             "reference": reference, "matched_transaction_id": matched.transaction_id,
-            "amount": matched.amount, "currency": matched.currency, "simulated": True,
+            "amount": matched.amount, "currency": matched.currency, "reason": reason, "simulated": True,
         },
+    )
+    if reason == DisputeReason.UNRECOGNIZED:
+        turn.log_event("simulated_card_block", {"reference": reference, "simulated": True})
+        turn.log_event("credit_review_queued", {"reference": reference, "reversible": True})
+
+
+def _credit_grant(
+    matched: TransactionCandidate, reason: DisputeReason, twins: tuple[str, ...],
+) -> cases.CreditGrant:
+    return cases.CreditGrant(
+        key=credit_key(matched, reason, twins), reason=reason,
+        amount_usd=effective_amount_usd(matched), window_days=CREDIT_WINDOW_DAYS,
+        max_unrecognized=MAX_UNRECOGNIZED_AUTO_CREDITS, max_total_usd=MAX_AUTO_CREDIT_TOTAL_USD,
+        unrecognized_reason=DisputeReason.UNRECOGNIZED,
     )
 
 
 def _finish_resolved(
-    turn: _Turn, matched: TransactionCandidate, *,
-    expected_states: tuple[CaseState, ...], expected_offered: tuple[str, ...] | None = None,
-    expected_match: str | None = None,
+    turn: _Turn, matched: TransactionCandidate, *, reason: DisputeReason, twins: tuple[str, ...],
+    expected_states: tuple[CaseState, ...], expected_match: str | None = None,
 ) -> ChatReply:
+    """Only ever called after a verdict WITH a reason. The credit limits are
+    checked again inside the claiming UPDATE (`cases.CreditGrant`), so a second
+    case of the same customer running at the same time cannot slip past them.
+    """
     reference = f"REF-{uuid.uuid4().hex[:10].upper()}"
     # The transition is claimed BEFORE the credit is logged: of two concurrent
     # requests exactly one flips the case to resolved_auto and issues a credit.
     try:
-        lost = _transition(
-            turn, CaseState.RESOLVED_AUTO, expected_states=expected_states,
-            expected_offered_transaction_ids=expected_offered, expected_matched_transaction_id=expected_match,
-            matched_transaction_id=matched.transaction_id, resolution_reference=reference,
+        claimed = cases.update_case(
+            turn.case.case_id, state=CaseState.RESOLVED_AUTO, expected_states=expected_states,
+            expected_matched_transaction_id=expected_match, matched_transaction_id=matched.transaction_id,
+            resolution_reference=reference, dispute_reason=reason,
+            credit=_credit_grant(matched, reason, twins), db_path=turn.db_path,
         )
     except cases.DuplicateCreditError:
         credited_in = cases.credited_case_for_transaction(
             turn.session.customer_id, matched.transaction_id, db_path=turn.db_path
         )
         return _escalate(turn, handoffs.already_credited(turn.report, matched, credited_in or "desconocido"))
-    if lost:
-        return lost
-    _simulate_provisional_credit(turn, matched, reference)
+    if not claimed:
+        current = cases.get_case(turn.case.case_id, db_path=turn.db_path)
+        if current.state == turn.case.state and current.matched_transaction_id == turn.case.matched_transaction_id:
+            # Nothing else moved the case: the credit limits refused it.
+            turn.log_event("credit_limit_reached", {"matched_transaction_id": matched.transaction_id})
+            return _escalate(turn, handoffs.credit_limit_reached(turn.report, matched))
+        return _reply_for_lost_race(turn, CaseState.RESOLVED_AUTO)
+    _simulate_provisional_credit(turn, matched, reference, reason)
     turn.log_event(
         "case_resolved",
         {
             "matched_transaction_id": matched.transaction_id, "amount": matched.amount,
-            "currency": matched.currency, "resolution_reference": reference,
+            "currency": matched.currency, "resolution_reference": reference, "reason": reason,
         },
     )
     context = llm.build_prompt_context(
         case_state=CaseState.RESOLVED_AUTO, language=turn.language,
         candidate_amount=matched.amount, candidate_currency=matched.currency,
         candidate_date=iso_day(matched), candidate_merchant_name=matched.merchant_name,
-        resolution_reference=reference,
+        resolution_reference=reference, dispute_reason=reason,
     )
-    fallback = replies.resolved(reference, turn.language)
+    fallback = replies.resolved(reference, reason, turn.language)
     reply = turn.generate_reply(context, fallback=fallback)
     if reference not in reply:
         # A resolution message without the case reference is useless to the
         # customer; never send one, whatever the model wrote.
         turn.log_event("resolution_reply_replaced", {"reason": "reference_missing"})
+        reply = fallback
+    elif reason == DisputeReason.UNRECOGNIZED and "bloque" not in reply.lower():
+        # The customer must learn their card was blocked and the credit is
+        # provisional; a reply that skips it is replaced.
+        turn.log_event("resolution_reply_replaced", {"reason": "card_block_missing"})
         reply = fallback
     return turn.reply(CaseState.RESOLVED_AUTO, reply)
 
@@ -524,6 +620,12 @@ def _handle_human_request(turn: _Turn) -> ChatReply:
             ))
         return _escalate(turn, handoffs.human_request(turn.report))
     turn.log_event("human_request_deferred", {"state": case.state})
+    if case.state == CaseState.AWAITING_EXPLANATION:
+        lost = _transition(
+            turn, CaseState.AWAITING_EXPLANATION, expected_states=(CaseState.AWAITING_EXPLANATION,),
+            add_clarification_round=True,
+        )
+        return lost or turn.reply(CaseState.AWAITING_EXPLANATION, replies.HUMAN_DEFERRED_WHILE_EXPLAINING[turn.language])
     if case.state == CaseState.CONFIRMING:
         lost = _transition(turn, CaseState.CONFIRMING, expected_states=(CaseState.CONFIRMING,), add_clarification_round=True)
         if lost:
@@ -588,7 +690,7 @@ def _confirm_proposed_charge(turn: _Turn, report: ReportedCharge) -> ChatReply:
         if matched is not None else CaseEvaluation(state=CaseState.ESCALATED)
     )
     if evaluation.state == CaseState.RESOLVED_AUTO:
-        return _finish_resolved(
+        return _ask_for_explanation(
             turn, matched, expected_states=(CaseState.CONFIRMING,), expected_match=matched.transaction_id,
         )
     turn.log_event("confirmation_reverification_failed", {"state": evaluation.state})
@@ -633,10 +735,113 @@ def _handle_selection(turn: _Turn, transaction_id: str) -> ChatReply:
     turn.log_event("charge_selected", {"transaction_id": transaction_id})
     evaluation = _policy_verdict(turn, matched, turn.report, IDENTIFIED_BY_PICK)
     if evaluation.state == CaseState.RESOLVED_AUTO:
-        return _finish_resolved(
+        # Picking the charge is the customer's identification of it (AD-12);
+        # what happened with it comes next.
+        return _ask_for_explanation(
             turn, matched, expected_states=(CaseState.SELECTING,), expected_offered=case.offered_transaction_ids,
         )
     return _finish_escalated(turn, evaluation, turn.report, expected_offered=case.offered_transaction_ids)
+
+
+def _charge_context(turn: _Turn, state: str, matched: TransactionCandidate) -> llm.PromptContext:
+    return llm.build_prompt_context(
+        case_state=state, language=turn.language,
+        candidate_amount=matched.amount, candidate_currency=matched.currency,
+        candidate_date=iso_day(matched), candidate_merchant_name=matched.merchant_name,
+        candidate_merchant_category=matched.merchant_category, candidate_channel=matched.channel,
+    )
+
+
+def _ask_for_explanation(
+    turn: _Turn, matched: TransactionCandidate, *, expected_states: tuple[CaseState, ...],
+    expected_offered: tuple[str, ...] | None = None, expected_match: str | None = None,
+) -> ChatReply:
+    """The charge is identified and policy-eligible: before any credit the
+    customer explains, in their own words, what happened with it.
+    """
+    lost = _transition(
+        turn, CaseState.AWAITING_EXPLANATION, expected_states=expected_states,
+        expected_offered_transaction_ids=expected_offered, expected_matched_transaction_id=expected_match,
+        matched_transaction_id=matched.transaction_id,
+    )
+    if lost:
+        return lost
+    turn.log_event("explanation_requested", {"matched_transaction_id": matched.transaction_id})
+    fallback = replies.ask_for_explanation(matched, turn.language)
+    reply = turn.generate_reply(_charge_context(turn, CaseState.AWAITING_EXPLANATION, matched), fallback=fallback)
+    if not replies.names_the_facts(reply, matched, turn.language):
+        turn.log_event("explanation_request_replaced", {"reason": "facts_missing"})
+        reply = fallback
+    return turn.reply(CaseState.AWAITING_EXPLANATION, reply)
+
+
+_TOO_SHORT = ExplanationAssessment(
+    reason=DisputeReason.UNCLEAR, specific=False, consistent=True, contradictions=(),
+    summary="Explicación demasiado breve para evaluar.",
+)
+
+
+def _assess(turn: _Turn, explanation: str, matched: TransactionCandidate) -> ExplanationAssessment | None:
+    """Raises `llm.LLMUnavailable`. None when the model's answer is unusable."""
+    if len(explanation.split()) < MIN_EXPLANATION_WORDS:
+        return _TOO_SHORT
+    return llm.assess_explanation(explanation, charge=_charge_context(turn, CaseState.AWAITING_EXPLANATION, matched))
+
+
+def _handle_explanation(turn: _Turn, text: str) -> ChatReply:
+    """The customer's account of what happened. The model only assesses it;
+    `policy.evaluate_explanation` may ask for one more detail or escalate, and
+    otherwise the charge still has to pass the evidence check for the reason
+    the explanation names (AD-13) before any credit.
+    """
+    case = turn.case
+    matched = get_own_transaction(turn.session, case.matched_transaction_id) if case.matched_transaction_id else None
+    if matched is None:
+        return _escalate(turn, handoffs.unidentified_charge(turn.report, case))
+    explanation = f"{case.explanation_text}\n{text}" if case.explanation_text else text
+    try:
+        assessment = _assess(turn, explanation, matched)
+    except llm.LLMUnavailable:
+        return _force_escalation(
+            turn, event_type="llm_unavailable", failed_call="assess_explanation",
+            action_taken="El servicio de NLU no respondió al evaluar la explicación del cliente.",
+        )
+    attempts_left = case.explanation_attempts + 1 < MAX_EXPLANATION_ATTEMPTS
+    verdict, why = evaluate_explanation(assessment or _TOO_SHORT, attempts_left=attempts_left)
+    turn.log_event(
+        "explanation_assessed",
+        {"verdict": verdict, "reason": assessment.reason if assessment else None,
+         "specific": assessment.specific if assessment else None,
+         "consistent": assessment.consistent if assessment else None},
+    )
+    report = replace(turn.report, reason=assessment.reason if assessment else None)
+
+    if verdict == ExplanationVerdict.NEEDS_DETAIL:
+        return _ask_for_more_detail(turn, explanation)
+    if verdict == ExplanationVerdict.ESCALATE:
+        return _finish_escalated(turn, handoffs.explanation_not_accepted(report, matched, why, assessment), report)
+    # The explanation raised no red flag; the evidence check for the reason it
+    # names decides (a persuasive story alone never credits anything).
+    evaluation = _policy_verdict(turn, matched, report, IDENTIFIED_AND_EXPLAINED, reason=assessment.reason)
+    if evaluation.state == CaseState.RESOLVED_AUTO:
+        return _finish_resolved(
+            turn, matched, reason=assessment.reason, twins=evaluation.duplicate_twins,
+            expected_states=(CaseState.AWAITING_EXPLANATION,), expected_match=matched.transaction_id,
+        )
+    handoff = replace(evaluation.handoff, facts={**evaluation.handoff.facts, **handoffs.explanation_facts(assessment)})
+    return _finish_escalated(turn, replace(evaluation, handoff=handoff), report)
+
+
+def _ask_for_more_detail(turn: _Turn, explanation: str) -> ChatReply:
+    lost = _transition(
+        turn, CaseState.AWAITING_EXPLANATION, expected_states=(CaseState.AWAITING_EXPLANATION,),
+        explanation_text=explanation, add_explanation_attempt=True,
+    )
+    if lost:
+        return lost
+    context = llm.build_prompt_context(case_state=PromptScene.EXPLANATION_FOLLOWUP, language=turn.language)
+    reply = turn.generate_reply(context, fallback=replies.EXPLANATION_FOLLOWUP[turn.language])
+    return turn.reply(CaseState.AWAITING_EXPLANATION, reply)
 
 
 def _handle_none_of_these(turn: _Turn) -> ChatReply:
@@ -705,6 +910,8 @@ def handle_message(
             return _handle_none_of_these(turn)
         if case.state == CaseState.CONFIRMING:
             return _handle_confirmation(turn, text, action)
+        if case.state == CaseState.AWAITING_EXPLANATION:
+            return _handle_explanation(turn, text)
         return _handle_report(turn, text)
     except duckdb.Error:
         return _force_escalation(
@@ -782,7 +989,10 @@ def _handle_report(turn: _Turn, text: str) -> ChatReply:
 def _handle_full_report(turn: _Turn, report: ReportedCharge, *, spend_round: bool, can_ask_again: bool) -> ChatReply:
     evaluation = _unless_already_credited(
         turn,
-        evaluate_case(turn.session, reported_amount=report.amount, reported_date=report.date, currency=report.currency),
+        evaluate_case(
+            turn.session, reported_amount=report.amount, reported_date=report.date, currency=report.currency,
+            db_path=turn.db_path,
+        ),
         report,
     )
     turn.log_event("case_evaluated", {"state": evaluation.state, "candidate_count": len(evaluation.candidates)})

@@ -15,6 +15,8 @@ Function inventory (kept in sync with the signature-inspection test):
   - get_customer_profile(session)
   - get_case_history(session, category, before_date)
   - count_prior_complaints(session, before_date)
+  - count_own_charges_at_merchant(session, merchant_name, exclude_transaction_id)
+  - find_own_duplicate_twins(session, txn, window_days)
 """
 
 from __future__ import annotations
@@ -40,6 +42,7 @@ class TransactionCandidate:
     merchant_category: str | None
     channel: str | None
     is_synthetic: bool
+    transaction_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -70,7 +73,16 @@ def _row_to_candidate(row: tuple) -> TransactionCandidate:
         merchant_category=row[8],
         channel=row[9],
         is_synthetic=bool(row[10]),
+        transaction_type=row[11],
     )
+
+
+_TRANSACTION_COLUMNS = """
+    transaction_id, CAST(transaction_date AS TIMESTAMP), CAST(amount AS DOUBLE),
+    currency, CAST(amount_usd AS DOUBLE), CAST(fraud_score AS DOUBLE),
+    transaction_status, merchant_name, merchant_category, channel,
+    CAST(_is_synthetic AS BOOLEAN), transaction_type
+"""
 
 
 def search_own_transactions(
@@ -90,11 +102,8 @@ def search_own_transactions(
     con = fixture_db.get_connection(db_path)
     try:
         rows = con.execute(
-            """
-            SELECT transaction_id, CAST(transaction_date AS TIMESTAMP), CAST(amount AS DOUBLE),
-                   currency, CAST(amount_usd AS DOUBLE), CAST(fraud_score AS DOUBLE),
-                   transaction_status, merchant_name, merchant_category, channel,
-                   CAST(_is_synthetic AS BOOLEAN)
+            f"""
+            SELECT {_TRANSACTION_COLUMNS}
             FROM transactions
             WHERE customer_id = ?
               AND currency = ?
@@ -116,12 +125,6 @@ def search_own_transactions(
     return [_row_to_candidate(row) for row in rows]
 
 
-_TRANSACTION_COLUMNS = """
-    transaction_id, CAST(transaction_date AS TIMESTAMP), CAST(amount AS DOUBLE),
-    currency, CAST(amount_usd AS DOUBLE), CAST(fraud_score AS DOUBLE),
-    transaction_status, merchant_name, merchant_category, channel,
-    CAST(_is_synthetic AS BOOLEAN)
-"""
 
 
 def list_own_charges(
@@ -259,3 +262,55 @@ def count_prior_complaints(session: Session, before_date: date, *, db_path: Path
     finally:
         con.close()
     return row[0]
+
+
+def count_own_charges_at_merchant(
+    session: Session, merchant_name: str, *, exclude_transaction_id: str, db_path: Path | None = None
+) -> int:
+    """How many OTHER transactions this session's customer has at exactly this
+    merchant: an existing relationship with the merchant is evidence against
+    "I never made this charge" (AD-13). `customer_id` is never a parameter.
+    """
+    con = fixture_db.get_connection(db_path)
+    try:
+        row = con.execute(
+            "SELECT COUNT(*) FROM transactions WHERE customer_id = ? AND merchant_name = ? AND transaction_id <> ?",
+            [session.customer_id, merchant_name, exclude_transaction_id],
+        ).fetchone()
+    finally:
+        con.close()
+    return row[0]
+
+
+def find_own_duplicate_twins(
+    session: Session, txn: TransactionCandidate, *, window_days: int, db_path: Path | None = None
+) -> tuple[str, ...]:
+    """Ids of this session's OTHER transactions that make `txn` a verifiable
+    duplicate: same merchant, same exact amount and currency, same type, at
+    most `window_days` apart (AD-13). A charge without a merchant name has no
+    verifiable twin. `customer_id` is never a parameter.
+    """
+    if not txn.merchant_name:
+        return ()
+    con = fixture_db.get_connection(db_path)
+    try:
+        rows = con.execute(
+            """
+            SELECT transaction_id FROM transactions
+            WHERE customer_id = ?
+              AND transaction_id <> ?
+              AND merchant_name = ?
+              AND currency = ?
+              AND CAST(amount AS DOUBLE) = ?
+              AND transaction_type IS NOT DISTINCT FROM ?
+              AND ABS(DATE_DIFF('day', CAST(transaction_date AS DATE), CAST(? AS DATE))) <= ?
+            ORDER BY transaction_id
+            """,
+            [
+                session.customer_id, txn.transaction_id, txn.merchant_name, txn.currency, txn.amount,
+                txn.transaction_type, txn.transaction_date, window_days,
+            ],
+        ).fetchall()
+    finally:
+        con.close()
+    return tuple(row[0] for row in rows)

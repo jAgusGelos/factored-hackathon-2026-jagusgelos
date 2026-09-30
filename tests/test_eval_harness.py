@@ -36,6 +36,17 @@ def test_run_covers_the_adversarial_scenarios(tmp_path):
     }
 
 
+def test_run_covers_the_policy_abuse_scenarios(tmp_path):
+    report = run(tmp_path / "eval_app.db")
+    policy_keys = {c["case_key"] for c in report["by_group"]["policy_abuse"]}
+    assert policy_keys == {
+        "card_present_unrecognized", "merchant_history_unrecognized", "duplicate_without_twin",
+        "not_received_merchant_dispute", "explanation_injection", "second_unrecognized_credit",
+        "duplicate_pair_twice",
+    }
+    assert all(c["actual_state"] == "escalated" for c in report["by_group"]["policy_abuse"])
+
+
 def test_report_has_all_required_metrics():
     report = build_report([])
     assert "safe_automated_resolution_rate" in report

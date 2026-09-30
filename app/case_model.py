@@ -19,6 +19,7 @@ class CaseState(StrEnum):
     CLARIFYING = "clarifying"
     SELECTING = "selecting"
     CONFIRMING = "confirming"
+    AWAITING_EXPLANATION = "awaiting_explanation"
     RESOLVED_AUTO = "resolved_auto"
     ESCALATED = "escalated"
 
@@ -66,6 +67,9 @@ class CaseEvaluation:
     candidates: tuple[TransactionCandidate, ...] = field(default_factory=tuple)
     resolution_reasons: tuple[str, ...] = field(default_factory=tuple)
     handoff: HandoffRecord | None = None
+    # The customer's other charges that make the matched one a verifiable
+    # duplicate (AD-13); they decide the credit key of a duplicate reversal.
+    duplicate_twins: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -79,6 +83,7 @@ class ReportedCharge:
     date: date | None
     currency: str
     merchant: str | None = None
+    reason: str | None = None
 
     @classmethod
     def from_case(cls, case: cases.Case, default_currency: str) -> ReportedCharge:
@@ -87,6 +92,7 @@ class ReportedCharge:
             date=date.fromisoformat(case.reported_date) if case.reported_date else None,
             currency=case.reported_currency or default_currency,
             merchant=case.reported_merchant,
+            reason=case.dispute_reason,
         )
 
     @property
@@ -103,4 +109,5 @@ class ReportedCharge:
             "reported_currency": self.currency,
             "reported_date": self.date.isoformat() if self.date is not None else None,
             "reported_merchant": self.merchant,
+            "dispute_reason": self.reason,
         }
