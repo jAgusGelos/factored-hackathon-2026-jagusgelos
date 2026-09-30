@@ -17,6 +17,7 @@ import logging
 import sqlite3
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from app import config
@@ -57,6 +58,8 @@ CREATE TABLE IF NOT EXISTS cases (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+-- The same-charge lookups (cases.credited_case_for_transaction and friends).
+CREATE INDEX IF NOT EXISTS idx_cases_customer_transaction ON cases (customer_id, matched_transaction_id);
 
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -96,6 +99,7 @@ CREATE TABLE IF NOT EXISTS chat_turns (
     reply_json TEXT,
     created_at TEXT NOT NULL,
     completed_at TEXT,
+    failed_at TEXT,
     PRIMARY KEY (customer_id, turn_id)
 );
 """
@@ -124,6 +128,9 @@ _ADDED_COLUMNS = {
         ("credited_amount_usd", "REAL"),
         ("credited_at", "TEXT"),
     ),
+    "chat_turns": (
+        ("failed_at", "TEXT"),
+    ),
 }
 
 # At most one simulated credit per transaction and customer. Created after the
@@ -149,11 +156,21 @@ def _add_missing_columns(con: sqlite3.Connection) -> None:
                 con.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
 
+# A completed chat turn is kept this long for replays of a client retry.
+COMPLETED_TURN_RETENTION = timedelta(days=1)
+
+
+def _purge_completed_turns(con: sqlite3.Connection) -> None:
+    cutoff = (datetime.now(UTC) - COMPLETED_TURN_RETENTION).isoformat()
+    con.execute("DELETE FROM chat_turns WHERE completed_at IS NOT NULL AND completed_at < ?", [cutoff])
+
+
 def init_db(db_path: Path) -> None:
     con = get_connection(db_path)
     try:
         con.executescript(SCHEMA)
         _add_missing_columns(con)
+        _purge_completed_turns(con)
         for name, index in (
             ("idx_cases_one_credit_per_transaction", _ONE_CREDIT_PER_TRANSACTION),
             ("idx_cases_one_credit_per_key", _ONE_CREDIT_PER_KEY),

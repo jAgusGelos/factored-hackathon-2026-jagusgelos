@@ -599,29 +599,42 @@ def handle_message(
 
     `turn_id` makes the turn idempotent (AD-4, `app/turns.py`): a retry with
     the same id gets the stored reply and is never processed twice. Raises
-    `turns.TurnInProgress` while the first request is still running.
+    `turns.TurnInProgress` while the first request is still running. A turn
+    that fails with an unexpected error is marked abandoned before the error
+    propagates, so its retry gets the case's current state at once.
     """
     language = Language(language)
     action = CustomerAction(action) if action is not None else None
     if turn_id is None:
-        return _run_turn(session, case_id, text, language, db_path, selected_transaction_id, action)
+        return _run_turn(
+            session, case_id, text, language,
+            db_path=db_path, selected_transaction_id=selected_transaction_id, action=action,
+        )
 
     customer_id = session.customer_id
     claim = turns.claim(customer_id, turn_id, db_path=db_path)
     if claim.status == turns.TurnStatus.COMPLETE:
+        assert claim.reply is not None  # a complete turn always stores its reply
         cases.log_event(uuid.uuid4().hex, claim.case_id, "turn_replayed", {"turn_id": turn_id}, db_path=db_path)
         return claim.reply
     if claim.status == turns.TurnStatus.IN_FLIGHT:
         cases.log_event(uuid.uuid4().hex, claim.case_id, "turn_in_flight", {"turn_id": turn_id}, db_path=db_path)
         raise turns.TurnInProgress(turn_id)
     if claim.status == turns.TurnStatus.ABANDONED:
-        return _abandoned_turn_reply(session, claim.case_id, turn_id, language, db_path)
+        return _abandoned_turn_reply(session, claim.case_id or case_id, turn_id, language, db_path)
     try:
         reply = _run_turn(
-            session, case_id, text, language, db_path, selected_transaction_id, action, turn_id=turn_id,
+            session, case_id, text, language,
+            db_path=db_path, selected_transaction_id=selected_transaction_id, action=action, turn_id=turn_id,
         )
     except cases.CaseOwnershipError:
         turns.release(customer_id, turn_id, db_path=db_path)
+        raise
+    except Exception:
+        # It may already have moved the case: never run it again, but do not
+        # leave the retry stuck on 409 until the pending timeout either.
+        failed_case_id = turns.abandon(customer_id, turn_id, db_path=db_path)
+        cases.log_event(uuid.uuid4().hex, failed_case_id, "turn_failed", {"turn_id": turn_id}, db_path=db_path)
         raise
     turns.complete(customer_id, turn_id, reply, db_path=db_path)
     return reply
@@ -630,13 +643,21 @@ def handle_message(
 def _abandoned_turn_reply(
     session: Session, case_id: str | None, turn_id: str, language: Language, db_path: Path | None,
 ) -> ChatReply:
-    """The request that claimed this turn died without storing its reply, and
-    it may already have moved the case: never run it again, just say where the
-    case is now (as after a lost compare-and-set race).
+    """The request that claimed this turn died or failed without storing its
+    reply, and it may already have moved the case: never run it again, just
+    say where the case is now (as after a lost compare-and-set race).
+
+    `case_id` is the one the turn attached, or else the one the request
+    names; it is answered only if it belongs to this session.
     """
-    case = cases.get_case_for_session(case_id, session.customer_id, db_path=db_path) if case_id else None
+    try:
+        case = cases.get_case_for_session(case_id, session.customer_id, db_path=db_path) if case_id else None
+    except cases.CaseOwnershipError:
+        case = None
     correlation_id = uuid.uuid4().hex
-    cases.log_event(correlation_id, case_id, "turn_abandoned", {"turn_id": turn_id}, db_path=db_path)
+    cases.log_event(
+        correlation_id, case.case_id if case else None, "turn_abandoned", {"turn_id": turn_id}, db_path=db_path,
+    )
     if case is None:
         # The first message of a conversation whose case was never created.
         return {
@@ -653,8 +674,8 @@ def _abandoned_turn_reply(
 
 
 def _run_turn(
-    session: Session, case_id: str | None, text: str, language: Language, db_path: Path | None,
-    selected_transaction_id: str | None, action: CustomerAction | None, *, turn_id: str | None = None,
+    session: Session, case_id: str | None, text: str, language: Language, *, db_path: Path | None,
+    selected_transaction_id: str | None, action: CustomerAction | None, turn_id: str | None = None,
 ) -> ChatReply:
     case = _load_or_create_case(session, case_id, language, db_path)
     if turn_id is not None:
@@ -665,9 +686,7 @@ def _run_turn(
     cases.log_message(case.case_id, "customer", text, db_path=db_path)
 
     if case.state in TERMINAL_STATES:
-        return turn.reply(
-            CaseState(case.state), replies.terminal_case(CaseState(case.state), case.resolution_reference, language)
-        )
+        return turn.reply(*where_the_case_is(case, language))
     if action in _ACTION_STATES and case.state != _ACTION_STATES[action]:
         turn.log_event("action_rejected", {"action": action, "state": case.state})
         return turn.reply(CaseState(case.state), replies.ACTION_UNAVAILABLE[language], current_options(turn))

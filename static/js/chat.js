@@ -180,11 +180,13 @@ const TURN_OUTCOMES = Object.freeze({
   DELIVERED: "delivered",
   IN_PROGRESS: "in_progress",
   REJECTED: "rejected",
+  SESSION_EXPIRED: "session_expired",
   FAILED: "failed",
 });
 
 // app/main.py answers 409 while the same turn_id is still being processed.
 const HTTP_TURN_IN_PROGRESS = 409;
+const HTTP_UNAUTHORIZED = 401;
 // The server's per-turn model budget is 20 s (AD-5); the client gives up a bit later.
 const TURN_TIMEOUT_MS = 25000;
 const SLOW_TURN_MS = 10000;
@@ -349,6 +351,8 @@ function onSubmit(event) {
 // bubble always shows what the customer "said" (the button label for a tap).
 function sendToAgent({ message, selectedTransactionId = null, action = null }) {
   if (state.busy) return;
+  // Generated before the DOM is touched, so nothing is half-sent if it fails.
+  const turnId = newTurnId();
   const retired = retireInteractiveBlocks();
   appendBubble("customer", message);
   // Frozen payload: a retry re-sends exactly this, same turn_id (AD-4), so the
@@ -360,27 +364,46 @@ function sendToAgent({ message, selectedTransactionId = null, action = null }) {
       language: state.language,
       selected_transaction_id: selectedTransactionId,
       action,
-      turn_id: crypto.randomUUID(),
+      turn_id: turnId,
     }),
     retired,
+    attempts: 0,
   };
   runTurn(turn);
+}
+
+// crypto.randomUUID exists only in secure contexts (HTTPS or localhost); the
+// fallback builds the same lowercase UUIDv4 from crypto.getRandomValues.
+function newTurnId() {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 async function runTurn(turn) {
   if (state.busy) return;
   const prevState = state.caseState;
   setBusy(true, WAIT_CAPTION_KEYS[prevState] || "waitGeneric");
+  turn.attempts += 1;
   const { outcome, reply } = await postTurn(turn.body);
+  if (outcome === TURN_OUTCOMES.SESSION_EXPIRED) {
+    window.location.href = "/";
+    return;
+  }
 
+  // Before rendering: the typing bubble never sits under the reply.
   hideTyping();
   let focusTarget = messageInput;
   try {
     if (outcome === TURN_OUTCOMES.DELIVERED) {
       await renderReply(reply, prevState);
     } else {
-      // Only a definite rejection proves the turn changed nothing server-side.
-      if (outcome === TURN_OUTCOMES.REJECTED) restoreInteractiveBlocks(turn.retired);
+      // Only a definite rejection of the FIRST attempt proves the turn changed
+      // nothing server-side: a retry's rejection says nothing about the first.
+      if (outcome === TURN_OUTCOMES.REJECTED && turn.attempts === 1) restoreInteractiveBlocks(turn.retired);
       focusTarget = appendRetryCard(turn, outcome === TURN_OUTCOMES.IN_PROGRESS);
     }
   } finally {
@@ -403,6 +426,7 @@ async function postTurn(body) {
     });
     if (res.ok) return { outcome: TURN_OUTCOMES.DELIVERED, reply: await res.json() };
     if (res.status === HTTP_TURN_IN_PROGRESS) return { outcome: TURN_OUTCOMES.IN_PROGRESS, reply: null };
+    if (res.status === HTTP_UNAUTHORIZED) return { outcome: TURN_OUTCOMES.SESSION_EXPIRED, reply: null };
     if (res.status >= 400 && res.status < 500) return { outcome: TURN_OUTCOMES.REJECTED, reply: null };
   } catch {
     // Abort (timeout), network error or an unreadable body: the turn may
@@ -454,9 +478,8 @@ function setBusy(busy, captionKey = null) {
   if (busy) {
     showTyping(t(captionKey));
     slowTimer = setTimeout(() => setWaitText(t("waitSlow"), true), SLOW_TURN_MS);
-  } else {
-    hideTyping();
   }
+  // Not busy: runTurn already hid the typing bubble before rendering the reply.
 }
 
 // The whole bubble is aria-hidden: the log's aria-live must not announce it;

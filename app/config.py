@@ -41,6 +41,10 @@ LLM_RETRY_BACKOFF_SECONDS = (1.0, 2.0)
 # up at 25 s. An attempt is not started with less than LLM_MIN_ATTEMPT_SECONDS left.
 TURN_DEADLINE_SECONDS = 20.0
 LLM_MIN_ATTEMPT_SECONDS = 1.0
+# How long a pending chat turn (app/turns.py) is presumed to be still running.
+# Well above the turn's model budget, so a live turn is never taken for a dead one.
+PENDING_TIMEOUT_SECONDS = 120
+assert PENDING_TIMEOUT_SECONDS > TURN_DEADLINE_SECONDS
 # The explanation assessment is a short JSON object; a tight cap keeps it fast.
 ASSESSMENT_MAX_TOKENS = 300
 

@@ -18,7 +18,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app import cases, replies, turns
+from app import cases, config, db, replies, turns
 from app.case_model import CaseState
 from app.state_machine import handle_message
 from tests.support import (
@@ -119,7 +119,7 @@ def test_an_abandoned_turn_reports_the_case_as_it_is_without_running_again(api, 
     turn_id = str(uuid.uuid4())
     turns.claim(session.customer_id, turn_id, db_path=real_fixture_app_db)
     turns.attach_case(session.customer_id, turn_id, opened["case_id"], db_path=real_fixture_app_db)
-    _age(real_fixture_app_db, turn_id, turns.PENDING_TIMEOUT_SECONDS)
+    _age(real_fixture_app_db, turn_id, config.PENDING_TIMEOUT_SECONDS)
     calls, messages = model.messages.create.call_count, _message_count(real_fixture_app_db)
 
     res = api.post(
@@ -143,7 +143,7 @@ def test_an_abandoned_first_message_without_a_case_changes_nothing(api, real_fix
     session = demo_session(real_fixture_app_db)
     turn_id = str(uuid.uuid4())
     turns.claim(session.customer_id, turn_id, db_path=real_fixture_app_db)
-    _age(real_fixture_app_db, turn_id, turns.PENDING_TIMEOUT_SECONDS + 60)
+    _age(real_fixture_app_db, turn_id, config.PENDING_TIMEOUT_SECONDS + 60)
 
     body = api.post("/api/chat", json={"message": OPENING, "turn_id": turn_id}).json()
 
@@ -187,3 +187,87 @@ def test_a_refused_turn_can_be_retried(model, real_fixture_app_db):
         with pytest.raises(cases.CaseOwnershipError):
             handle_message(other, mine["case_id"], "hola", db_path=real_fixture_app_db, turn_id=turn_id)
     assert app_db_rows(real_fixture_app_db, "SELECT COUNT(*) FROM chat_turns")[0][0] == 0
+
+
+def test_a_turn_that_fails_is_answered_with_the_case_state_on_retry_not_409(api, model, real_fixture_app_db):
+    """An unexpected error inside the turn marks it abandoned at once: the
+    retry is not stuck on 409 until the pending timeout, and the turn is never
+    run again.
+    """
+    opened = api.post("/api/chat", json={"message": OPENING}).json()
+    session = demo_session(real_fixture_app_db)
+    turn_id = str(uuid.uuid4())
+    tap = {"case_id": opened["case_id"], "message": "Sí, es ese", "action": "confirm_yes", "turn_id": turn_id}
+    with patch("app.state_machine._route", side_effect=RuntimeError("boom")), pytest.raises(RuntimeError):
+        handle_message(session, opened["case_id"], tap["message"], action="confirm_yes", turn_id=turn_id,
+                       db_path=real_fixture_app_db)
+    assert logged_events(real_fixture_app_db, "turn_failed") == [{"turn_id": turn_id}]
+    calls, messages = model.messages.create.call_count, _message_count(real_fixture_app_db)
+
+    res = api.post("/api/chat", json=tap)
+
+    assert res.status_code == 200
+    body = res.json()
+    assert (body["case_id"], body["state"]) == (opened["case_id"], CaseState.CONFIRMING)
+    assert body["reply"] == replies.CASE_MOVED_ON["es"]
+    assert model.messages.create.call_count == calls
+    assert _message_count(real_fixture_app_db) == messages
+    assert logged_events(real_fixture_app_db, "confirmation_received") == []
+    assert app_db_rows(real_fixture_app_db, "SELECT reply_json FROM chat_turns WHERE turn_id = ?", [turn_id]) == [(None,)]
+
+
+def test_an_abandoned_turn_without_an_attached_case_answers_with_the_requests_case(api, real_fixture_app_db):
+    """The turn died before it attached its case: the case the request names
+    is still the one to report, not "no case".
+    """
+    opened = api.post("/api/chat", json={"message": OPENING}).json()
+    session = demo_session(real_fixture_app_db)
+    turn_id = str(uuid.uuid4())
+    turns.claim(session.customer_id, turn_id, db_path=real_fixture_app_db)
+    _age(real_fixture_app_db, turn_id, config.PENDING_TIMEOUT_SECONDS)
+
+    body = api.post(
+        "/api/chat",
+        json={"case_id": opened["case_id"], "message": "Sí, es ese", "action": "confirm_yes", "turn_id": turn_id},
+    ).json()
+
+    assert body["case_id"] == opened["case_id"]
+    assert body["state"] == CaseState.CONFIRMING
+    assert logged_events(real_fixture_app_db, "confirmation_received") == []
+
+
+def test_an_abandoned_turn_never_answers_with_another_customers_case(model, real_fixture_app_db):
+    mine = handle_message(demo_session(real_fixture_app_db), None, OPENING, db_path=real_fixture_app_db)
+    other = session_for("CLI-SOMEONE-ELSE", real_fixture_app_db)
+    turn_id = str(uuid.uuid4())
+    turns.claim(other.customer_id, turn_id, db_path=real_fixture_app_db)
+    _age(real_fixture_app_db, turn_id, config.PENDING_TIMEOUT_SECONDS)
+
+    body = handle_message(other, mine["case_id"], "hola", db_path=real_fixture_app_db, turn_id=turn_id)
+
+    assert body["case_id"] is None
+    assert body["customer_id"] == "CLI-SOMEONE-ELSE"
+    assert body["state"] == CaseState.AWAITING_REPORT
+
+
+def test_startup_purges_turns_completed_more_than_a_day_ago(real_fixture_app_db):
+    now = datetime.now(UTC)
+    con = sqlite3.connect(str(real_fixture_app_db))
+    try:
+        con.executemany(
+            "INSERT INTO chat_turns (customer_id, turn_id, reply_json, created_at, completed_at) VALUES (?, ?, ?, ?, ?)",
+            [
+                ("C", "old", "{}", (now - timedelta(days=2)).isoformat(), (now - timedelta(days=2)).isoformat()),
+                ("C", "recent", "{}", now.isoformat(), now.isoformat()),
+                ("C", "pending", None, (now - timedelta(days=2)).isoformat(), None),
+            ],
+        )
+        con.commit()
+    finally:
+        con.close()
+
+    db.init_db(real_fixture_app_db)
+
+    assert app_db_rows(real_fixture_app_db, "SELECT turn_id FROM chat_turns ORDER BY turn_id") == [
+        ("pending",), ("recent",)
+    ]

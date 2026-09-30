@@ -5,9 +5,9 @@ The protocol is claim-first: the `(customer_id, turn_id)` row is INSERTed
 before anything is processed, so of two requests with the same id exactly one
 wins the primary key and runs the turn. The other gets the stored reply when
 the winner finished (`COMPLETE`), "still running" while it is young
-(`IN_FLIGHT`), or, once it is old enough that the winner must have died
-(`ABANDONED`), the case's current state; an abandoned turn is never run again,
-because it may already have moved the case.
+(`IN_FLIGHT`), or, once the winner failed (`abandon`) or it is old enough that
+the winner must have died (`ABANDONED`), the case's current state; an abandoned
+turn is never run again, because it may already have moved the case.
 
 Every read and write is keyed by the session's customer id, never a
 caller-provided one: the same `turn_id` under another customer is simply that
@@ -24,15 +24,10 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from app import db
+from app import config, db
 
 if TYPE_CHECKING:
     from app.case_turn import ChatReply
-
-# How long a pending turn is presumed to be still running. Well above the
-# per-turn model budget (config.TURN_DEADLINE_SECONDS), so a live turn is
-# never mistaken for a dead one.
-PENDING_TIMEOUT_SECONDS = 120
 
 
 class TurnStatus(StrEnum):
@@ -68,7 +63,8 @@ def claim(customer_id: str, turn_id: str, *, db_path: Path | None = None) -> Tur
             return TurnClaim(TurnStatus.NEW)
         except sqlite3.IntegrityError:
             row = con.execute(
-                "SELECT case_id, reply_json, created_at FROM chat_turns WHERE customer_id = ? AND turn_id = ?",
+                "SELECT case_id, reply_json, created_at, failed_at FROM chat_turns "
+                "WHERE customer_id = ? AND turn_id = ?",
                 [customer_id, turn_id],
             ).fetchone()
     if row is None:
@@ -77,9 +73,11 @@ def claim(customer_id: str, turn_id: str, *, db_path: Path | None = None) -> Tur
         return TurnClaim(TurnStatus.IN_FLIGHT)
     if row["reply_json"] is not None:
         return TurnClaim(TurnStatus.COMPLETE, row["case_id"], json.loads(row["reply_json"]))
+    if row["failed_at"] is not None:
+        return TurnClaim(TurnStatus.ABANDONED, row["case_id"])
     age = now - datetime.fromisoformat(row["created_at"])
-    status = TurnStatus.IN_FLIGHT if age < timedelta(seconds=PENDING_TIMEOUT_SECONDS) else TurnStatus.ABANDONED
-    return TurnClaim(status, row["case_id"])
+    timeout = timedelta(seconds=config.PENDING_TIMEOUT_SECONDS)
+    return TurnClaim(TurnStatus.IN_FLIGHT if age < timeout else TurnStatus.ABANDONED, row["case_id"])
 
 
 def attach_case(customer_id: str, turn_id: str, case_id: str, *, db_path: Path | None = None) -> None:
@@ -99,7 +97,7 @@ def complete(customer_id: str, turn_id: str, reply: ChatReply, *, db_path: Path 
         con.execute(
             "UPDATE chat_turns SET reply_json = ?, case_id = ?, completed_at = ? "
             "WHERE customer_id = ? AND turn_id = ? AND reply_json IS NULL",
-            [json.dumps(reply, ensure_ascii=False), reply.get("case_id"), datetime.now(UTC).isoformat(),
+            [json.dumps(reply, ensure_ascii=False), reply["case_id"], datetime.now(UTC).isoformat(),
              customer_id, turn_id],
         )
         con.commit()
@@ -116,3 +114,19 @@ def release(customer_id: str, turn_id: str, *, db_path: Path | None = None) -> N
             [customer_id, turn_id],
         )
         con.commit()
+
+
+def abandon(customer_id: str, turn_id: str, *, db_path: Path | None = None) -> str | None:
+    """Marks a pending turn whose request failed mid-way as abandoned at once,
+    so a retry gets the case's current state instead of 409 until the timeout.
+    The turn is never run again: it may already have moved the case. Returns
+    the case the turn had attached, if any.
+    """
+    with db.app_connection(db_path) as con:
+        row = con.execute(
+            "UPDATE chat_turns SET failed_at = ? WHERE customer_id = ? AND turn_id = ? AND reply_json IS NULL "
+            "RETURNING case_id",
+            [datetime.now(UTC).isoformat(), customer_id, turn_id],
+        ).fetchone()
+        con.commit()
+    return row["case_id"] if row else None
