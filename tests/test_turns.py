@@ -24,6 +24,7 @@ from app.state_machine import handle_message
 from tests.support import (
     AUTO_RESOLVE_CHARGE,
     DEMO_USERNAME,
+    OPENING,
     REAL_DEMO_USERS_PATH,
     app_db_rows,
     charge_extraction,
@@ -36,7 +37,6 @@ from tests.support import (
 
 pytestmark = requires_real_fixture
 
-OPENING = "Tengo un cargo que no reconozco"
 
 
 @pytest.fixture()
@@ -252,14 +252,17 @@ def test_an_abandoned_turn_never_answers_with_another_customers_case(model, real
 
 def test_startup_drops_old_replies_but_keeps_a_tombstone_that_is_never_reprocessed(real_fixture_app_db):
     now = datetime.now(UTC)
+    two_days_ago = (now - timedelta(days=2)).isoformat()
+    long_ago = (now - db.TURN_ROW_RETENTION - timedelta(days=1)).isoformat()
     con = sqlite3.connect(str(real_fixture_app_db))
     try:
         con.executemany(
             "INSERT INTO chat_turns (customer_id, turn_id, reply_json, created_at, completed_at) VALUES (?, ?, ?, ?, ?)",
             [
-                ("C", "old", "{}", (now - timedelta(days=2)).isoformat(), (now - timedelta(days=2)).isoformat()),
+                ("C", "old", "{}", two_days_ago, two_days_ago),
                 ("C", "recent", "{}", now.isoformat(), now.isoformat()),
-                ("C", "pending", None, (now - timedelta(days=2)).isoformat(), None),
+                ("C", "pending", None, two_days_ago, None),
+                ("C", "ancient", "{}", long_ago, long_ago),
             ],
         )
         con.commit()
@@ -270,7 +273,32 @@ def test_startup_drops_old_replies_but_keeps_a_tombstone_that_is_never_reprocess
 
     rows = app_db_rows(
         real_fixture_app_db,
-        "SELECT turn_id, reply_json IS NOT NULL, failed_at IS NOT NULL FROM chat_turns ORDER BY turn_id",
+        "SELECT turn_id, reply_json IS NOT NULL, completed_at IS NOT NULL, failed_at IS NOT NULL "
+        "FROM chat_turns ORDER BY turn_id",
     )
-    assert rows == [("old", 0, 1), ("pending", 0, 0), ("recent", 1, 0)]
-    assert turns.claim("C", "old", db_path=real_fixture_app_db).status == turns.TurnStatus.ABANDONED
+    assert rows == [("old", 0, 1, 0), ("pending", 0, 0, 0), ("recent", 1, 1, 0)]
+    assert turns.claim("C", "old", db_path=real_fixture_app_db).status == turns.TurnStatus.EXPIRED
+
+
+def test_a_turn_id_reused_after_its_reply_expired_is_not_run_again(api, model, real_fixture_app_db):
+    turn_id = str(uuid.uuid4())
+    first = api.post("/api/chat", json={"message": OPENING, "turn_id": turn_id}).json()
+    old = (datetime.now(UTC) - db.COMPLETED_TURN_RETENTION - timedelta(hours=1)).isoformat()
+    con = sqlite3.connect(str(real_fixture_app_db))
+    try:
+        con.execute("UPDATE chat_turns SET completed_at = ? WHERE turn_id = ?", [old, turn_id])
+        con.commit()
+    finally:
+        con.close()
+    db.init_db(real_fixture_app_db)
+    calls, messages = model.messages.create.call_count, _message_count(real_fixture_app_db)
+
+    late = api.post("/api/chat", json={"message": OPENING, "turn_id": turn_id, "case_id": first["case_id"]})
+
+    assert late.status_code == 200
+    assert late.json()["case_id"] == first["case_id"]
+    assert late.json()["reply"] == replies.CASE_MOVED_ON["es"]
+    assert model.messages.create.call_count == calls
+    assert _message_count(real_fixture_app_db) == messages
+    assert logged_events(real_fixture_app_db, "turn_expired")
+    assert logged_events(real_fixture_app_db, "turn_abandoned") == []

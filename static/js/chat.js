@@ -389,6 +389,7 @@ async function runTurn(turn) {
   turn.attempts += 1;
   const { outcome, reply } = await postTurn(turn.body);
   if (outcome === TURN_OUTCOMES.SESSION_EXPIRED) {
+    hideTyping();
     setBusy(false);
     window.location.href = "/";
     return;

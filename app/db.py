@@ -158,19 +158,22 @@ def _add_missing_columns(con: sqlite3.Connection) -> None:
 
 # A completed chat turn's reply is kept this long for replays of a client retry.
 COMPLETED_TURN_RETENTION = timedelta(days=1)
+# Any chat turn row is kept this long, far past any client retry (25 s).
+TURN_ROW_RETENTION = timedelta(days=30)
 
 
-def _purge_completed_turns(con: sqlite3.Connection) -> None:
-    """Drops old reply payloads but keeps the (customer_id, turn_id) row as a
-    tombstone marked failed: a late reuse of that turn_id is answered with the
-    case's current state, never processed a second time.
+def _expire_old_turns(con: sqlite3.Connection) -> None:
+    """Drops old reply payloads but keeps the (customer_id, turn_id) row as an
+    expired tombstone (`completed_at` set, no reply): a late reuse of that
+    turn_id is answered with the case's current state, never processed a
+    second time. Rows past `TURN_ROW_RETENTION` are deleted.
     """
-    cutoff = (datetime.now(UTC) - COMPLETED_TURN_RETENTION).isoformat()
+    now = datetime.now(UTC)
     con.execute(
-        "UPDATE chat_turns SET reply_json = NULL, failed_at = completed_at "
-        "WHERE reply_json IS NOT NULL AND completed_at < ?",
-        [cutoff],
+        "UPDATE chat_turns SET reply_json = NULL WHERE reply_json IS NOT NULL AND completed_at < ?",
+        [(now - COMPLETED_TURN_RETENTION).isoformat()],
     )
+    con.execute("DELETE FROM chat_turns WHERE created_at < ?", [(now - TURN_ROW_RETENTION).isoformat()])
 
 
 def init_db(db_path: Path) -> None:
@@ -178,7 +181,7 @@ def init_db(db_path: Path) -> None:
     try:
         con.executescript(SCHEMA)
         _add_missing_columns(con)
-        _purge_completed_turns(con)
+        _expire_old_turns(con)
         for name, index in (
             ("idx_cases_one_credit_per_transaction", _ONE_CREDIT_PER_TRANSACTION),
             ("idx_cases_one_credit_per_key", _ONE_CREDIT_PER_KEY),

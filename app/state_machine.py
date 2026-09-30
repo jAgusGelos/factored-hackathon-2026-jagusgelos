@@ -65,6 +65,7 @@ import duckdb
 from app import cases, classifier, config, handoffs, llm, replies, turns
 from app.auth import Session
 from app.case_model import (
+    NON_TERMINAL_STATES,
     TERMINAL_STATES,
     CaseEvaluation,
     CaseState,
@@ -340,19 +341,23 @@ def _unlocks_handoff(report: ReportedCharge, search: ChargeSearch, *, spend_roun
 
 def _offer(
     turn: Turn, search: ChargeSearch, report: ReportedCharge, *, spend_round: bool,
-    human_deferred: bool = False,
+    human_deferred: bool = False, expected_states: tuple[str, ...] = NON_TERMINAL_STATES,
 ) -> ChatReply:
     """Shows the customer their own charges to pick from (AD-11 Row 3's
     clarification, as a list instead of a free-text question). A round is
     only spent when the turn brought nothing new. Entering `selecting` drops
     any previously proposed match: nothing is matched until they pick.
+
+    `expected_states`: the states this turn may move the case from (a button
+    that belongs to one state must lose to a request that moved it first).
     """
     rounds = turn.case.clarification_rounds + (1 if spend_round else 0)
     if not search.charges:
-        return _ask_for_details(turn, report, spend_round=spend_round)
+        return _ask_for_details(turn, report, spend_round=spend_round, expected_states=expected_states)
     offered = tuple(c.transaction_id for c in search.charges)
     lost = transition(
-        turn, CaseState.SELECTING, offered_transaction_ids=offered, add_clarification_round=spend_round,
+        turn, CaseState.SELECTING, expected_states=expected_states,
+        offered_transaction_ids=offered, add_clarification_round=spend_round,
         unlock_handoff=_unlocks_handoff(report, search, spend_round=spend_round),
         clear_fields=("matched_transaction_id",), **report.update_fields(),
     )
@@ -374,17 +379,23 @@ def _offer(
     return turn.reply(CaseState.SELECTING, text, [charge_option(c) for c in search.charges])
 
 
-def _offer_recent_charges(turn: Turn, report: ReportedCharge) -> ChatReply:
+def _offer_recent_charges(
+    turn: Turn, report: ReportedCharge, *, expected_states: tuple[str, ...] = NON_TERMINAL_STATES,
+) -> ChatReply:
     """The customer asked to see their charges: a request, not a failed
     attempt, so no round is spent.
     """
-    return _offer(turn, recent_charges(turn.session), report, spend_round=False)
+    return _offer(turn, recent_charges(turn.session), report, spend_round=False, expected_states=expected_states)
 
 
-def _ask_for_details(turn: Turn, report: ReportedCharge, *, spend_round: bool) -> ChatReply:
+def _ask_for_details(
+    turn: Turn, report: ReportedCharge, *, spend_round: bool,
+    expected_states: tuple[str, ...] = NON_TERMINAL_STATES,
+) -> ChatReply:
     """Only for a customer with no outgoing charges to list at all."""
     lost = transition(
-        turn, CaseState.CLARIFYING, add_clarification_round=spend_round, unlock_handoff=report.has_details,
+        turn, CaseState.CLARIFYING, expected_states=expected_states,
+        add_clarification_round=spend_round, unlock_handoff=report.has_details,
         clear_fields=("matched_transaction_id",), **report.update_fields(),
     )
     if lost:
@@ -488,7 +499,10 @@ def _handle_confirmation(turn: Turn, text: str, action: CustomerAction | None = 
                    "no quedan rondas de aclaración.",
             open_question="¿Cuál es la transacción que el cliente no reconoce?",
         ), report, drop_proposed_match=True)
-    return _offer(turn, _charges_other_than_proposed(turn, report), report, spend_round=True)
+    return _offer(
+        turn, _charges_other_than_proposed(turn, report), report, spend_round=True,
+        expected_states=(CaseState.CONFIRMING,),
+    )
 
 
 def _confirm_proposed_charge(turn: Turn, report: ReportedCharge) -> ChatReply:
@@ -629,8 +643,11 @@ def handle_message(
     if claim.status == turns.TurnStatus.IN_FLIGHT:
         cases.log_event(uuid.uuid4().hex, claim.case_id, "turn_in_flight", {"turn_id": turn_id}, db_path=db_path)
         raise turns.TurnInProgress(turn_id)
-    if claim.status == turns.TurnStatus.ABANDONED:
-        return _abandoned_turn_reply(session, claim.case_id or case_id, turn_id, language, db_path)
+    if claim.status in _UNRUNNABLE_TURN_EVENTS:
+        return _abandoned_turn_reply(
+            session, claim.case_id or case_id, turn_id, language, db_path,
+            event_type=_UNRUNNABLE_TURN_EVENTS[claim.status],
+        )
     try:
         reply = _run_turn(
             session, case_id, text, language,
@@ -649,12 +666,20 @@ def handle_message(
     return reply
 
 
+_UNRUNNABLE_TURN_EVENTS = {
+    turns.TurnStatus.ABANDONED: "turn_abandoned",
+    turns.TurnStatus.EXPIRED: "turn_expired",
+}
+
+
 def _abandoned_turn_reply(
     session: Session, case_id: str | None, turn_id: str, language: Language, db_path: Path | None,
+    *, event_type: str,
 ) -> ChatReply:
     """The request that claimed this turn died or failed without storing its
-    reply, and it may already have moved the case: never run it again, just
-    say where the case is now (as after a lost compare-and-set race).
+    reply, or its reply expired, and it may already have moved the case: never
+    run it again, just say where the case is now (as after a lost
+    compare-and-set race).
 
     `case_id` is the one the turn attached, or else the one the request
     names; it is answered only if it belongs to this session.
@@ -665,7 +690,7 @@ def _abandoned_turn_reply(
         case = None
     correlation_id = uuid.uuid4().hex
     cases.log_event(
-        correlation_id, case.case_id if case else None, "turn_abandoned", {"turn_id": turn_id}, db_path=db_path,
+        correlation_id, case.case_id if case else None, event_type, {"turn_id": turn_id}, db_path=db_path,
     )
     if case is None:
         # The first message of a conversation whose case was never created.
@@ -720,7 +745,9 @@ def _route(
     if action == CustomerAction.NONE_OF_THESE:
         return _handle_none_of_these(turn)
     if action == CustomerAction.SHOW_CHARGES:
-        return _offer_recent_charges(turn, turn.report)
+        return _offer_recent_charges(
+            turn, turn.report, expected_states=(_ACTION_STATES[CustomerAction.SHOW_CHARGES],),
+        )
     if turn.case.state == CaseState.CONFIRMING:
         return _handle_confirmation(turn, text, action)
     if turn.case.state == CaseState.AWAITING_EXPLANATION:

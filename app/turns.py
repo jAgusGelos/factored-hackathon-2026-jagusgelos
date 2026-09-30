@@ -6,8 +6,10 @@ before anything is processed, so of two requests with the same id exactly one
 wins the primary key and runs the turn. The other gets the stored reply when
 the winner finished (`COMPLETE`), "still running" while it is young
 (`IN_FLIGHT`), or, once the winner failed (`abandon`) or it is old enough that
-the winner must have died (`ABANDONED`), the case's current state; an abandoned
-turn is never run again, because it may already have moved the case.
+the winner must have died (`ABANDONED`), or its stored reply was dropped after
+the retention window (`EXPIRED`, `db._expire_old_turns`), the case's current
+state; such a turn is never run again, because it may already have moved the
+case.
 
 Every read and write is keyed by the session's customer id, never a
 caller-provided one: the same `turn_id` under another customer is simply that
@@ -35,6 +37,7 @@ class TurnStatus(StrEnum):
     COMPLETE = "complete"
     IN_FLIGHT = "in_flight"
     ABANDONED = "abandoned"
+    EXPIRED = "expired"
 
 
 @dataclass(frozen=True)
@@ -63,7 +66,7 @@ def claim(customer_id: str, turn_id: str, *, db_path: Path | None = None) -> Tur
             return TurnClaim(TurnStatus.NEW)
         except sqlite3.IntegrityError:
             row = con.execute(
-                "SELECT case_id, reply_json, created_at, failed_at FROM chat_turns "
+                "SELECT case_id, reply_json, created_at, completed_at, failed_at FROM chat_turns "
                 "WHERE customer_id = ? AND turn_id = ?",
                 [customer_id, turn_id],
             ).fetchone()
@@ -73,6 +76,8 @@ def claim(customer_id: str, turn_id: str, *, db_path: Path | None = None) -> Tur
         return TurnClaim(TurnStatus.IN_FLIGHT)
     if row["reply_json"] is not None:
         return TurnClaim(TurnStatus.COMPLETE, row["case_id"], json.loads(row["reply_json"]))
+    if row["completed_at"] is not None:
+        return TurnClaim(TurnStatus.EXPIRED, row["case_id"])
     if row["failed_at"] is not None:
         return TurnClaim(TurnStatus.ABANDONED, row["case_id"])
     age = now - datetime.fromisoformat(row["created_at"])
@@ -86,7 +91,7 @@ def attach_case(customer_id: str, turn_id: str, case_id: str, *, db_path: Path |
     """
     with db.app_connection(db_path) as con:
         con.execute(
-            "UPDATE chat_turns SET case_id = ? WHERE customer_id = ? AND turn_id = ? AND reply_json IS NULL",
+            "UPDATE chat_turns SET case_id = ? WHERE customer_id = ? AND turn_id = ? AND completed_at IS NULL",
             [case_id, customer_id, turn_id],
         )
         con.commit()
@@ -96,7 +101,7 @@ def complete(customer_id: str, turn_id: str, reply: ChatReply, *, db_path: Path 
     with db.app_connection(db_path) as con:
         con.execute(
             "UPDATE chat_turns SET reply_json = ?, case_id = ?, completed_at = ? "
-            "WHERE customer_id = ? AND turn_id = ? AND reply_json IS NULL",
+            "WHERE customer_id = ? AND turn_id = ? AND completed_at IS NULL",
             [json.dumps(reply, ensure_ascii=False), reply["case_id"], datetime.now(UTC).isoformat(),
              customer_id, turn_id],
         )
@@ -110,7 +115,7 @@ def release(customer_id: str, turn_id: str, *, db_path: Path | None = None) -> N
     """
     with db.app_connection(db_path) as con:
         con.execute(
-            "DELETE FROM chat_turns WHERE customer_id = ? AND turn_id = ? AND reply_json IS NULL",
+            "DELETE FROM chat_turns WHERE customer_id = ? AND turn_id = ? AND completed_at IS NULL",
             [customer_id, turn_id],
         )
         con.commit()
@@ -124,7 +129,7 @@ def abandon(customer_id: str, turn_id: str, *, db_path: Path | None = None) -> s
     """
     with db.app_connection(db_path) as con:
         row = con.execute(
-            "UPDATE chat_turns SET failed_at = ? WHERE customer_id = ? AND turn_id = ? AND reply_json IS NULL "
+            "UPDATE chat_turns SET failed_at = ? WHERE customer_id = ? AND turn_id = ? AND completed_at IS NULL "
             "RETURNING case_id",
             [datetime.now(UTC).isoformat(), customer_id, turn_id],
         ).fetchone()
