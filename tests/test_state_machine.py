@@ -326,10 +326,9 @@ def test_terminal_case_reply_uses_the_current_turns_language_not_the_stored_one(
 def test_a_closed_case_stays_closed_and_a_new_claim_is_a_new_case(tmp_path):
     """AD-1 (usability-s1): the server never reopens or auto-replaces a terminal
     case; the chat opens the next claim by sending case_id None."""
-    import sqlite3
     from unittest.mock import patch
 
-    from tests.support import mock_anthropic_client
+    from tests.support import app_db_rows, mock_anthropic_client
 
     app_db = tmp_path / "app.db"
     db.init_db(app_db)
@@ -338,11 +337,7 @@ def test_a_closed_case_stays_closed_and_a_new_claim_is_a_new_case(tmp_path):
     before = cases.get_case(case.case_id, db_path=app_db)
 
     def case_count():
-        con = sqlite3.connect(str(app_db))
-        try:
-            return con.execute("SELECT COUNT(*) FROM cases").fetchone()[0]
-        finally:
-            con.close()
+        return app_db_rows(app_db, "SELECT COUNT(*) FROM cases")[0][0]
 
     extraction = {"amount": None, "currency": None, "date": None, "merchant_hint": None, "wants_human": False}
     with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(extraction)):
