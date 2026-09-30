@@ -1,0 +1,131 @@
+"""Static checks on the chat UI (usability-s1 DESIGN.md, AD-1/AD-7).
+
+Reads `static/` as text: every string added for the wait indicator, retry and
+new-claim flow exists in ES and PT without voseo, the wait is announced by a
+`role=status` region outside the chat log, the case panel is no longer a live
+region, and the typing dots stop moving under `prefers-reduced-motion`.
+"""
+
+from __future__ import annotations
+
+import re
+from html.parser import HTMLParser
+from pathlib import Path
+
+import pytest
+
+STATIC = Path(__file__).resolve().parent.parent / "static"
+CHAT_JS = (STATIC / "js" / "chat.js").read_text(encoding="utf-8")
+CHAT_HTML = (STATIC / "chat.html").read_text(encoding="utf-8")
+APP_CSS = (STATIC / "css" / "app.css").read_text(encoding="utf-8")
+
+NEW_KEYS = (
+    "waitGeneric", "waitSearching", "waitConfirming", "waitExplanation", "waitSlow",
+    "turnError", "retry", "quickNewClaim", "claimResolved", "claimEscalated", "claimDivider",
+)
+VOSEO = ("tenés", "podés", "querés", "escribí", "contame", "decime", "mirá", "elegí")
+
+
+def _language_block(lang: str) -> str:
+    # Each language block is `  <lang>: {` ... up to the closing `  },` at the same indent.
+    match = re.search(rf"^  {lang}: \{{\n(.*?)^  \}},?$", CHAT_JS, re.MULTILINE | re.DOTALL)
+    assert match, f"STRINGS.{lang} not found in chat.js"
+    return match.group(1)
+
+
+def _entries(lang: str) -> dict[str, str]:
+    """Top-level keys of STRINGS.<lang> mapped to their source line(s)."""
+    entries: dict[str, str] = {}
+    current = None
+    for line in _language_block(lang).splitlines():
+        key = re.match(r"^    (\w+):", line)
+        if key:
+            current = key.group(1)
+            entries[current] = line
+        elif current and line.startswith("      "):
+            entries[current] += "\n" + line
+    return entries
+
+
+@pytest.mark.parametrize("lang", ["es", "pt"])
+def test_every_new_string_exists_in_both_languages(lang):
+    missing = [key for key in NEW_KEYS if key not in _entries(lang)]
+    assert not missing
+
+
+def test_es_and_pt_define_the_same_keys():
+    assert set(_entries("es")) == set(_entries("pt"))
+
+
+@pytest.mark.parametrize("lang", ["es", "pt"])
+def test_new_strings_have_no_voseo(lang):
+    entries = _entries(lang)
+    for key in NEW_KEYS:
+        text = entries[key].lower()
+        assert not [word for word in VOSEO if re.search(rf"\b{word}\b", text)], key
+
+
+def test_new_strings_follow_the_design_copy():
+    es, pt = _entries("es"), _entries("pt")
+    assert "Está tardando más de lo habitual. Seguimos procesando su mensaje." in es["waitSlow"]
+    assert "Está demorando mais que o normal. Continuamos processando sua mensagem." in pt["waitSlow"]
+    assert '"Reintentar"' in es["retry"] and '"Tentar novamente"' in pt["retry"]
+    assert '"Reportar otro cargo"' in es["quickNewClaim"]
+    assert '"Contestar outra cobrança"' in pt["quickNewClaim"]
+
+
+class _Tree(HTMLParser):
+    """Records each element's attributes and the ids of its open ancestors."""
+
+    VOID = {"meta", "link", "input", "br", "img", "hr"}
+
+    def __init__(self):
+        super().__init__()
+        self.stack: list[str | None] = []
+        self.elements: list[tuple[dict, list[str | None]]] = []
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        self.elements.append((attributes, list(self.stack)))
+        if tag not in self.VOID:
+            self.stack.append(attributes.get("id"))
+
+    def handle_endtag(self, tag):
+        if tag not in self.VOID and self.stack:
+            self.stack.pop()
+
+
+def _chat_html():
+    tree = _Tree()
+    tree.feed(CHAT_HTML)
+    return {attrs["id"]: (attrs, ancestors) for attrs, ancestors in tree.elements if "id" in attrs}
+
+
+def test_wait_status_region_lives_outside_the_chat_log():
+    elements = _chat_html()
+    attrs, ancestors = elements["chat-status"]
+    assert attrs.get("role") == "status"
+    assert "sr-only" in attrs.get("class", "").split()
+    assert "chat-log" not in ancestors
+    assert elements["chat-log"][0].get("aria-live") == "polite"
+
+
+def test_case_panel_is_not_a_live_region():
+    attrs, _ = _chat_html()["case-panel"]
+    assert "aria-live" not in attrs
+
+
+def test_typing_dots_are_static_with_reduced_motion():
+    match = re.search(r"@media \(prefers-reduced-motion: reduce\) \{(.*?)\n\}", APP_CSS, re.DOTALL)
+    assert match
+    assert re.search(r"\.typing-dots[^{]*\{[^}]*animation: none", match.group(1))
+
+
+def test_new_ui_classes_use_only_existing_tokens():
+    root = re.search(r":root \{(.*?)\}", APP_CSS, re.DOTALL).group(1)
+    defined = set(re.findall(r"(--[\w-]+):", root))
+    start = APP_CSS.index(".action-card__actions")
+    end = APP_CSS.index("@media (prefers-reduced-motion: reduce)")
+    new_rules = APP_CSS[start:end]
+    assert set(re.findall(r"var\((--[\w-]+)\)", new_rules)) <= defined
+    assert not re.search(r"#[0-9a-fA-F]{3,6}\b|rgba?\(", new_rules)

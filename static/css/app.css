@@ -143,6 +143,30 @@ button:focus-visible, input:focus-visible, a:focus-visible, [tabindex]:focus-vis
 .action-card__body { color: var(--text); line-height: 1.5; }
 .action-card--error { border-color: var(--status-critical); background: var(--status-critical-bg); }
 .action-card--error .action-card__head { color: var(--status-critical); }
+.action-card__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+.action-card__actions.retired { opacity: 0.55; }
+
+/* -- Typing indicator (usability-s1 DESIGN.md): an agent bubble with dots and a
+   step-aware caption. The whole bubble is aria-hidden; the wait is announced
+   by #chat-status (role=status) outside the log. -- */
+.msg-bubble--typing { display: inline-flex; align-items: center; gap: var(--space-3); color: var(--text-muted); font-size: var(--text-sm); white-space: normal; }
+.typing-dots { display: inline-flex; gap: var(--space-1); align-items: center; flex-shrink: 0; animation: typing-pulse 1.2s ease-in-out infinite; }
+.typing-dots span { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); animation: typing-blink 1.2s ease-in-out infinite; }
+.typing-dots span:nth-child(2) { animation-delay: .2s; }
+.typing-dots span:nth-child(3) { animation-delay: .4s; }
+.typing-caption { color: var(--text-muted); }
+.typing-caption--slow { color: var(--text); }
+@keyframes typing-blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+@keyframes typing-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .85; } }
+
+/* -- Divider between claims in the same chat -- */
+.claim-divider { display: flex; align-items: center; gap: var(--space-3); color: var(--text-muted); font-size: var(--text-xs); font-weight: 600; margin: var(--space-4) 0; text-align: center; }
+.claim-divider::before, .claim-divider::after { content: ""; flex: 1; height: 1px; background: var(--border-strong); min-width: 16px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .typing-dots, .typing-dots span { animation: none; }
+  .typing-dots span { opacity: .6; }
+}
 
 .charge-list { align-self: flex-start; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-2); width: min(100%, 640px); }
 .charge-option { display: flex; flex-direction: column; gap: 2px; text-align: left; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: var(--space-3); min-height: 44px; cursor: pointer; font-family: inherit; color: var(--text); box-shadow: var(--shadow-sm); }

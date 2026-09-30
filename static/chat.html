@@ -25,8 +25,9 @@
 
     <div class="app-body">
       <section class="chat-column">
-        <div class="chat-log" id="chat-log" aria-live="polite">
+        <div class="chat-log" id="chat-log" aria-live="polite" aria-busy="false">
         </div>
+        <div id="chat-status" class="sr-only" role="status"></div>
         <form class="chat-input-bar" id="chat-form">
           <label for="message-input" class="sr-only" id="message-label">Mensaje</label>
           <input type="text" id="message-input" placeholder="Escribí tu mensaje..." autocomplete="off" required />
@@ -34,7 +35,7 @@
         </form>
       </section>
 
-      <aside class="case-panel" id="case-panel" aria-live="polite">
+      <aside class="case-panel" id="case-panel">
         <h3 id="panel-title">Ficha del caso</h3>
         <div id="panel-content"></div>
       </aside>

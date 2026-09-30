@@ -53,9 +53,20 @@ const STRINGS = {
     handoffActions: "Acciones realizadas",
     handoffEvidence: "Evidencia",
     handoffQuestions: "Preguntas abiertas",
-    sendError: "No se pudo enviar el mensaje. Intentá de nuevo.",
     sessionLoadError: "No se pudo cargar la sesión.",
     logoutFailed: "No se pudo cerrar sesión.",
+    // Wait indicator, retry and new claim (usability-s1 DESIGN.md copy table).
+    waitGeneric: "El asistente está respondiendo…",
+    waitSearching: "Buscando sus movimientos…",
+    waitConfirming: "Revisando el cargo…",
+    waitExplanation: "Revisando su explicación…",
+    waitSlow: "Está tardando más de lo habitual. Seguimos procesando su mensaje.",
+    turnError: "No se pudo obtener respuesta. Puede reintentar el envío.",
+    retry: "Reintentar",
+    quickNewClaim: "Reportar otro cargo",
+    claimResolved: "resuelto",
+    claimEscalated: "derivado",
+    claimDivider: (ref, outcome) => `Nuevo reclamo · caso anterior ${ref ? `${ref} ` : ""}(${outcome})`,
   },
   pt: {
     htmlLang: "pt-BR",
@@ -108,9 +119,19 @@ const STRINGS = {
     handoffActions: "Ações realizadas",
     handoffEvidence: "Evidências",
     handoffQuestions: "Perguntas em aberto",
-    sendError: "Não foi possível enviar a mensagem. Tente novamente.",
     sessionLoadError: "Não foi possível carregar a sessão.",
     logoutFailed: "Não foi possível encerrar a sessão.",
+    waitGeneric: "O assistente está respondendo…",
+    waitSearching: "Buscando suas movimentações…",
+    waitConfirming: "Verificando a cobrança…",
+    waitExplanation: "Analisando sua explicação…",
+    waitSlow: "Está demorando mais que o normal. Continuamos processando sua mensagem.",
+    turnError: "Não foi possível obter resposta. Você pode tentar enviar novamente.",
+    retry: "Tentar novamente",
+    quickNewClaim: "Contestar outra cobrança",
+    claimResolved: "resolvido",
+    claimEscalated: "encaminhado",
+    claimDivider: (ref, outcome) => `Nova reclamação · caso anterior ${ref ? `${ref} ` : ""}(${outcome})`,
   },
 };
 
@@ -127,11 +148,19 @@ const state = {
   language: "es",
   caseId: null,
   caseStatus: null,
+  caseState: null, // the state from the last delivered reply (null = no case yet)
+  closedCase: null, // {state, reference} of a terminal case until a new claim starts
   personaView: "client", // "client" | "internal"
   busy: false,
 };
 
+const TERMINAL_STATES = new Set(["resolved_auto", "escalated"]);
+// The server's per-turn model budget is 20 s (AD-5); the client gives up a bit later.
+const TURN_TIMEOUT_MS = 25000;
+const SLOW_TURN_MS = 10000;
+
 const chatLog = document.getElementById("chat-log");
+const chatStatus = document.getElementById("chat-status");
 const chatForm = document.getElementById("chat-form");
 const messageInput = document.getElementById("message-input");
 const messageLabel = document.getElementById("message-label");
@@ -239,16 +268,24 @@ function appendBubble(role, text) {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-function appendActionCard(title, body, { isError = false } = {}) {
+function appendActionCard(title, body, { isError = false, actions = [] } = {}) {
   const card = document.createElement("div");
   card.className = `action-card${isError ? " action-card--error" : ""}`;
   const time = new Date().toLocaleTimeString(t("timeLocale"), { hour: "2-digit", minute: "2-digit" });
   card.innerHTML = `
     <div class="action-card__head">${escapeHtml(title)}<span class="action-card__time">${escapeHtml(time)}</span></div>
-    <div class="action-card__body">${escapeHtml(body)}</div>
+    ${body ? `<div class="action-card__body">${escapeHtml(body)}</div>` : ""}
   `;
+  if (actions.length) {
+    // "interactive": the next send retires these buttons like any other block.
+    const row = document.createElement("div");
+    row.className = "action-card__actions interactive";
+    row.append(...actions);
+    card.appendChild(row);
+  }
   chatLog.appendChild(card);
   chatLog.scrollTop = chatLog.scrollHeight;
+  return card;
 }
 
 function escapeHtml(str) {
@@ -263,8 +300,13 @@ function listItemsHtml(items) {
 
 function onSubmit(event) {
   event.preventDefault();
+  // Checked BEFORE clearing the input: text typed while a turn is in flight is kept.
+  if (state.busy) return;
   const message = messageInput.value.trim();
   if (!message) return;
+  // A fresh typed message after a closed case opens a new claim (AD-1): the
+  // closed case stays untouched and the message goes out with case_id null.
+  if (state.closedCase) startNewClaim();
   messageInput.value = "";
   sendToAgent({ message });
 }
@@ -272,52 +314,192 @@ function onSubmit(event) {
 // Everything the customer sends goes through here: typed text, a tapped
 // charge (selected_transaction_id) or a quick-reply button (action). The
 // bubble always shows what the customer "said" (the button label for a tap).
-async function sendToAgent({ message, selectedTransactionId = null, action = null }) {
+function sendToAgent({ message, selectedTransactionId = null, action = null }) {
   if (state.busy) return;
-  state.busy = true;
-  sendBtn.disabled = true;
   const retired = retireInteractiveBlocks();
   appendBubble("customer", message);
-  let delivered = false;
+  // Frozen payload: a retry re-sends exactly this, same turn_id (AD-4), so the
+  // server replays the turn instead of applying it twice.
+  const turn = {
+    body: {
+      case_id: state.caseId,
+      message,
+      language: state.language,
+      selected_transaction_id: selectedTransactionId,
+      action,
+      turn_id: crypto.randomUUID(),
+    },
+    retired,
+  };
+  runTurn(turn);
+}
 
+async function runTurn(turn) {
+  if (state.busy) return;
+  const prevState = state.caseState;
+  setBusy(true, waitCaptionKey(prevState));
+  const controller = new AbortController();
+  const abortTimer = setTimeout(() => controller.abort(), TURN_TIMEOUT_MS);
+  let outcome = "failed"; // "delivered" | "in_progress" | "rejected" | "failed"
+  let reply = null;
   try {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify({
-        case_id: state.caseId,
-        message,
-        language: state.language,
-        selected_transaction_id: selectedTransactionId,
-        action,
-      }),
+      body: JSON.stringify(turn.body),
+      signal: controller.signal,
     });
-
-    if (!res.ok) {
-      appendActionCard(t("sendError"), `HTTP ${res.status}`, { isError: true });
-      return;
+    if (res.ok) {
+      reply = await res.json();
+      outcome = "delivered";
+    } else if (res.status === 409) {
+      outcome = "in_progress";
+    } else if (res.status >= 400 && res.status < 500) {
+      outcome = "rejected";
     }
-
-    const reply = await res.json();
-    delivered = true;
-    state.caseId = reply.case_id;
-    appendBubble("agent", reply.reply);
-    if (reply.options && reply.options.length) appendChargeList(reply.options);
-    appendQuickReplies(reply.state, reply.human_available);
-
-    if (await refreshCaseStatus()) {
-      renderTurnActionCard(reply.state);
-    }
-    renderPanel();
-  } catch (err) {
-    if (!delivered) appendActionCard(t("sendError"), String(err), { isError: true });
+  } catch {
+    // Abort (timeout), network error or an unreadable body: the turn may
+    // have been applied on the server, so nothing is given back.
+    outcome = "failed";
   } finally {
-    if (!delivered) restoreInteractiveBlocks(retired);
-    state.busy = false;
-    sendBtn.disabled = false;
-    messageInput.focus();
+    clearTimeout(abortTimer);
   }
+
+  hideTyping();
+  let focusTarget = messageInput;
+  try {
+    if (outcome === "delivered") {
+      await renderReply(reply, prevState);
+    } else {
+      // Only a definite rejection proves the turn changed nothing server-side.
+      if (outcome === "rejected") restoreInteractiveBlocks(turn.retired);
+      focusTarget = appendRetryCard(turn, outcome === "in_progress");
+    }
+  } finally {
+    setBusy(false);
+    focusTarget.focus();
+  }
+}
+
+async function renderReply(reply, prevState) {
+  // An abandoned turn can come back without a case (case_id null): no case yet.
+  state.caseId = reply.case_id || null;
+  state.caseState = reply.state || null;
+  appendBubble("agent", reply.reply);
+  if (reply.options && reply.options.length) appendChargeList(reply.options);
+
+  if (!state.caseId) {
+    state.caseStatus = null;
+  } else if (await refreshCaseStatus()) {
+    // The card marks the transition into a terminal state, once per case.
+    if (!TERMINAL_STATES.has(prevState)) renderTurnActionCard(reply.state);
+  }
+  // Last, so the next thing the customer can do sits at the end of the thread.
+  appendQuickReplies(reply.state, reply.human_available);
+  state.closedCase = TERMINAL_STATES.has(reply.state)
+    ? { state: reply.state, reference: state.caseStatus ? state.caseStatus.resolution_reference : null }
+    : null;
+  renderPanel();
+}
+
+function appendRetryCard(turn, inProgress) {
+  const retryBtn = document.createElement("button");
+  retryBtn.type = "button";
+  retryBtn.className = "btn-secondary";
+  retryBtn.textContent = t("retry");
+  retryBtn.addEventListener("click", () => {
+    if (state.busy) return;
+    turn.retired = retireInteractiveBlocks();
+    runTurn(turn);
+  });
+  appendActionCard(inProgress ? t("waitSlow") : t("turnError"), "", { isError: !inProgress, actions: [retryBtn] });
+  return retryBtn;
+}
+
+function waitCaptionKey(caseState) {
+  if (caseState === "awaiting_report" || caseState === "selecting" || caseState === "clarifying") return "waitSearching";
+  if (caseState === "confirming") return "waitConfirming";
+  if (caseState === "awaiting_explanation") return "waitExplanation";
+  return "waitGeneric";
+}
+
+let slowTimer = null;
+
+function setBusy(busy, captionKey = null) {
+  state.busy = busy;
+  sendBtn.disabled = busy;
+  messageInput.readOnly = busy;
+  chatLog.setAttribute("aria-busy", String(busy));
+  if (busy) {
+    showTyping(t(captionKey));
+    slowTimer = setTimeout(() => setWaitText(t("waitSlow"), true), SLOW_TURN_MS);
+  } else {
+    hideTyping();
+  }
+}
+
+// The whole bubble is aria-hidden: the log's aria-live must not announce it;
+// #chat-status (role=status, outside the log) carries the same text instead.
+function showTyping(caption) {
+  hideTyping();
+  const bubble = document.createElement("div");
+  bubble.className = "msg-bubble msg-bubble--agent msg-bubble--typing";
+  bubble.setAttribute("aria-hidden", "true");
+  bubble.innerHTML = `
+    <span class="typing-dots"><span></span><span></span><span></span></span>
+    <span class="typing-caption"></span>
+  `;
+  chatLog.appendChild(bubble);
+  setWaitText(caption, false);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+function setWaitText(text, slow) {
+  const caption = chatLog.querySelector(".msg-bubble--typing .typing-caption");
+  if (caption) {
+    caption.textContent = text;
+    caption.classList.toggle("typing-caption--slow", slow);
+  }
+  chatStatus.textContent = text;
+}
+
+function hideTyping() {
+  clearTimeout(slowTimer);
+  slowTimer = null;
+  chatLog.querySelectorAll(".msg-bubble--typing").forEach((el) => el.remove());
+  chatStatus.textContent = "";
+}
+
+// A new claim in the same chat (AD-1): the closed case stays as it is, the
+// next message goes out without case_id, so the server opens a new case.
+function startNewClaim({ fromButton = false } = {}) {
+  if (state.busy) return;
+  const closed = state.closedCase;
+  retireInteractiveBlocks({ permanently: true });
+  state.caseId = null;
+  state.caseStatus = null;
+  state.caseState = null;
+  state.closedCase = null;
+  state.personaView = "client";
+
+  if (closed) {
+    const divider = document.createElement("div");
+    divider.className = "claim-divider";
+    const outcome = t(closed.state === "resolved_auto" ? "claimResolved" : "claimEscalated");
+    divider.textContent = t("claimDivider", closed.reference, outcome);
+    chatLog.appendChild(divider);
+  }
+  renderPanel();
+
+  if (fromButton) {
+    const starters = document.createElement("div");
+    starters.className = "quick-replies interactive";
+    starters.append(...starterButtons());
+    chatLog.appendChild(starters);
+    starters.querySelector("button").focus();
+  }
+  chatLog.scrollTop = chatLog.scrollHeight;
 }
 
 function quickButton(label, onClick) {
@@ -330,11 +512,13 @@ function quickButton(label, onClick) {
 }
 
 // Old lists/buttons stay visible as history but can no longer be used. If the
-// message never reached the server they are given back (restoreInteractiveBlocks).
-function retireInteractiveBlocks() {
+// message definitely changed nothing they are given back
+// (restoreInteractiveBlocks), except the ones retired for good by a new claim.
+function retireInteractiveBlocks({ permanently = false } = {}) {
   const blocks = [...chatLog.querySelectorAll(".interactive:not(.retired)")];
   blocks.forEach((block) => {
     block.classList.add("retired");
+    if (permanently) block.dataset.retiredForGood = "true";
     block.querySelectorAll("button").forEach((b) => { b.disabled = true; });
   });
   return blocks;
@@ -342,6 +526,7 @@ function retireInteractiveBlocks() {
 
 function restoreInteractiveBlocks(blocks) {
   blocks.forEach((block) => {
+    if (block.dataset.retiredForGood) return;
     block.classList.remove("retired");
     block.querySelectorAll("button").forEach((b) => {
       b.disabled = false;
@@ -408,6 +593,9 @@ function appendQuickReplies(caseState, humanAvailable) {
     buttons.push(actionButton("quickYes", ACTIONS.CONFIRM_YES), actionButton("quickNo", ACTIONS.CONFIRM_NO));
   }
   if (caseState === "awaiting_report") buttons.push(...starterButtons());
+  if (TERMINAL_STATES.has(caseState)) {
+    buttons.push(quickButton(t("quickNewClaim"), () => startNewClaim({ fromButton: true })));
+  }
   if (humanAvailable) buttons.push(humanButton());
   if (!buttons.length) return;
   const block = document.createElement("div");

@@ -323,6 +323,42 @@ def test_terminal_case_reply_uses_the_current_turns_language_not_the_stored_one(
     assert "resolvido" in reply["reply"]  # Portuguese wording, not the Spanish "resuelto"
 
 
+def test_a_closed_case_stays_closed_and_a_new_claim_is_a_new_case(tmp_path):
+    """AD-1 (usability-s1): the server never reopens or auto-replaces a terminal
+    case; the chat opens the next claim by sending case_id None."""
+    import sqlite3
+    from unittest.mock import patch
+
+    from tests.support import mock_anthropic_client
+
+    app_db = tmp_path / "app.db"
+    db.init_db(app_db)
+    case = cases.create_case(SESSION.customer_id, "es", db_path=app_db)
+    cases.update_case(case.case_id, state=CaseState.RESOLVED_AUTO, resolution_reference="REF-TEST", db_path=app_db)
+    before = cases.get_case(case.case_id, db_path=app_db)
+
+    def case_count():
+        con = sqlite3.connect(str(app_db))
+        try:
+            return con.execute("SELECT COUNT(*) FROM cases").fetchone()[0]
+        finally:
+            con.close()
+
+    extraction = {"amount": None, "currency": None, "date": None, "merchant_hint": None, "wants_human": False}
+    with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(extraction)):
+        on_closed = handle_message(SESSION, case.case_id, "No reconozco otra compra", language="es", db_path=app_db)
+        assert on_closed["case_id"] == case.case_id
+        assert on_closed["state"] == CaseState.RESOLVED_AUTO
+        assert "REF-TEST" in on_closed["reply"]
+        assert case_count() == 1
+
+        new_claim = handle_message(SESSION, None, "No reconozco otra compra", language="es", db_path=app_db)
+
+    assert new_claim["case_id"] != case.case_id
+    assert case_count() == 2
+    assert cases.get_case(case.case_id, db_path=app_db) == before
+
+
 @pytest.mark.parametrize("reason", list(DisputeReason))
 def test_a_stored_dispute_reason_reads_back_as_the_same_reason(tmp_path, reason):
     app_db = tmp_path / "app.db"
