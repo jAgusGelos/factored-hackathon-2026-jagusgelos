@@ -135,7 +135,7 @@ __all__ = [
 ]
 
 _COUNTRY_CURRENCY = {"México": "MXN", "Colombia": "COP", "Argentina": "ARS"}
-DEFAULT_CURRENCY = "USD"
+_DEFAULT_CURRENCY = "USD"
 
 IDENTIFIED_BY_REPORT = "Se localizó una transacción que coincide con el monto y la fecha reportados."
 IDENTIFIED_BY_PICK = "El cliente eligió este cargo de la lista de sus movimientos."
@@ -246,8 +246,8 @@ def evaluate_transaction(
 
 def _infer_currency(profile: CustomerProfile | None) -> str:
     if profile is None or profile.country is None:
-        return DEFAULT_CURRENCY
-    return _COUNTRY_CURRENCY.get(profile.country, DEFAULT_CURRENCY)
+        return _DEFAULT_CURRENCY
+    return _COUNTRY_CURRENCY.get(profile.country, _DEFAULT_CURRENCY)
 
 
 # -- One turn ------------------------------------------------------------------
