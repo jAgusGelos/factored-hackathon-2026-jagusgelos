@@ -963,3 +963,142 @@ def test_explanation_turns_are_appended_not_overwritten(real_fixture_app_db):
     assert cases.get_case(picked["case_id"], db_path=real_fixture_app_db).explanation_text == (
         "primera parte\nsegunda parte"
     )
+
+
+# -- Stale quick-replies change nothing (AD-6) ----------------------------------
+
+
+def _case_progress(app_db, case_id) -> tuple:
+    case = cases.get_case(case_id, db_path=app_db)
+    return (case.state, case.explanation_attempts, case.explanation_text, case.clarification_rounds,
+            case.matched_transaction_id)
+
+
+def test_an_old_yes_while_explaining_does_not_spend_an_explanation_attempt(real_fixture_app_db):
+    from app import replies
+
+    session = demo_session(real_fixture_app_db)
+    picked = _pick(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
+    before = _case_progress(real_fixture_app_db, picked["case_id"])
+
+    reply = _say(session, real_fixture_app_db, charge_extraction(), "Sí, es ese", case_id=picked["case_id"],
+                 action="confirm_yes")
+
+    assert reply["state"] == CaseState.AWAITING_EXPLANATION
+    assert reply["reply"] == replies.ACTION_UNAVAILABLE["es"]
+    assert _case_progress(real_fixture_app_db, picked["case_id"]) == before
+    assert logged_events(real_fixture_app_db, "action_rejected") == [
+        {"action": "confirm_yes", "state": "awaiting_explanation"}
+    ]
+    assert logged_events(real_fixture_app_db, "explanation_assessed") == []
+
+
+def test_an_old_not_in_the_list_while_confirming_changes_nothing(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    first = _say(session, real_fixture_app_db, charge_extraction(AUTO_RESOLVE_CHARGE))
+    before = _case_progress(real_fixture_app_db, first["case_id"])
+
+    reply = _say(session, real_fixture_app_db, charge_extraction(), "No está en la lista", case_id=first["case_id"],
+                 action="none_of_these", language="pt")
+
+    assert reply["state"] == CaseState.CONFIRMING
+    assert reply["reply"] == (
+        "Essa opção não está mais disponível. Você pode continuar a partir da última mensagem."
+    )
+    assert _case_progress(real_fixture_app_db, first["case_id"]) == before
+    assert logged_events(real_fixture_app_db, "action_rejected") == [
+        {"action": "none_of_these", "state": "confirming"}
+    ]
+
+
+def test_an_old_no_while_selecting_resends_the_current_list(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    listed = _open_list(session, real_fixture_app_db)
+    before = _case_progress(real_fixture_app_db, listed["case_id"])
+
+    reply = _say(session, real_fixture_app_db, charge_extraction(), "No es ese", case_id=listed["case_id"],
+                 action="confirm_no")
+
+    assert reply["state"] == CaseState.SELECTING
+    assert reply["options"] == listed["options"]
+    assert _case_progress(real_fixture_app_db, listed["case_id"]) == before
+
+
+# -- The same charge, already with a person after an explanation (AD-2) ---------
+
+
+def _escalated_after_explaining(session, app_db, transaction_id):
+    contradicted = {**CONVINCING_ASSESSMENT, "consistent": False, "contradictions": ["El monto no coincide."]}
+    reply = _pick_and_explain(session, app_db, transaction_id, contradicted)
+    assert reply["state"] == CaseState.ESCALATED
+    assert cases.get_case(reply["case_id"], db_path=app_db).dispute_reason == "unrecognized"
+    return reply
+
+
+def test_a_new_case_on_a_charge_already_escalated_after_an_explanation_escalates(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    prior = _escalated_after_explaining(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
+
+    retry = _pick(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
+
+    assert retry["state"] == CaseState.ESCALATED
+    assert retry["case_id"] != prior["case_id"]
+    # No second explanation is asked for, and nothing internal reaches the customer.
+    assert event_sequence(real_fixture_app_db, retry["case_id"]).count("explanation_requested") == 0
+    assert prior["case_id"] not in retry["reply"]
+    handoff = cases.get_case(retry["case_id"], db_path=real_fixture_app_db).handoff
+    assert handoff["facts"]["prior_case"] == prior["case_id"]
+    assert any(prior["case_id"] in q for q in handoff["open_questions"])
+    assert logged_events(real_fixture_app_db, "prior_escalation_same_charge") == [
+        {"matched_transaction_id": AUTO_RESOLVE_CHARGE, "prior_case_id": prior["case_id"]}
+    ]
+    assert logged_events(real_fixture_app_db, "simulated_credit") == []
+
+
+def test_a_typed_report_of_a_charge_escalated_after_an_explanation_escalates(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    prior = _escalated_after_explaining(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
+
+    retry = _say(session, real_fixture_app_db, charge_extraction(AUTO_RESOLVE_CHARGE))
+
+    assert retry["state"] == CaseState.ESCALATED
+    handoff = cases.get_case(retry["case_id"], db_path=real_fixture_app_db).handoff
+    assert handoff["facts"]["prior_case"] == prior["case_id"]
+
+
+def test_a_charge_escalated_on_a_request_for_a_person_can_still_be_explained(real_fixture_app_db):
+    """Only an escalation after an assessed explanation blocks a retry: one on
+    a request for a person (no dispute reason) does not.
+    """
+    session = demo_session(real_fixture_app_db)
+    first = _say(session, real_fixture_app_db, charge_extraction(AUTO_RESOLVE_CHARGE))
+    for _ in range(3):
+        handed_off = _say(session, real_fixture_app_db, charge_extraction(), "Hablar con una persona",
+                          case_id=first["case_id"], action="human")
+    assert handed_off["state"] == CaseState.ESCALATED
+    prior = cases.get_case(first["case_id"], db_path=real_fixture_app_db)
+    assert prior.matched_transaction_id == AUTO_RESOLVE_CHARGE and prior.dispute_reason is None
+
+    retry = _pick(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
+
+    assert retry["state"] == CaseState.AWAITING_EXPLANATION
+    assert logged_events(real_fixture_app_db, "prior_escalation_same_charge") == []
+
+
+# -- The resolution message (AD-8) -----------------------------------------------
+
+
+def test_the_resolution_is_the_fixed_template_not_a_model_reply(real_fixture_app_db):
+    from app import replies
+
+    session = demo_session(real_fixture_app_db)
+    picked = _pick(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
+    client = mock_anthropic_client(charge_extraction(), "Texto libre del modelo sin referencia.")
+    with patch("app.llm.anthropic.Anthropic", return_value=client):
+        reply = handle_message(session, picked["case_id"], EXPLANATION, db_path=real_fixture_app_db)
+
+    case = cases.get_case(picked["case_id"], db_path=real_fixture_app_db)
+    assert reply["state"] == CaseState.RESOLVED_AUTO
+    assert reply["reply"] == replies.resolved(case.resolution_reference, DisputeReason.UNRECOGNIZED, "es")
+    # Only the assessment reached the model on the resolving turn.
+    assert client.messages.create.call_count == 1

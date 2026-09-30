@@ -5,7 +5,7 @@ offline ETL artifact that never ships to the deployed runtime (AD-2), and the
 sanitized demo fixture is its own read-only DuckDB file
 (`config.FIXTURE_DB_PATH`, built by `etl/build_fixture.py`). This SQLite file
 (`config.APP_DB_PATH`) holds what the running app writes: sessions (AD-4),
-cases, messages and audit events.
+cases, messages, audit events and the idempotent chat turns.
 
 Using SQLite (not an in-memory dict) for sessions is a deliberate AD-4 choice:
 it must survive a process restart mid-demo.
@@ -84,6 +84,19 @@ CREATE TABLE IF NOT EXISTS events (
     event_type TEXT NOT NULL,
     payload_json TEXT NOT NULL,
     created_at TEXT NOT NULL
+);
+
+-- One row per client-generated turn id (AD-4): pending while reply_json is
+-- NULL, complete once the reply the client got is stored. Keyed per customer,
+-- so one customer's id can never reach another customer's reply.
+CREATE TABLE IF NOT EXISTS chat_turns (
+    customer_id TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    case_id TEXT,
+    reply_json TEXT,
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    PRIMARY KEY (customer_id, turn_id)
 );
 """
 

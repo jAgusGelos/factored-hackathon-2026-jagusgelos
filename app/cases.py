@@ -337,6 +337,24 @@ def credited_case_for_transaction(
     return row["case_id"] if row else None
 
 
+def escalated_explained_case_for_transaction(
+    customer_id: str, transaction_id: str, *, exclude_case_id: str, db_path: Path | None = None,
+) -> str | None:
+    """Another case of this customer on this transaction that a person already
+    has AFTER the customer's explanation was assessed (`dispute_reason` is
+    only persisted by then). Escalations for other causes (a request for a
+    person, a service failure) have no reason and do not count.
+    """
+    with db.app_connection(db_path) as con:
+        row = con.execute(
+            "SELECT case_id FROM cases WHERE customer_id = ? AND matched_transaction_id = ? "
+            "AND state = 'escalated' AND dispute_reason IS NOT NULL AND case_id != ? "
+            "ORDER BY created_at LIMIT 1",
+            [customer_id, transaction_id, exclude_case_id],
+        ).fetchone()
+    return row["case_id"] if row else None
+
+
 def increment_turn_count(case_id: str, *, db_path: Path | None = None) -> int:
     with db.app_connection(db_path) as con:
         row = con.execute(

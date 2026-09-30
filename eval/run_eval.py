@@ -58,6 +58,7 @@ from app.state_machine import CaseState, ChatReply, CustomerAction, handle_messa
 from support import (
     AUTO_RESOLVE_CHARGE,
     CARD_PRESENT_CHARGE,
+    CONVINCING_ASSESSMENT,
     DUPLICATE_ASSESSMENT,
     DUPLICATE_CHARGES,
     FRAUD_SCORE_CHARGE,
@@ -385,6 +386,26 @@ def _run_duplicate_pair_twice(app_db_path: Path) -> CaseOutcome:
     )
 
 
+def _run_same_charge_after_escalation(app_db_path: Path) -> CaseOutcome:
+    """A charge a person already has after the customer's explanation was
+    assessed (here it contradicted the charge data), retried in a new case with
+    a convincing story: it goes to that person too, never to a credit.
+    """
+    shared_db = _scenario_db(app_db_path, "same_charge_after_escalation")
+    contradicted = {
+        **CONVINCING_ASSESSMENT, "consistent": False, "contradictions": ["El monto no coincide con el cargo."],
+    }
+    _run_script(
+        GROUP_POLICY_ABUSE, "same_charge_after_escalation_first",
+        _pick_and_explain(AUTO_RESOLVE_CHARGE, assessment=contradicted),
+        expected_state=CaseState.ESCALATED, app_db_path=shared_db, isolated=False,
+    )
+    return _run_script(
+        GROUP_POLICY_ABUSE, "same_charge_after_escalation", _pick_and_explain(AUTO_RESOLVE_CHARGE),
+        expected_state=CaseState.ESCALATED, app_db_path=shared_db, isolated=False,
+    )
+
+
 # AD-13: requests the old policy would have credited on the customer's word.
 POLICY_ABUSE_SCENARIOS: tuple[Callable[[Path], CaseOutcome], ...] = (
     lambda db_path: _policy_case("card_present_unrecognized", _pick_and_explain(CARD_PRESENT_CHARGE), db_path),
@@ -406,6 +427,7 @@ POLICY_ABUSE_SCENARIOS: tuple[Callable[[Path], CaseOutcome], ...] = (
     ),
     _run_second_unrecognized_credit,
     _run_duplicate_pair_twice,
+    _run_same_charge_after_escalation,
 )
 
 

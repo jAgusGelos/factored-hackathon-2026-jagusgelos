@@ -35,9 +35,12 @@ decides resolve vs escalate in code. A transaction is never credited twice.
 `handle_message()` orchestrates one turn: quick-reply actions and taps are
 handled directly; free text goes through NLU entity extraction
 (`app/llm.py`) -> `evaluate_case()` -> grounded NLG. An exhausted LLM retry
-budget (`llm.LLMUnavailable`) or a failed fixture lookup (`duckdb.Error`)
+budget (`llm.LLMUnavailable`, also raised once the turn's shared model budget
+`llm.turn_deadline()` is used up) or a failed fixture lookup (`duckdb.Error`)
 forces escalation with the NFR's deterministic fallback message, never a
-crash or a hallucinated answer.
+crash or a hallucinated answer. A quick-reply tapped outside the state it
+belongs to (an old button still on screen) changes nothing, and a turn sent
+with a `turn_id` is applied at most once (`app/turns.py`).
 
 The explanation step lives in `app/explanation.py` (it receives this
 module's `_policy_verdict`) and the credit it may grant in `app/credit.py`;
@@ -58,7 +61,7 @@ from pathlib import Path
 
 import duckdb
 
-from app import cases, classifier, config, handoffs, llm, replies
+from app import cases, classifier, config, handoffs, llm, replies, turns
 from app.auth import Session
 from app.case_model import (
     TERMINAL_STATES,
@@ -251,14 +254,29 @@ def _load_or_create_case(
     return cases.create_case(session.customer_id, language, db_path=db_path)
 
 
-def _unless_already_credited(turn: Turn, evaluation: CaseEvaluation, report: ReportedCharge) -> CaseEvaluation:
+def _unless_already_handled(turn: Turn, evaluation: CaseEvaluation, report: ReportedCharge) -> CaseEvaluation:
+    """An eligible charge still goes to a person when an earlier case of this
+    customer already credited it, or already handed it to a person after
+    assessing the customer's explanation: a fresh case must not become a way
+    to retry the same charge with a different story (AD-13).
+    """
     if evaluation.state != CaseState.RESOLVED_AUTO:
         return evaluation
     matched = evaluation.matched_transaction
-    credited_in = cases.credited_case_for_transaction(
-        turn.session.customer_id, matched.transaction_id, db_path=turn.db_path
+    customer_id = turn.session.customer_id
+    credited_in = cases.credited_case_for_transaction(customer_id, matched.transaction_id, db_path=turn.db_path)
+    if credited_in is not None:
+        return handoffs.already_credited(report, matched, credited_in)
+    escalated_in = cases.escalated_explained_case_for_transaction(
+        customer_id, matched.transaction_id, exclude_case_id=turn.case.case_id, db_path=turn.db_path,
     )
-    return evaluation if credited_in is None else handoffs.already_credited(report, matched, credited_in)
+    if escalated_in is None:
+        return evaluation
+    turn.log_event(
+        "prior_escalation_same_charge",
+        {"matched_transaction_id": matched.transaction_id, "prior_case_id": escalated_in},
+    )
+    return handoffs.prior_escalation_same_charge(report, matched, escalated_in)
 
 
 def _policy_verdict(
@@ -268,7 +286,7 @@ def _policy_verdict(
     evaluation = evaluate_transaction(
         turn.session, matched, report=report, how_identified=how_identified, reason=reason, db_path=turn.db_path,
     )
-    return _unless_already_credited(turn, evaluation, report)
+    return _unless_already_handled(turn, evaluation, report)
 
 
 # -- Terminal and intermediate outcomes ----------------------------------------
@@ -526,12 +544,10 @@ def _handle_selection(turn: Turn, transaction_id: str) -> ChatReply:
 
 def _handle_none_of_these(turn: Turn) -> ChatReply:
     """Not in the list: with no details from the customer yet, the agent asks
-    for one and keeps looking; after details, it hands off.
+    for one and keeps looking; after details, it hands off. Only reached in
+    `selecting` (a stale tap is refused earlier, see `_ACTION_STATES`).
     """
     case = turn.case
-    if case.state != CaseState.SELECTING:
-        turn.log_event("selection_rejected", {"reason": "none_of_these_outside_selecting", "state": case.state})
-        return turn.reply(CaseState(case.state), replies.SELECTION_UNAVAILABLE[turn.language])
     if not turn.report.has_details and case.clarification_rounds < MAX_CLARIFICATION_ROUNDS:
         lost = transition(turn, CaseState.SELECTING, expected_states=(CaseState.SELECTING,), add_clarification_round=True)
         if lost:
@@ -546,6 +562,15 @@ def _handle_none_of_these(turn: Turn) -> ChatReply:
     )
 
 
+# The state a quick-reply button belongs to: tapped in any other state (an old
+# button still on screen), it changes nothing.
+_ACTION_STATES = {
+    CustomerAction.CONFIRM_YES: CaseState.CONFIRMING,
+    CustomerAction.CONFIRM_NO: CaseState.CONFIRMING,
+    CustomerAction.NONE_OF_THESE: CaseState.SELECTING,
+}
+
+
 def handle_message(
     session: Session,
     case_id: str | None,
@@ -555,6 +580,7 @@ def handle_message(
     db_path: Path | None = None,
     selected_transaction_id: str | None = None,
     action: CustomerAction | str | None = None,
+    turn_id: str | None = None,
 ) -> ChatReply:
     """`case_id=None` starts a new case. An existing `case_id` is only ever
     resumed if it belongs to `session.customer_id` (AD-3) — `cases.CaseOwnershipError`
@@ -568,10 +594,73 @@ def handle_message(
     `selected_transaction_id` is a tap on one of the listed charges and
     `action` a quick-reply button; `text` is always what the customer sees
     in their bubble (the button label, for a tap).
+
+    `turn_id` makes the turn idempotent (AD-4, `app/turns.py`): a retry with
+    the same id gets the stored reply and is never processed twice. Raises
+    `turns.TurnInProgress` while the first request is still running.
     """
     language = Language(language)
     action = CustomerAction(action) if action is not None else None
+    if turn_id is None:
+        return _run_turn(session, case_id, text, language, db_path, selected_transaction_id, action)
+
+    customer_id = session.customer_id
+    claim = turns.claim(customer_id, turn_id, db_path=db_path)
+    if claim.status == turns.TurnStatus.COMPLETE:
+        cases.log_event(uuid.uuid4().hex, claim.case_id, "turn_replayed", {"turn_id": turn_id}, db_path=db_path)
+        return claim.reply
+    if claim.status == turns.TurnStatus.IN_FLIGHT:
+        cases.log_event(uuid.uuid4().hex, claim.case_id, "turn_in_flight", {"turn_id": turn_id}, db_path=db_path)
+        raise turns.TurnInProgress(turn_id)
+    if claim.status == turns.TurnStatus.ABANDONED:
+        return _abandoned_turn_reply(session, claim.case_id, turn_id, language, db_path)
+    try:
+        reply = _run_turn(
+            session, case_id, text, language, db_path, selected_transaction_id, action, turn_id=turn_id,
+        )
+    except cases.CaseOwnershipError:
+        turns.release(customer_id, turn_id, db_path=db_path)
+        raise
+    turns.complete(customer_id, turn_id, reply, db_path=db_path)
+    return reply
+
+
+def _abandoned_turn_reply(
+    session: Session, case_id: str | None, turn_id: str, language: Language, db_path: Path | None,
+) -> ChatReply:
+    """The request that claimed this turn died without storing its reply, and
+    it may already have moved the case: never run it again, just say where the
+    case is now (as after a lost compare-and-set race).
+    """
+    case = cases.get_case_for_session(case_id, session.customer_id, db_path=db_path) if case_id else None
+    correlation_id = uuid.uuid4().hex
+    cases.log_event(correlation_id, case_id, "turn_abandoned", {"turn_id": turn_id}, db_path=db_path)
+    if case is None:
+        # The first message of a conversation whose case was never created.
+        return {
+            "case_id": None, "state": CaseState.AWAITING_REPORT, "customer_id": session.customer_id,
+            "reply": replies.CASE_MOVED_ON[language], "options": [], "human_available": False,
+        }
+    state = CaseState(case.state)
+    if state in TERMINAL_STATES:
+        text = replies.terminal_case(state, case.resolution_reference, language)
+    else:
+        text = replies.CASE_MOVED_ON[language]
+    turn = Turn(session, case, language, correlation_id, db_path)
+    return {
+        "case_id": case.case_id, "state": state, "customer_id": session.customer_id, "reply": text,
+        "options": current_options(turn),
+        "human_available": state not in TERMINAL_STATES and human_handoff_available(case),
+    }
+
+
+def _run_turn(
+    session: Session, case_id: str | None, text: str, language: Language, db_path: Path | None,
+    selected_transaction_id: str | None, action: CustomerAction | None, *, turn_id: str | None = None,
+) -> ChatReply:
     case = _load_or_create_case(session, case_id, language, db_path)
+    if turn_id is not None:
+        turns.attach_case(session.customer_id, turn_id, case.case_id, db_path=db_path)
     turn = Turn(session, case, language, uuid.uuid4().hex, db_path)
     if case_id is not None and case.case_id != case_id:
         turn.log_event("unknown_case_id_new_case_started", {"requested_case_id": case_id})
@@ -581,23 +670,33 @@ def handle_message(
         return turn.reply(
             CaseState(case.state), replies.terminal_case(CaseState(case.state), case.resolution_reference, language)
         )
+    if action in _ACTION_STATES and case.state != _ACTION_STATES[action]:
+        turn.log_event("action_rejected", {"action": action, "state": case.state})
+        return turn.reply(CaseState(case.state), replies.ACTION_UNAVAILABLE[language], current_options(turn))
     try:
-        if action == CustomerAction.HUMAN:
-            return _handle_human_request(turn)
-        if selected_transaction_id is not None:
-            return _handle_selection(turn, selected_transaction_id)
-        if action == CustomerAction.NONE_OF_THESE:
-            return _handle_none_of_these(turn)
-        if case.state == CaseState.CONFIRMING:
-            return _handle_confirmation(turn, text, action)
-        if case.state == CaseState.AWAITING_EXPLANATION:
-            return handle_explanation(turn, text, policy_verdict=_policy_verdict)
-        return _handle_report(turn, text)
+        with llm.turn_deadline():
+            return _route(turn, text, selected_transaction_id, action)
     except duckdb.Error:
         return force_escalation(
             turn, event_type="fixture_unavailable", failed_call="fixture_lookup",
             action_taken="La consulta a los datos del cliente falló.",
         )
+
+
+def _route(
+    turn: Turn, text: str, selected_transaction_id: str | None, action: CustomerAction | None,
+) -> ChatReply:
+    if action == CustomerAction.HUMAN:
+        return _handle_human_request(turn)
+    if selected_transaction_id is not None:
+        return _handle_selection(turn, selected_transaction_id)
+    if action == CustomerAction.NONE_OF_THESE:
+        return _handle_none_of_these(turn)
+    if turn.case.state == CaseState.CONFIRMING:
+        return _handle_confirmation(turn, text, action)
+    if turn.case.state == CaseState.AWAITING_EXPLANATION:
+        return handle_explanation(turn, text, policy_verdict=_policy_verdict)
+    return _handle_report(turn, text)
 
 
 # -- Free-text reports -----------------------------------------------------------
@@ -667,7 +766,7 @@ def _handle_report(turn: Turn, text: str) -> ChatReply:
 
 
 def _handle_full_report(turn: Turn, report: ReportedCharge, *, spend_round: bool, can_ask_again: bool) -> ChatReply:
-    evaluation = _unless_already_credited(
+    evaluation = _unless_already_handled(
         turn,
         evaluate_case(
             turn.session, reported_amount=report.amount, reported_date=report.date, currency=report.currency,

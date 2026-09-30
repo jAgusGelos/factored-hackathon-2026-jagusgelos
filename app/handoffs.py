@@ -87,6 +87,24 @@ def already_credited(report: ReportedCharge, matched: TransactionCandidate, cred
     )
 
 
+def prior_escalation_same_charge(
+    report: ReportedCharge, matched: TransactionCandidate, prior_case_id: str,
+) -> CaseEvaluation:
+    """The customer already explained this charge in a case a person now has:
+    a new case on it goes to that person too, instead of a second explanation.
+    """
+    return _escalation(
+        _facts(report, matched_transaction_id=matched.transaction_id, prior_case=prior_case_id),
+        f"El cargo ya fue derivado a una persona en el caso {prior_case_id}, después de evaluar la "
+        "explicación del cliente; no se vuelve a pedir otra explicación.",
+        evidence=(matched.transaction_id,),
+        open_questions=(
+            f"El cliente abrió otro reclamo por el mismo cargo: revisarlo junto con el caso {prior_case_id}.",
+        ),
+        matched=matched,
+    )
+
+
 ASSESSMENT_FAILED = (
     "No se pudo evaluar la explicación: la respuesta del modelo no respetó el formato esperado. "
     "Leer la explicación del cliente en los mensajes del caso."

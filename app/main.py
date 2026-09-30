@@ -26,6 +26,7 @@ from app import (
     replies,
     state_machine,
     transactions,
+    turns,
 )
 from app.llm import Language
 
@@ -133,6 +134,9 @@ def me(session: CurrentSession):
     }
 
 
+TURN_ID_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+
+
 class ChatRequest(BaseModel):
     case_id: str | None = Field(default=None, max_length=64)
     message: str = Field(max_length=2000)
@@ -140,6 +144,9 @@ class ChatRequest(BaseModel):
     # A tap on a listed charge / a quick-reply button (see state_machine).
     selected_transaction_id: str | None = Field(default=None, max_length=64)
     action: state_machine.CustomerAction | None = None
+    # A lowercase UUID the client generates per send and reuses on a retry
+    # (AD-4, app/turns.py); without it the turn is not idempotent.
+    turn_id: str | None = Field(default=None, pattern=TURN_ID_PATTERN)
 
 
 def _case_forbidden() -> JSONResponse:
@@ -152,9 +159,12 @@ def chat(payload: ChatRequest, session: CurrentSession):
         return state_machine.handle_message(
             session, payload.case_id, payload.message, language=payload.language,
             selected_transaction_id=payload.selected_transaction_id, action=payload.action,
+            turn_id=payload.turn_id,
         )
     except cases.CaseOwnershipError:
         return _case_forbidden()
+    except turns.TurnInProgress:
+        return JSONResponse(status_code=409, content={"detail": "turn_in_progress"})
 
 
 def _matched_charge(session: auth.Session, transaction_id: str | None) -> dict | None:

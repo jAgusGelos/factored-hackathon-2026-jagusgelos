@@ -30,7 +30,9 @@ DEFAULT_CURRENCY = "USD"
 
 
 class ChatReply(TypedDict):
-    case_id: str
+    # None only when a retried first message died before its case existed
+    # (state_machine._abandoned_turn_reply).
+    case_id: str | None
     state: CaseState
     customer_id: str
     reply: str

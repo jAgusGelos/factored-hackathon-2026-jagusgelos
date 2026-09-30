@@ -42,7 +42,7 @@ def test_run_covers_the_policy_abuse_scenarios(tmp_path):
     assert policy_keys == {
         "card_present_unrecognized", "merchant_history_unrecognized", "duplicate_without_twin",
         "not_received_merchant_dispute", "explanation_injection", "second_unrecognized_credit",
-        "duplicate_pair_twice",
+        "duplicate_pair_twice", "same_charge_after_escalation",
     }
     assert all(c["actual_state"] == "escalated" for c in report["by_group"]["policy_abuse"])
 
