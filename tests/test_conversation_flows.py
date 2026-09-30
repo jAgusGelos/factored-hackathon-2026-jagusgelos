@@ -20,6 +20,7 @@ from app.state_machine import CaseState, handle_message
 from tests.support import (
     AUTO_RESOLVE_CHARGE,
     CARD_PRESENT_CHARGE,
+    CONTRADICTED_ASSESSMENT,
     CONVINCING_ASSESSMENT,
     DUPLICATE_ASSESSMENT,
     DUPLICATE_CHARGES,
@@ -1028,8 +1029,7 @@ def test_an_old_no_while_selecting_resends_the_current_list(real_fixture_app_db)
 
 
 def _escalated_after_explaining(session, app_db, transaction_id):
-    contradicted = {**CONVINCING_ASSESSMENT, "consistent": False, "contradictions": ["El monto no coincide."]}
-    reply = _pick_and_explain(session, app_db, transaction_id, contradicted)
+    reply = _pick_and_explain(session, app_db, transaction_id, CONTRADICTED_ASSESSMENT)
     assert reply["state"] == CaseState.ESCALATED
     assert cases.get_case(reply["case_id"], db_path=app_db).dispute_reason == "unrecognized"
     return reply

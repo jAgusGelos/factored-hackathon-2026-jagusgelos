@@ -90,11 +90,21 @@ def reply_for_lost_race(turn: Turn, attempted_state: CaseState) -> ChatReply:
     turn.log_event(
         "case_transition_lost_race", {"current_state": current.state, "attempted_state": attempted_state}
     )
-    state = CaseState(current.state)
+    state, text = where_the_case_is(current, turn.language)
     if state in TERMINAL_STATES:
-        return turn.reply(state, replies.terminal_case(state, current.resolution_reference, turn.language))
+        return turn.reply(state, text)
     fresh = replace(turn, case=current)
-    return turn.reply(state, replies.CASE_MOVED_ON[turn.language], current_options(fresh))
+    return turn.reply(state, text, current_options(fresh))
+
+
+def where_the_case_is(case: cases.Case, language: Language) -> tuple[CaseState, str]:
+    """The case's current state and the message that reports it, for a turn
+    that must not move the case (a lost race, an abandoned retried turn).
+    """
+    state = CaseState(case.state)
+    if state in TERMINAL_STATES:
+        return state, replies.terminal_case(state, case.resolution_reference, language)
+    return state, replies.CASE_MOVED_ON[language]
 
 
 def transition(

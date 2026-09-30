@@ -58,7 +58,7 @@ from app.state_machine import CaseState, ChatReply, CustomerAction, handle_messa
 from support import (
     AUTO_RESOLVE_CHARGE,
     CARD_PRESENT_CHARGE,
-    CONVINCING_ASSESSMENT,
+    CONTRADICTED_ASSESSMENT,
     DUPLICATE_ASSESSMENT,
     DUPLICATE_CHARGES,
     FRAUD_SCORE_CHARGE,
@@ -392,12 +392,9 @@ def _run_same_charge_after_escalation(app_db_path: Path) -> CaseOutcome:
     a convincing story: it goes to that person too, never to a credit.
     """
     shared_db = _scenario_db(app_db_path, "same_charge_after_escalation")
-    contradicted = {
-        **CONVINCING_ASSESSMENT, "consistent": False, "contradictions": ["El monto no coincide con el cargo."],
-    }
     _run_script(
         GROUP_POLICY_ABUSE, "same_charge_after_escalation_first",
-        _pick_and_explain(AUTO_RESOLVE_CHARGE, assessment=contradicted),
+        _pick_and_explain(AUTO_RESOLVE_CHARGE, assessment=CONTRADICTED_ASSESSMENT),
         expected_state=CaseState.ESCALATED, app_db_path=shared_db, isolated=False,
     )
     return _run_script(

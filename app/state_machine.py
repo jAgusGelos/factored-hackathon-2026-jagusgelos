@@ -80,6 +80,7 @@ from app.case_turn import (
     force_escalation,
     human_handoff_available,
     transition,
+    where_the_case_is,
 )
 from app.charge_search import (
     ChargeSearch,
@@ -641,11 +642,7 @@ def _abandoned_turn_reply(
             "case_id": None, "state": CaseState.AWAITING_REPORT, "customer_id": session.customer_id,
             "reply": replies.CASE_MOVED_ON[language], "options": [], "human_available": False,
         }
-    state = CaseState(case.state)
-    if state in TERMINAL_STATES:
-        text = replies.terminal_case(state, case.resolution_reference, language)
-    else:
-        text = replies.CASE_MOVED_ON[language]
+    state, text = where_the_case_is(case, language)
     turn = Turn(session, case, language, correlation_id, db_path)
     return {
         "case_id": case.case_id, "state": state, "customer_id": session.customer_id, "reply": text,

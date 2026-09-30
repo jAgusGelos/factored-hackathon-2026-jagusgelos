@@ -149,9 +149,18 @@ def _remaining_budget() -> float | None:
     return None if deadline is None else deadline - time.monotonic()
 
 
-def _deadline_exceeded(last_exc: Exception | None) -> LLMUnavailable:
-    logger.error("llm_deadline_exceeded: the turn's model budget is used up (last error: %s)", last_exc)
-    return LLMUnavailable("LLM call skipped: the turn's model budget is used up")
+def _budget_after(wait: float, last_exc: Exception | None) -> float | None:
+    """Seconds of the turn's budget left once `wait` has passed; None outside a
+    turn. Raises `LLMUnavailable` when that would leave less than
+    `config.LLM_MIN_ATTEMPT_SECONDS` for the next attempt.
+    """
+    remaining = _remaining_budget()
+    if remaining is None:
+        return None
+    if remaining - wait < config.LLM_MIN_ATTEMPT_SECONDS:
+        logger.error("llm_deadline_exceeded: the turn's model budget is used up (last error: %s)", last_exc)
+        raise LLMUnavailable("LLM call skipped: the turn's model budget is used up") from last_exc
+    return remaining - wait
 
 
 def call_llm(prompt: str, *, system: str | None = None, max_tokens: int | None = None) -> str:
@@ -188,17 +197,11 @@ def call_llm(prompt: str, *, system: str | None = None, max_tokens: int | None =
 
     for attempt, delay in enumerate([0.0, *config.LLM_RETRY_BACKOFF_SECONDS], start=1):
         if delay:
-            remaining = _remaining_budget()
-            if remaining is not None and remaining - delay < config.LLM_MIN_ATTEMPT_SECONDS:
-                raise _deadline_exceeded(last_exc) from last_exc
+            _budget_after(delay, last_exc)
             logger.warning("LLM call attempt %d failed, retrying in %.1fs", attempt - 1, delay)
             time.sleep(delay)
-        timeout = config.LLM_TIMEOUT_SECONDS
-        remaining = _remaining_budget()
-        if remaining is not None:
-            if remaining < config.LLM_MIN_ATTEMPT_SECONDS:
-                raise _deadline_exceeded(last_exc) from last_exc
-            timeout = min(timeout, remaining)
+        remaining = _budget_after(0.0, last_exc)
+        timeout = config.LLM_TIMEOUT_SECONDS if remaining is None else min(config.LLM_TIMEOUT_SECONDS, remaining)
         try:
             response = client.messages.create(
                 model=config.ANTHROPIC_MODEL,

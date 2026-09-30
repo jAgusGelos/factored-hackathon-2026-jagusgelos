@@ -59,10 +59,12 @@ def _always_timing_out(clock: FakeClock, timeouts: list[float]) -> MagicMock:
     return client
 
 
-def _answering(text: str, timeouts: list[float] | None = None) -> MagicMock:
+def _answering(text: str, sent: list[dict] | None = None) -> MagicMock:
+    """A client that always answers `text`, recording each call's limits in `sent`."""
+
     def create(*, model, max_tokens, system, messages, timeout):
-        if timeouts is not None:
-            timeouts.append(timeout)
+        if sent is not None:
+            sent.append({"timeout": timeout, "max_tokens": max_tokens})
         response = MagicMock()
         response.content = [MagicMock(type="text", text=text)]
         return response
@@ -92,12 +94,12 @@ def test_each_attempt_is_capped_to_what_is_left_of_the_turn_budget(clock):
 
 
 def test_calls_of_one_turn_share_the_budget(clock):
-    timeouts: list[float] = []
+    sent: list[dict] = []
     with llm.turn_deadline():
         clock.now += 12.0  # an earlier call of the same turn took 12 s
-        with patch("app.llm.anthropic.Anthropic", return_value=_answering("ok", timeouts)):
+        with patch("app.llm.anthropic.Anthropic", return_value=_answering("ok", sent)):
             llm.call_llm("hola")
-    assert timeouts == [config.TURN_DEADLINE_SECONDS - 12.0]
+    assert [c["timeout"] for c in sent] == [config.TURN_DEADLINE_SECONDS - 12.0]
 
 
 def test_a_used_up_budget_raises_without_calling_the_model(clock, caplog):
@@ -123,11 +125,11 @@ def test_a_second_turn_starts_with_the_full_budget(clock):
     with patch("app.llm.anthropic.Anthropic", return_value=_always_timing_out(clock, first)):
         with llm.turn_deadline(), pytest.raises(llm.LLMUnavailable):
             llm.call_llm("hola")
-    second: list[float] = []
+    second: list[dict] = []
     with patch("app.llm.anthropic.Anthropic", return_value=_answering("ok", second)):
         with llm.turn_deadline():
             llm.call_llm("hola")
-    assert second == [config.LLM_TIMEOUT_SECONDS]
+    assert [c["timeout"] for c in second] == [config.LLM_TIMEOUT_SECONDS]
 
 
 def test_the_deadline_is_reset_even_when_the_turn_raises():
@@ -137,19 +139,10 @@ def test_the_deadline_is_reset_even_when_the_turn_raises():
 
 
 def test_the_explanation_assessment_asks_for_a_short_answer():
-    captured: list[int] = []
-
-    def create(*, model, max_tokens, system, messages, timeout):
-        captured.append(max_tokens)
-        response = MagicMock()
-        response.content = [MagicMock(type="text", text="{}")]
-        return response
-
-    client = MagicMock()
-    client.messages.create.side_effect = create
-    with patch("app.llm.anthropic.Anthropic", return_value=client):
+    sent: list[dict] = []
+    with patch("app.llm.anthropic.Anthropic", return_value=_answering("{}", sent)):
         llm.assess_explanation("No uso Uber", charge=llm.build_prompt_context(case_state="awaiting_explanation"))
-    assert captured == [config.ASSESSMENT_MAX_TOKENS]
+    assert [c["max_tokens"] for c in sent] == [config.ASSESSMENT_MAX_TOKENS]
 
 
 @requires_real_fixture

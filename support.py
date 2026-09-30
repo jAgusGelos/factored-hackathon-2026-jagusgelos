@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Sequence
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -44,9 +45,9 @@ REAL_FIXTURE_PATH = REPO_ROOT / "data" / "fixture.duckdb"
 REAL_DEMO_USERS_PATH = REPO_ROOT / "data" / "demo_users.json"
 
 __all__ = [
-    "AUTO_RESOLVE_CHARGE", "CARD_PRESENT_CHARGE", "CONVINCING_ASSESSMENT", "DEMO_USERNAME", "DUPLICATE_ASSESSMENT",
+    "AUTO_RESOLVE_CHARGE", "CARD_PRESENT_CHARGE", "CONTRADICTED_ASSESSMENT", "CONVINCING_ASSESSMENT", "DEMO_USERNAME", "DUPLICATE_ASSESSMENT",
     "DUPLICATE_CHARGES", "EXPLANATION", "FRAUD_SCORE_CHARGE", "NOT_RECEIVED_ASSESSMENT", "OVER_LIMIT_CHARGE",
-    "REAL_DEMO_USERS_PATH", "REAL_FIXTURE_PATH", "REPO_ROOT", "SECOND_ONLINE_CHARGE", "charge_extraction",
+    "REAL_DEMO_USERS_PATH", "REAL_FIXTURE_PATH", "REPO_ROOT", "SECOND_ONLINE_CHARGE", "app_db_rows", "charge_extraction",
     "charge_report", "demo_session", "event_sequence", "logged_events", "mock_anthropic_client", "session_for",
 ]
 
@@ -101,10 +102,14 @@ DUPLICATE_ASSESSMENT = {
     "summary": "El cliente dice que le cobraron dos veces el mismo viaje.",
 }
 NOT_RECEIVED_ASSESSMENT = {**CONVINCING_ASSESSMENT, "reason": "not_received"}
+CONTRADICTED_ASSESSMENT = {
+    **CONVINCING_ASSESSMENT, "consistent": False, "contradictions": ["El monto no coincide con el cargo."],
+}
 EXPLANATION = "No uso Uber hace meses, tengo la tarjeta conmigo y ayer vi el cargo en la app del banco"
 
 
-def _event_rows(app_db: Path, sql: str, params: list[str]) -> list[tuple]:
+def app_db_rows(app_db: Path, sql: str, params: Sequence[object] = ()) -> list[tuple]:
+    """Every row of a read-only query against the app db."""
     con = sqlite3.connect(str(app_db))
     try:
         return con.execute(sql, params).fetchall()
@@ -114,13 +119,13 @@ def _event_rows(app_db: Path, sql: str, params: list[str]) -> list[tuple]:
 
 def logged_events(app_db: Path, event_type: str) -> list[dict]:
     """The payloads of every audit event of this type in the app db."""
-    rows = _event_rows(app_db, "SELECT payload_json FROM events WHERE event_type = ?", [event_type])
+    rows = app_db_rows(app_db, "SELECT payload_json FROM events WHERE event_type = ?", [event_type])
     return [json.loads(r[0]) for r in rows]
 
 
 def event_sequence(app_db: Path, case_id: str) -> list[str]:
     """The event types of one case, in the order they were logged."""
-    rows = _event_rows(app_db, "SELECT event_type FROM events WHERE case_id = ? ORDER BY id", [case_id])
+    rows = app_db_rows(app_db, "SELECT event_type FROM events WHERE case_id = ? ORDER BY id", [case_id])
     return [r[0] for r in rows]
 
 

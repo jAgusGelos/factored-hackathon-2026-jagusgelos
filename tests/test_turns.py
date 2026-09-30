@@ -25,6 +25,7 @@ from tests.support import (
     AUTO_RESOLVE_CHARGE,
     DEMO_USERNAME,
     REAL_DEMO_USERS_PATH,
+    app_db_rows,
     charge_extraction,
     demo_session,
     logged_events,
@@ -55,16 +56,8 @@ def api(real_fixture_app_db, model):
         yield client
 
 
-def _rows(app_db, sql: str, params=()) -> list[tuple]:
-    con = sqlite3.connect(str(app_db))
-    try:
-        return con.execute(sql, params).fetchall()
-    finally:
-        con.close()
-
-
 def _message_count(app_db) -> int:
-    return _rows(app_db, "SELECT COUNT(*) FROM messages")[0][0]
+    return app_db_rows(app_db, "SELECT COUNT(*) FROM messages")[0][0]
 
 
 def _age(app_db, turn_id: str, seconds: int) -> None:
@@ -90,13 +83,12 @@ def test_a_retried_turn_gets_the_same_reply_without_running_again(api, model, re
     assert model.messages.create.call_count == calls
     assert _message_count(real_fixture_app_db) == messages
     # The first message created the case: the replay names that same case.
-    assert _rows(real_fixture_app_db, "SELECT COUNT(*) FROM cases")[0][0] == 1
+    assert app_db_rows(real_fixture_app_db, "SELECT COUNT(*) FROM cases")[0][0] == 1
     assert logged_events(real_fixture_app_db, "turn_replayed") == [{"turn_id": turn_id}]
 
 
 def test_a_retried_button_tap_is_not_applied_twice(api, real_fixture_app_db):
-    case_id = api.post("/api/chat", json={"message": OPENING})
-    case_id = case_id.json()["case_id"]
+    case_id = api.post("/api/chat", json={"message": OPENING}).json()["case_id"]
     tap = {"case_id": case_id, "message": "Sí, es ese", "action": "confirm_yes", "turn_id": str(uuid.uuid4())}
     first = api.post("/api/chat", json=tap)
     retry = api.post("/api/chat", json=tap)
@@ -144,7 +136,7 @@ def test_an_abandoned_turn_reports_the_case_as_it_is_without_running_again(api, 
     assert _message_count(real_fixture_app_db) == messages
     assert cases.get_case(opened["case_id"], db_path=real_fixture_app_db).state == CaseState.CONFIRMING
     # Never reprocessed, and the row stays pending.
-    assert _rows(real_fixture_app_db, "SELECT reply_json FROM chat_turns WHERE turn_id = ?", [turn_id]) == [(None,)]
+    assert app_db_rows(real_fixture_app_db, "SELECT reply_json FROM chat_turns WHERE turn_id = ?", [turn_id]) == [(None,)]
 
 
 def test_an_abandoned_first_message_without_a_case_changes_nothing(api, real_fixture_app_db):
@@ -157,7 +149,7 @@ def test_an_abandoned_first_message_without_a_case_changes_nothing(api, real_fix
 
     assert body["case_id"] is None
     assert body["state"] == CaseState.AWAITING_REPORT
-    assert _rows(real_fixture_app_db, "SELECT COUNT(*) FROM cases")[0][0] == 0
+    assert app_db_rows(real_fixture_app_db, "SELECT COUNT(*) FROM cases")[0][0] == 0
 
 
 @pytest.mark.parametrize("turn_id", ["not-a-uuid", str(uuid.uuid4()).upper(), "", str(uuid.uuid4()) + "0"])
@@ -169,7 +161,7 @@ def test_without_a_turn_id_nothing_is_recorded_and_every_send_is_a_turn(api, rea
     first = api.post("/api/chat", json={"message": OPENING}).json()
     second = api.post("/api/chat", json={"message": OPENING}).json()
     assert first["case_id"] != second["case_id"]
-    assert _rows(real_fixture_app_db, "SELECT COUNT(*) FROM chat_turns")[0][0] == 0
+    assert app_db_rows(real_fixture_app_db, "SELECT COUNT(*) FROM chat_turns")[0][0] == 0
 
 
 def test_the_same_turn_id_under_another_customer_is_that_customers_own_turn(model, real_fixture_app_db):
@@ -194,4 +186,4 @@ def test_a_refused_turn_can_be_retried(model, real_fixture_app_db):
     for _ in range(2):
         with pytest.raises(cases.CaseOwnershipError):
             handle_message(other, mine["case_id"], "hola", db_path=real_fixture_app_db, turn_id=turn_id)
-    assert _rows(real_fixture_app_db, "SELECT COUNT(*) FROM chat_turns")[0][0] == 0
+    assert app_db_rows(real_fixture_app_db, "SELECT COUNT(*) FROM chat_turns")[0][0] == 0
