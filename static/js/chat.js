@@ -58,10 +58,33 @@ const STRINGS = {
     personaClient: "Vista Cliente",
     personaInternal: "Vista Interna",
     handoffTitle: "Resumen para el agente humano",
+    handoffRequest: "Pedido del cliente",
     handoffFacts: "Hechos verificados",
+    handoffFactsTag: "Del registro",
+    handoffReported: "Lo que dijo el cliente",
+    handoffReportedTag: "Sin verificar",
+    handoffLegacyFacts: "Datos del caso",
+    handoffPolicy: "Motivos de política",
+    handoffPolicyCount: (n) => (n === 1 ? "1 motivo registrado en el expediente interno." : `${n} motivos registrados en el expediente interno.`),
     handoffActions: "Acciones realizadas",
     handoffEvidence: "Evidencia",
     handoffQuestions: "Preguntas abiertas",
+    handoffFields: {
+      transaction_id: "Transacción", merchant: "Comercio", amount: "Monto", currency: "Moneda", date: "Fecha",
+      channel: "Canal", status: "Estado", category: "Categoría", charge_confirmed: "Confirmado por el cliente",
+      credited_in_case: "Ya acreditado en el caso", prior_case: "Caso anterior", candidate_count: "Cargos candidatos",
+      charges_shown: "Cargos mostrados", dispute_reason: "Motivo de la disputa",
+      customer_confirmation: "Respuesta a la confirmación", explanation_summary: "Explicación (resumen del modelo)",
+      explanation_specific: "Explicación concreta", explanation_consistent: "Explicación coherente",
+      explanation_assessment: "Evaluación de la explicación", customer_message: "Mensaje del cliente",
+      reported_amount: "Monto reportado", reported_date: "Fecha reportada", reported_merchant: "Comercio reportado",
+      matched_transaction_id: "Transacción identificada",
+    },
+    handoffValues: {
+      unrecognized: "No reconoce el cargo", duplicate: "Cargo duplicado", not_received: "No recibió el producto",
+      wrong_amount: "Monto incorrecto", card_lost_stolen: "Tarjeta perdida o robada", unclear: "No está claro",
+      yes: "Sí", no: "No", human: "Pidió una persona", sí: "Sí",
+    },
     sessionLoadError: "No se pudo cargar la sesión.",
     logoutFailed: "No se pudo cerrar sesión.",
     // Wait indicator, retry and new claim (usability-s1 DESIGN.md copy table).
@@ -132,10 +155,33 @@ const STRINGS = {
     personaClient: "Vista Cliente",
     personaInternal: "Vista Interna",
     handoffTitle: "Resumo para o agente humano",
+    handoffRequest: "Pedido do cliente",
     handoffFacts: "Fatos verificados",
+    handoffFactsTag: "Do registro",
+    handoffReported: "O que o cliente disse",
+    handoffReportedTag: "Não verificado",
+    handoffLegacyFacts: "Dados do caso",
+    handoffPolicy: "Motivos de política",
+    handoffPolicyCount: (n) => (n === 1 ? "1 motivo registrado no dossiê interno." : `${n} motivos registrados no dossiê interno.`),
     handoffActions: "Ações realizadas",
     handoffEvidence: "Evidências",
     handoffQuestions: "Perguntas em aberto",
+    handoffFields: {
+      transaction_id: "Transação", merchant: "Estabelecimento", amount: "Valor", currency: "Moeda", date: "Data",
+      channel: "Canal", status: "Status", category: "Categoria", charge_confirmed: "Confirmada pelo cliente",
+      credited_in_case: "Já creditada no caso", prior_case: "Caso anterior", candidate_count: "Cobranças candidatas",
+      charges_shown: "Cobranças mostradas", dispute_reason: "Motivo da contestação",
+      customer_confirmation: "Resposta à confirmação", explanation_summary: "Explicação (resumo do modelo)",
+      explanation_specific: "Explicação concreta", explanation_consistent: "Explicação coerente",
+      explanation_assessment: "Avaliação da explicação", customer_message: "Mensagem do cliente",
+      reported_amount: "Valor informado", reported_date: "Data informada", reported_merchant: "Estabelecimento informado",
+      matched_transaction_id: "Transação identificada",
+    },
+    handoffValues: {
+      unrecognized: "Não reconhece a cobrança", duplicate: "Cobrança duplicada", not_received: "Não recebeu o produto",
+      wrong_amount: "Valor incorreto", card_lost_stolen: "Cartão perdido ou roubado", unclear: "Não está claro",
+      yes: "Sim", no: "Não", human: "Pediu uma pessoa", sí: "Sim",
+    },
     sessionLoadError: "Não foi possível carregar a sessão.",
     logoutFailed: "Não foi possível encerrar a sessão.",
     waitGeneric: "O assistente está respondendo…",
@@ -869,35 +915,67 @@ function renderPersonaView() {
   return renderHandoffCard();
 }
 
+function humanizeKey(key) {
+  const words = key.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function factLabel(key) {
+  return t("handoffFields")[key] || humanizeKey(key);
+}
+
+const CODED_FACTS = new Set([
+  "dispute_reason", "customer_confirmation", "charge_confirmed", "explanation_specific", "explanation_consistent",
+]);
+
+function factValue(key, value, facts) {
+  if (key === "amount" || key === "reported_amount") return formatAmount(Number(value), facts.currency);
+  if (key === "date" || key === "reported_date") return formatDay(value);
+  if (key === "category") return t("categories")[value] || String(value);
+  if (CODED_FACTS.has(key)) return t("handoffValues")[value] || String(value);
+  return String(value);
+}
+
+function factListHtml(facts) {
+  const shown = Object.entries(facts).filter(([key]) => !(key === "currency" && "amount" in facts));
+  const rows = shown.map(([key, value]) => `<div><dt>${escapeHtml(factLabel(key))}</dt><dd>${escapeHtml(factValue(key, value, facts))}</dd></div>`);
+  return `<dl class="fact-list">${rows.join("")}</dl>`;
+}
+
+function handoffSectionHtml(label, body, tag = null) {
+  const tagHtml = tag ? ` <span class="verify-tag verify-tag--${tag.kind}">${escapeHtml(tag.text)}</span>` : "";
+  return `<div class="handoff-card__section"><div class="label">${escapeHtml(label)}${tagHtml}</div>${body}</div>`;
+}
+
+function hasEntries(obj) {
+  return Boolean(obj) && Object.keys(obj).length > 0;
+}
+
+function handoffSections(handoff) {
+  const sections = [];
+  if (handoff.request_summary) sections.push(handoffSectionHtml(t("handoffRequest"), `<p>${escapeHtml(handoff.request_summary)}</p>`));
+  if (hasEntries(handoff.verified_facts)) {
+    sections.push(handoffSectionHtml(t("handoffFacts"), factListHtml(handoff.verified_facts), { kind: "record", text: t("handoffFactsTag") }));
+  }
+  if (hasEntries(handoff.customer_reported)) {
+    sections.push(handoffSectionHtml(t("handoffReported"), factListHtml(handoff.customer_reported), { kind: "unverified", text: t("handoffReportedTag") }));
+  }
+  // A handoff stored before verified and reported values had their own fields.
+  if (hasEntries(handoff.facts)) sections.push(handoffSectionHtml(t("handoffLegacyFacts"), factListHtml(handoff.facts)));
+  if (handoff.policy_reason_count) sections.push(handoffSectionHtml(t("handoffPolicy"), `<p>${escapeHtml(t("handoffPolicyCount", handoff.policy_reason_count))}</p>`));
+  if (handoff.actions_taken?.length) sections.push(handoffSectionHtml(t("handoffActions"), `<ul class="action-log">${listItemsHtml(handoff.actions_taken)}</ul>`));
+  if (handoff.evidence?.length) sections.push(handoffSectionHtml(t("handoffEvidence"), `<ul>${listItemsHtml(handoff.evidence)}</ul>`));
+  if (handoff.open_questions?.length) sections.push(handoffSectionHtml(t("handoffQuestions"), `<ul class="checklist">${listItemsHtml(handoff.open_questions)}</ul>`));
+  return sections.join("");
+}
+
 function renderHandoffCard() {
   const handoff = state.caseStatus ? state.caseStatus.handoff : null;
   if (!handoff) return "";
-
-  const factsRows = Object.entries(handoff.facts || {})
-    .map(([k, v]) => `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(String(v))}</td></tr>`)
-    .join("");
-
   return `
     <div class="handoff-card">
       <div class="handoff-card__header">${t("handoffTitle")}</div>
-      <div class="handoff-card__body">
-        <div class="handoff-card__section">
-          <div class="label">${t("handoffFacts")}</div>
-          <table class="fact-table"><tbody>${factsRows}</tbody></table>
-        </div>
-        <div class="handoff-card__section">
-          <div class="label">${t("handoffActions")}</div>
-          <ul class="action-log">${listItemsHtml(handoff.actions_taken)}</ul>
-        </div>
-        <div class="handoff-card__section">
-          <div class="label">${t("handoffEvidence")}</div>
-          <ul>${listItemsHtml(handoff.evidence)}</ul>
-        </div>
-        <div class="handoff-card__section">
-          <div class="label">${t("handoffQuestions")}</div>
-          <ul class="checklist">${listItemsHtml(handoff.open_questions)}</ul>
-        </div>
-      </div>
+      <div class="handoff-card__body">${handoffSections(handoff)}</div>
     </div>
   `;
 }

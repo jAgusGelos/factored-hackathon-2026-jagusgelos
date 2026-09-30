@@ -198,3 +198,63 @@ def test_the_timeline_states_are_spoken_not_only_drawn():
 def test_only_two_new_css_rules_for_the_escalation():
     assert re.search(r"^\.case-id \{[^}]*tabular-nums", APP_CSS, re.MULTILINE)
     assert re.search(r"^\.action-card__timeline \{", APP_CSS, re.MULTILINE)
+
+
+def _js_object_keys(lang: str, name: str) -> set[str]:
+    block = re.search(rf"^    {name}: \{{\n(.*?)^    \}},$", chat_js_language_block(CHAT_JS, lang), re.MULTILINE | re.DOTALL)
+    assert block, f"STRINGS.{lang}.{name} not found"
+    return set(re.findall(r"(\w+): \"", block.group(1)))
+
+
+def _handoff_field_keys() -> set[str]:
+    from tests.test_handoff_shape import PRODUCERS
+
+    keys: set[str] = set()
+    for build in PRODUCERS.values():
+        handoff = build()
+        keys |= set(handoff.verified_facts) | set(handoff.customer_reported)
+    return keys
+
+
+@pytest.mark.parametrize("lang", ["es", "pt"])
+def test_every_handoff_field_has_a_label_in_both_languages(lang):
+    legacy = {"reported_amount", "reported_date", "reported_merchant", "matched_transaction_id"}
+    assert _handoff_field_keys() | legacy <= _js_object_keys(lang, "handoffFields")
+
+
+@pytest.mark.parametrize("lang", ["es", "pt"])
+def test_coded_handoff_values_are_labelled_in_both_languages(lang):
+    from app.llm import ConfirmationAnswer
+    from app.policy import DisputeReason
+
+    codes = {str(v) for v in DisputeReason} | {str(v) for v in ConfirmationAnswer}
+    assert codes <= _js_object_keys(lang, "handoffValues")
+
+
+def test_the_internal_view_never_prints_a_raw_field_key():
+    render = CHAT_JS[CHAT_JS.index("function factListHtml"):CHAT_JS.index("function handoffSectionHtml")]
+    assert "factLabel(key)" in render and "escapeHtml(key)" not in render
+    assert "humanizeKey(key)" in CHAT_JS[CHAT_JS.index("function factLabel"):]
+
+
+def test_the_internal_view_sections_follow_the_design_order():
+    body = CHAT_JS[CHAT_JS.index("function handoffSections"):CHAT_JS.index("function renderHandoffCard")]
+    order = ["handoffRequest", "handoffFacts", "handoffReported", "handoffLegacyFacts", "handoffPolicy",
+             "handoffActions", "handoffEvidence", "handoffQuestions"]
+    positions = [body.index(f'"{key}"') for key in order]
+    assert positions == sorted(positions)
+    assert "policy_reasons" not in body
+
+
+def test_the_verification_tags_are_text_not_only_color():
+    for lang, record, unverified in (("es", "Del registro", "Sin verificar"), ("pt", "Do registro", "Não verificado")):
+        entries = _entries(lang)
+        assert record in entries["handoffFactsTag"] and unverified in entries["handoffReportedTag"]
+
+
+def test_the_internal_view_styles_use_only_existing_tokens():
+    root = re.search(r":root \{(.*?)\}", APP_CSS, re.DOTALL).group(1)
+    defined = set(re.findall(r"(--[\w-]+):", root))
+    rules = APP_CSS[APP_CSS.index(".fact-list {"):APP_CSS.index(".action-log {")]
+    assert set(re.findall(r"var\((--[\w-]+)\)", rules)) <= defined
+    assert not re.search(r"#[0-9a-fA-F]{3,6}\b|rgba?\(", rules)
