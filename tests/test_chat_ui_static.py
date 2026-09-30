@@ -15,7 +15,9 @@ from html.parser import HTMLParser
 
 import pytest
 
+from app import replies
 from app.case_model import CustomerAction
+from app.llm import Language
 from tests.support import STATIC, chat_js_language_block
 
 CHAT_JS = (STATIC / "js" / "chat.js").read_text(encoding="utf-8")
@@ -48,6 +50,13 @@ def _entries(lang: str) -> dict[str, str]:
 def test_every_new_string_exists_in_both_languages(lang):
     missing = [key for key in NEW_KEYS if key not in _entries(lang)]
     assert not missing
+
+
+@pytest.mark.parametrize("lang", ["es", "pt"])
+def test_the_human_offer_names_the_button_the_chat_shows(lang):
+    # `replies.HUMAN_OFFER` quotes the button by its label (plan.md AD-8).
+    label = re.search(r'quickHuman: "([^"]+)"', _entries(lang)["quickHuman"]).group(1)
+    assert f"«{label}»" in replies.HUMAN_OFFER[Language(lang)]
 
 
 def test_es_and_pt_define_the_same_keys():
