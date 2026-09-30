@@ -69,10 +69,16 @@ def test_pt_toggle_pick_from_list_resolves(real_fixture_app_db):
     captured: list[str] = []
     listed = _pt_turn(session, real_fixture_app_db, charge_extraction(), captured)
 
-    reply = _pt_turn(
+    picked = _pt_turn(
         session, real_fixture_app_db, charge_extraction(), captured, case_id=listed["case_id"],
         text="Uber", selected_transaction_id=AUTO_RESOLVE_CHARGE,
     )
+    assert picked["state"] == CaseState.AWAITING_EXPLANATION
+    reply = _pt_turn(
+        session, real_fixture_app_db, charge_extraction(), captured, case_id=listed["case_id"],
+        text="Não uso Uber há meses, estou com o cartão e vi a cobrança ontem no app do banco",
+    )
 
     assert reply["state"] == CaseState.RESOLVED_AUTO
+    assert "bloque" in reply["reply"].lower()
     _only_portuguese_prompts(captured)

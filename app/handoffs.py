@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from app import cases
 from app.case_model import CaseEvaluation, CaseState, HandoffRecord, ReportedCharge
-from app.policy import MATCH_DATE_TOLERANCE_DAYS, MAX_CASE_TURNS
+from app.policy import MATCH_DATE_TOLERANCE_DAYS, MAX_CASE_TURNS, ExplanationAssessment
 from app.transactions import TransactionCandidate
 
 CUSTOMER_MESSAGE_OMITTED = "[omitido, ver mensajes del caso]"
@@ -25,6 +25,8 @@ def _facts(report: ReportedCharge, **extra: str) -> dict[str, str]:
         facts["reported_date"] = report.date.isoformat()
     if report.merchant:
         facts["reported_merchant"] = report.merchant
+    if report.reason:
+        facts["dispute_reason"] = report.reason
     return {**facts, **extra}
 
 
@@ -81,6 +83,50 @@ def already_credited(report: ReportedCharge, matched: TransactionCandidate, cred
         f"El cargo ya tuvo un crédito provisional en el caso {credited_case_id}; no se acredita dos veces.",
         evidence=(matched.transaction_id,),
         open_questions=("El cliente vuelve a disputar un cargo ya acreditado: revisar el caso anterior.",),
+        matched=matched,
+    )
+
+
+ASSESSMENT_FAILED = (
+    "No se pudo evaluar la explicación: la respuesta del modelo no respetó el formato esperado. "
+    "Leer la explicación del cliente en los mensajes del caso."
+)
+
+
+def explanation_facts(assessment: ExplanationAssessment | None, *, too_short: bool = False) -> dict[str, str]:
+    if too_short:
+        return {"explanation_assessment": "explicación demasiado breve; no se evaluó con el modelo"}
+    if assessment is None:
+        return {"explanation_assessment": "no evaluable (respuesta del modelo inválida)"}
+    return {
+        "explanation_summary": f"{assessment.summary} (resumen del modelo)",
+        "explanation_specific": "sí" if assessment.specific else "no",
+        "explanation_consistent": "sí" if assessment.consistent else "no",
+    }
+
+
+def explanation_not_accepted(
+    report: ReportedCharge, matched: TransactionCandidate, why: str, assessment: ExplanationAssessment | None,
+    *, too_short: bool = False,
+) -> CaseEvaluation:
+    return _escalation(
+        _facts(
+            report, matched_transaction_id=matched.transaction_id,
+            **explanation_facts(assessment, too_short=too_short),
+        ),
+        "El cliente identificó el cargo y explicó qué pasó, pero la explicación no permite "
+        "resolverlo automáticamente.",
+        evidence=(matched.transaction_id,), open_questions=(why,), matched=matched,
+    )
+
+
+def credit_limit_reached(report: ReportedCharge, matched: TransactionCandidate) -> CaseEvaluation:
+    return _escalation(
+        _facts(report, matched_transaction_id=matched.transaction_id),
+        "El cargo cumplía la política, pero al acreditarlo se superaba el límite de créditos "
+        "automáticos del cliente (otro caso se acreditó al mismo tiempo).",
+        evidence=(matched.transaction_id,),
+        open_questions=("Revisar los créditos automáticos recientes del cliente antes de acreditar este.",),
         matched=matched,
     )
 

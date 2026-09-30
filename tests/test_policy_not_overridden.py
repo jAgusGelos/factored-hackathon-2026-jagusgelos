@@ -5,33 +5,29 @@ AD-11's other conditions (Task 3.4's mandatory adversarial test).
 
 from __future__ import annotations
 
+import itertools
 from datetime import date
 from unittest.mock import patch
 
 import duckdb
 import pytest
 
-from app.policy import ResolutionDecision, evaluate_resolution
-from app.transactions import TransactionCandidate
-
-
-def _clean_txn(**overrides) -> TransactionCandidate:
-    base = dict(
-        transaction_id="TRX-1", transaction_date=date(2024, 3, 9), amount=100.0, currency="USD",
-        amount_usd=100.0, fraud_score=5.0, transaction_status="Approved", merchant_name="Comercio",
-        merchant_category="Retail", channel="App", is_synthetic=False,
-    )
-    base.update(overrides)
-    return TransactionCandidate(**base)
+from app.policy import (
+    AUTO_RESOLVE_MAX_AMOUNT_USD,
+    AUTO_RESOLVE_MAX_FRAUD_SCORE,
+    AUTO_RESOLVE_REQUIRED_STATUS,
+    DisputeReason,
+    ResolutionDecision,
+    evaluate_resolution,
+)
+from tests.support import clean_ctx, clean_txn
 
 
 def test_adversarial_critical_prediction_forces_escalation_on_an_otherwise_clean_case():
-    """The core adversarial case: every OTHER AD-11 condition is satisfied
-    (would auto-resolve on its own), but the classifier predicts Critical.
+    """The core adversarial case: every OTHER condition is satisfied (would
+    auto-resolve on its own), but the classifier predicts Critical.
     """
-    evaluation = evaluate_resolution(
-        _clean_txn(), prior_disputes_in_window=0, classifier_priority="Critical"
-    )
+    evaluation = evaluate_resolution(clean_txn(), clean_ctx(classifier_priority="Critical"))
     assert evaluation.decision == ResolutionDecision.FORCED_ESCALATION
     assert any("Critical" in r for r in evaluation.reasons)
 
@@ -44,9 +40,7 @@ def test_non_critical_or_malformed_predictions_never_block_a_clean_auto_resolve(
     intentional: an unrecognized label is treated as "not the escalation
     trigger", never guessed at.
     """
-    evaluation = evaluate_resolution(
-        _clean_txn(), prior_disputes_in_window=0, classifier_priority=classifier_priority
-    )
+    evaluation = evaluate_resolution(clean_txn(), clean_ctx(classifier_priority=classifier_priority))
     assert evaluation.decision == ResolutionDecision.AUTO_RESOLVE
 
 
@@ -54,43 +48,40 @@ def test_classifier_can_never_flip_an_already_failing_case_back_to_auto_resolve(
     """The classifier is additive-only: even a non-Critical (or absent)
     prediction must not rescue a case that fails on its own merits.
     """
-    txn = _clean_txn(fraud_score=95.0)
-    evaluation = evaluate_resolution(txn, prior_disputes_in_window=0, classifier_priority="Low")
+    evaluation = evaluate_resolution(clean_txn(fraud_score=95.0), clean_ctx(classifier_priority="Low"))
     assert evaluation.decision == ResolutionDecision.FORCED_ESCALATION
 
 
-def test_evaluate_resolution_has_no_auto_resolve_code_path_reachable_from_a_critical_prediction():
-    """Static/structural guard, not just a behavioral sample: iterate the
-    full boolean domain of the other 4 gating conditions and confirm NONE
-    of the 16 combinations produce AUTO_RESOLVE when classifier_priority is
-    'Critical'. This is what makes the claim "structurally incapable",
-    not "happens to not have observed it happen".
+@pytest.mark.parametrize("reason", [None, *DisputeReason])
+def test_evaluate_resolution_has_no_auto_resolve_code_path_reachable_from_a_critical_prediction(reason):
+    """Static/structural guard, not just a behavioral sample: for EVERY
+    dispute reason (and none), iterate the full boolean domain of the other
+    gating conditions and confirm NONE of the combinations produce
+    AUTO_RESOLVE when classifier_priority is 'Critical'. This is what makes
+    the claim "structurally incapable", not "happens to not have observed it
+    happen".
     """
-    from app.policy import (
-        AUTO_RESOLVE_MAX_AMOUNT_USD,
-        AUTO_RESOLVE_MAX_FRAUD_SCORE,
-        AUTO_RESOLVE_REQUIRED_STATUS,
-    )
-
-    for amount_ok in (True, False):
-        for fraud_ok in (True, False):
-            for status_ok in (True, False):
-                for abuse_ok in (True, False):
-                    txn = _clean_txn(
-                        amount_usd=(AUTO_RESOLVE_MAX_AMOUNT_USD - 1) if amount_ok else (AUTO_RESOLVE_MAX_AMOUNT_USD + 1),
-                        fraud_score=(AUTO_RESOLVE_MAX_FRAUD_SCORE - 1) if fraud_ok else (AUTO_RESOLVE_MAX_FRAUD_SCORE + 1),
-                        transaction_status=AUTO_RESOLVE_REQUIRED_STATUS if status_ok else "Declined",
-                    )
-                    evaluation = evaluate_resolution(
-                        txn,
-                        prior_disputes_in_window=0 if abuse_ok else 10,
-                        classifier_priority="Critical",
-                    )
-                    assert evaluation.decision == ResolutionDecision.FORCED_ESCALATION, (
-                        f"amount_ok={amount_ok} fraud_ok={fraud_ok} status_ok={status_ok} "
-                        f"abuse_ok={abuse_ok}: classifier_priority='Critical' failed to force "
-                        "escalation"
-                    )
+    for amount_ok, fraud_ok, status_ok, abuse_ok, channel_ok, history_ok, twin_ok in itertools.product(
+        (True, False), repeat=7,
+    ):
+        txn = clean_txn(
+            amount_usd=(AUTO_RESOLVE_MAX_AMOUNT_USD - 1) if amount_ok else (AUTO_RESOLVE_MAX_AMOUNT_USD + 1),
+            fraud_score=(AUTO_RESOLVE_MAX_FRAUD_SCORE - 1) if fraud_ok else (AUTO_RESOLVE_MAX_FRAUD_SCORE + 1),
+            transaction_status=AUTO_RESOLVE_REQUIRED_STATUS if status_ok else "Declined",
+            channel="App" if channel_ok else "POS",
+        )
+        ctx = clean_ctx(
+            reason=reason, classifier_priority="Critical",
+            prior_disputes_in_window=0 if abuse_ok else 10,
+            other_charges_at_merchant=0 if history_ok else 3,
+            duplicate_twins=("TRX-0",) if twin_ok else (),
+        )
+        evaluation = evaluate_resolution(txn, ctx)
+        assert evaluation.decision == ResolutionDecision.FORCED_ESCALATION, (
+            f"reason={reason} amount_ok={amount_ok} fraud_ok={fraud_ok} status_ok={status_ok} "
+            f"abuse_ok={abuse_ok} channel_ok={channel_ok} history_ok={history_ok} twin_ok={twin_ok}: "
+            "classifier_priority='Critical' failed to force escalation"
+        )
 
 
 # --- End-to-end: the classifier's prediction actually reaches evaluate_resolution ---
@@ -109,7 +100,7 @@ def fixture_con(tmp_path, monkeypatch):
         "merchant_category VARCHAR, channel VARCHAR, _is_synthetic VARCHAR)"
     )
     con.execute(
-        "INSERT INTO transactions VALUES ('TRX-1', '2024-03-09', 'CLI-1', '100.0', 'USD', "
+        "INSERT INTO transactions VALUES ('TRX-1', '2026-06-09', 'CLI-1', '100.0', 'USD', "
         "'100.0', '5.0', 'Approved', 'Comercio', 'Retail', 'App', 'false')"
     )
     con.execute(
@@ -137,7 +128,7 @@ def test_end_to_end_evaluate_case_escalates_when_the_live_classifier_call_predic
 
     with patch("app.state_machine.classifier.predict_priority", return_value="Critical"):
         evaluation = evaluate_case(
-            SESSION, reported_amount=100.0, reported_date=date(2024, 3, 10),
+            SESSION, reported_amount=100.0, reported_date=date(2026, 6, 10),
             currency="USD",
         )
 
@@ -156,7 +147,7 @@ def test_end_to_end_evaluate_case_still_auto_resolves_when_classifier_is_unavail
 
     with patch("app.state_machine.classifier.predict_priority", return_value=None):
         evaluation = evaluate_case(
-            SESSION, reported_amount=100.0, reported_date=date(2024, 3, 10),
+            SESSION, reported_amount=100.0, reported_date=date(2026, 6, 10),
             currency="USD",
         )
 

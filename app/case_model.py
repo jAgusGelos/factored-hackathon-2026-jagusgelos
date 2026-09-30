@@ -1,7 +1,8 @@
 """The dispute case's vocabulary: states, customer actions, the policy
 verdict (`CaseEvaluation`), the structured handoff and what the customer has
-reported so far. Shared by `app/state_machine.py`, `app/handoffs.py` and
-`app/replies.py`, so none of them has to import the others.
+reported so far. Every conversation module, `app/handoffs.py` and
+`app/replies.py` share it, so `handoffs` and `replies` never import a
+conversation module.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from datetime import date
 from enum import StrEnum
 
 from app import cases
+from app.policy import DisputeReason
 from app.transactions import TransactionCandidate
 
 
@@ -19,6 +21,7 @@ class CaseState(StrEnum):
     CLARIFYING = "clarifying"
     SELECTING = "selecting"
     CONFIRMING = "confirming"
+    AWAITING_EXPLANATION = "awaiting_explanation"
     RESOLVED_AUTO = "resolved_auto"
     ESCALATED = "escalated"
 
@@ -66,6 +69,9 @@ class CaseEvaluation:
     candidates: tuple[TransactionCandidate, ...] = field(default_factory=tuple)
     resolution_reasons: tuple[str, ...] = field(default_factory=tuple)
     handoff: HandoffRecord | None = None
+    # The customer's other charges that make the matched one a verifiable
+    # duplicate (AD-13); they decide the credit key of a duplicate reversal.
+    duplicate_twins: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -79,6 +85,7 @@ class ReportedCharge:
     date: date | None
     currency: str
     merchant: str | None = None
+    reason: DisputeReason | None = None
 
     @classmethod
     def from_case(cls, case: cases.Case, default_currency: str) -> ReportedCharge:
@@ -87,6 +94,7 @@ class ReportedCharge:
             date=date.fromisoformat(case.reported_date) if case.reported_date else None,
             currency=case.reported_currency or default_currency,
             merchant=case.reported_merchant,
+            reason=DisputeReason(case.dispute_reason) if case.dispute_reason else None,
         )
 
     @property
@@ -103,4 +111,5 @@ class ReportedCharge:
             "reported_currency": self.currency,
             "reported_date": self.date.isoformat() if self.date is not None else None,
             "reported_merchant": self.merchant,
+            "dispute_reason": self.reason,
         }

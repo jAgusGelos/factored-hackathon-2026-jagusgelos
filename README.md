@@ -34,11 +34,18 @@ app/state_machine.py::evaluate_case() <- deterministic guard function
       |
       v
 confirming (AD-12) | selecting | escalated
-      |   confirming -> resolved_auto only on an explicit "yes" + policy re-check
+      |   confirming -> an explicit "yes" + policy screening -> awaiting_explanation
       |   selecting  -> the customer's OWN charges shown as cards (app/transactions.py::
       |                 list_own_charges); a tap is accepted only if that id was offered AND is
-      |                 theirs, then AD-11 decides resolve vs escalate; "No está en la lista"
+      |                 theirs, then screening decides explain vs escalate; "No está en la lista"
       |                 escalates with the list shown as evidence
+      |
+      v
+awaiting_explanation (Milestone 9)
+      |   the customer says what happened; app/llm.py::assess_explanation() only CLASSIFIES
+      |   it (reason, specific, consistent). The assessment can ask for one more detail or
+      |   escalate, never make a charge eligible: the evidence check for the reason it names
+      |   (app/policy.py, AD-13) decides resolved_auto vs escalated
       |
       v
 app/llm.py::generate_response()       <- LLM, NLG only, grounded in build_prompt_context()'s
@@ -50,6 +57,31 @@ prompt. The LLM never decides whether to auto-resolve or escalate — it only ex
 entities from free text and phrases the (code-decided) outcome in natural language. See
 `.workspace/features/dispute-agent/plan.md` (Architecture Decisions AD-1 through AD-11) for the
 full rationale, alternatives considered, and the three-experts/Codex adversarial review record.
+
+## Dispute policy: the evidence decides, not the claim (AD-13)
+
+An agent that credits money because a customer says "no lo reconozco" is a refund button. The
+policy in `app/policy.py` only credits what the data can back up, and every rule is enforced in
+code:
+
+| Customer's reason (from their explanation) | Automatic outcome |
+|---|---|
+| **Duplicate charge** | Reversed only if a verifiable twin exists: same merchant, exact amount, currency and type, at most 1 day apart. A pair is reversed once, whichever of its two charges the customer picks (unique `credit_key` index). |
+| **Unrecognized charge** | Provisional credit only for a card-not-present purchase (Web/App) at a merchant the customer has no other charge with, and at most 1 such credit per customer every 90 days. The card is blocked (simulated) and the credit is queued for back-office review, reversible if the charge turns out to be theirs. A chip/PIN purchase at a POS, an ATM withdrawal or a transfer goes to a fraud investigation. |
+| Not received, wrong amount, lost/stolen card, unclear | Never an automatic credit: a merchant chargeback, a partial amount or a multi-charge fraud review needs a person. |
+
+Screening applies to every reason before the customer is even asked to explain: status
+`Approved`, `fraud_score` < 30, at most USD 200, no older than 60 days, customer `Active`, fewer
+than 3 dataset disputes in 90 days, classifier not `Critical`, and the automatic credits this
+system granted the customer in the last 90 days plus this one within USD 200. The per-customer
+limits are checked again inside the same SQL `UPDATE` that grants the credit, so two chats running
+at the same time cannot both slip under them.
+
+The explanation step uses the LLM as a classifier, never as a judge of whether to pay: a vague
+answer gets one follow-up question, a contradiction or a person-only reason escalates, and an
+explanation that "sounds convincing" still has to pass the evidence check above. The eval
+harness's `policy_abuse` group runs every one of these abuse paths with the assessment model
+mocked as fully convinced (the worst case), and all of them escalate.
 
 ## Setup
 
@@ -112,9 +144,10 @@ dataset is in USD (there is no MXN transaction at all), a data finding in its ow
 
 | Scenario | How to trigger it | Outcome |
 |---|---|---|
-| Automated resolution (typed) | "No reconozco un cargo de 38.500 pesos del 14 de junio" | Confident match (Uber) -> the agent names merchant/amount/date and asks (`confirming`, with "Sí, es ese" / "No es ese" buttons) -> "yes" + policy re-check -> `resolved_auto`, simulated provisional credit + reference |
-| Automated resolution (picked) | "Se me perdió un monto, mostrame mis cargos" -> tap a small charge | The customer's own charges as cards (`selecting`); tapping one is the customer's explicit identification (the AD-12 confirmation) -> policy -> `resolved_auto` |
-| Ambiguous: duplicated charge | "Me cobraron dos veces un taxi de 27 mil" | Two matches (AD-11 Row 3) -> only those two cards are shown -> the customer picks one |
+| Automated resolution (typed) | "No reconozco un cargo de 38.500 pesos del 14 de junio", then explain ("no uso Uber hace meses, tengo la tarjeta conmigo") | Confident match (Uber) -> the agent names merchant/amount/date and asks (`confirming`, with "Sí, es ese" / "No es ese" buttons) -> "yes" -> `awaiting_explanation` -> the unrecognized-charge evidence check passes (online purchase, no other Uber charges) -> `resolved_auto`: provisional credit, card blocked (simulated), back-office review, reference |
+| Automated resolution (picked) | "Se me perdió un monto, mostrame mis cargos" -> tap Uber or Cine Premium, then explain | The customer's own charges as cards (`selecting`); tapping one is the customer's explicit identification (the AD-12 confirmation) -> explanation -> policy -> `resolved_auto`. A second unrecognized charge in the same 90 days goes to a person |
+| Ambiguous: duplicated charge | "Me cobraron dos veces un taxi de 27 mil" -> tap either taxi -> "tomé un solo taxi y me lo cobraron dos veces" | Two matches (AD-11 Row 3) -> only those two cards are shown -> the customer picks one -> the twin is verified in the data -> `resolved_auto`, one of the two reversed (no card block). Disputing the other one afterwards escalates |
+| Ineligible on the evidence | Tap Farmacia Salud / Super Ahorro / Gasolinera Express (POS), or say a taxi was "not recognized" | However convincing the explanation: card-present purchase, or an existing relationship with the merchant -> `escalated` with the policy reasons and the model's neutral summary in the handoff |
 | Ambiguous: not in the list | A list shown after a detail ("fue el 14 de junio") -> "No está en la lista" | `escalated` with the charges shown as evidence and an open question for the agent. With no detail yet, the agent asks for one instead of escalating |
 | Unsupported request | "¿Cuál es mi saldo?" | Declines and says what this channel does; no guess, no state change |
 | Human escalation (policy) | "No reconozco una compra en Tienda Online Global", or tap Boutique Moda / Tienda Don José | Fails AD-11 (fraud score 91 / ~610 USD / Pending) -> `escalated` with a structured handoff (facts, actions, evidence, open questions) |
@@ -145,23 +178,28 @@ structured intake-time features:
 Delta: **+0.0786 macro-F1**, reported honestly (a modest improvement, not inflated). The
 classifier is wired as decision support only — a `Critical` prediction can only ever *add* a
 reason to escalate; it structurally cannot cause an auto-resolution or override any other AD-11
-condition (proven by an exhaustive 16-combination test in `tests/test_policy_not_overridden.py`).
+condition (proven by an exhaustive sweep over every dispute reason and all 128 combinations of the
+other gating conditions in `tests/test_policy_not_overridden.py`).
 
 **Conversation/system eval** (`eval/run_eval.py`): ⚠️ **explicitly OFFLINE/SIMULATED**, not a
 measured-production result. The harness runs scripted multi-turn conversations against a
-deterministic mocked LLM client so every run is reproducible. 19 cases: 6 required scenarios
+deterministic mocked LLM client so every run is reproducible. 26 cases: 6 required scenarios
 (typed resolution, picked resolution, duplicated charge picked, not in list after details, policy
-escalation, human request after an unmatched detail) × 2 languages + 7 adversarial/failure-mode
+escalation, human request after an unmatched detail) × 2 languages, 7 adversarial/failure-mode
 fixtures (missing data, prompt injection, LLM outage, mixed-language input, a tampered tap on a
 charge that was not offered, re-disputing an already-credited charge, asking for a person before
-giving any detail). Each scenario runs against its own app database:
+giving any detail) and 7 `policy_abuse` cases (AD-13: card-present "unrecognized" charge, a
+merchant the customer already uses, a duplicate with no twin, a merchant dispute, an injection in
+the explanation, a second unrecognized credit in the window, the other half of an already-reversed
+duplicate pair), all with the assessment model mocked as convinced. Each scenario runs against its
+own app database:
 
-- **Unsafe outcomes: 0 / 19.**
-- Safe automated resolution rate: 0.32 (6/19; the mix is mostly escalation/adversarial by design).
-- Containment rate: 0.375 (6/16 concluded cases).
-- Pipeline latency (excludes real LLM network time): p50 0.17s, p95 0.34s.
-- Estimated cost (Haiku 4.5 list pricing, not measured billing): ~$0.0009/attempted case,
-  ~$0.0029/successful resolution.
+- **Unsafe outcomes: 0 / 26.**
+- Safe automated resolution rate: 0.23 (6/26; the mix is mostly escalation/adversarial by design).
+- Containment rate: 0.26 (6/23 concluded cases).
+- Pipeline latency (excludes real LLM network time): p50 0.21s, p95 0.40s.
+- Estimated cost (Haiku 4.5 list pricing, not measured billing): ~$0.0015/attempted case,
+  ~$0.0063/successful resolution.
 
 The real-model behavior is checked separately: the Playwright walkthrough and manual runs go
 through Claude Haiku 4.5 end to end, and bugs they surfaced (fenced JSON, a currency lost between

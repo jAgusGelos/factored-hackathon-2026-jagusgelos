@@ -14,6 +14,8 @@ silently.
   - app.transactions.get_customer_profile
   - app.transactions.get_case_history
   - app.transactions.count_prior_complaints
+  - app.transactions.count_own_charges_at_merchant
+  - app.transactions.find_own_duplicate_twins
 """
 
 from __future__ import annotations
@@ -27,9 +29,13 @@ import pytest
 from app import cases, db
 from app import transactions as txns_module
 from app.auth import Session
+from app.case_model import ReportedCharge
+from app.policy import DisputeReason
 from app.state_machine import CaseState, evaluate_case, handle_message
 from app.transactions import (
+    count_own_charges_at_merchant,
     count_prior_complaints,
+    find_own_duplicate_twins,
     get_case_history,
     get_customer_profile,
     get_own_transaction,
@@ -44,6 +50,8 @@ CUSTOMER_DATA_FUNCTIONS = (
     get_customer_profile,
     get_case_history,
     count_prior_complaints,
+    count_own_charges_at_merchant,
+    find_own_duplicate_twins,
 )
 
 
@@ -114,7 +122,7 @@ def fixture_con(tmp_path, monkeypatch):
 
 def _insert_txn(db_path, **fields):
     defaults = dict(
-        transaction_id="TRX-1", transaction_date="2024-03-09", customer_id="CLI-1",
+        transaction_id="TRX-1", transaction_date="2026-06-09", customer_id="CLI-1",
         amount="100.0", currency="USD", amount_usd="100.0", fraud_score="5.0",
         transaction_status="Approved", merchant_name="Comercio", merchant_category="Retail",
         channel="App", _is_synthetic="false", transaction_type="Purchase",
@@ -135,7 +143,7 @@ SESSION = Session(customer_id="CLI-1", expires_at=datetime.now(UTC) + timedelta(
 def test_confident_clean_match_resolves_auto(fixture_con):
     _insert_txn(fixture_con)
     evaluation = evaluate_case(
-        SESSION, reported_amount=100.0, reported_date=date(2024, 3, 10),
+        SESSION, reported_amount=100.0, reported_date=date(2026, 6, 10),
         currency="USD",
     )
     assert evaluation.state == CaseState.RESOLVED_AUTO
@@ -151,20 +159,20 @@ def test_count_prior_complaints_matches_the_training_feature_semantics(fixture_c
     con.execute(
         "INSERT INTO complaints VALUES "
         "('CMP-OLD-FEES', 'CLI-1', 'Fees', '2020-01-01'), "
-        "('CMP-TXN', 'CLI-1', 'Transactions', '2024-03-01'), "
-        "('CMP-SAME-DAY', 'CLI-1', 'Transactions', '2024-03-10'), "
-        "('CMP-OTHER', 'CLI-OTHER', 'Transactions', '2024-03-01')"
+        "('CMP-TXN', 'CLI-1', 'Transactions', '2026-06-01'), "
+        "('CMP-SAME-DAY', 'CLI-1', 'Transactions', '2026-06-10'), "
+        "('CMP-OTHER', 'CLI-OTHER', 'Transactions', '2026-06-01')"
     )
     con.close()
 
-    assert count_prior_complaints(SESSION, date(2024, 3, 10)) == 2
-    assert get_case_history(SESSION, "Transactions", date(2024, 3, 10), window_days=90) == 1
+    assert count_prior_complaints(SESSION, date(2026, 6, 10)) == 2
+    assert get_case_history(SESSION, "Transactions", date(2026, 6, 10), window_days=90) == 1
 
 
 def test_confident_match_over_threshold_escalates_with_handoff(fixture_con):
     _insert_txn(fixture_con, amount_usd="500.0")
     evaluation = evaluate_case(
-        SESSION, reported_amount=100.0, reported_date=date(2024, 3, 10),
+        SESSION, reported_amount=100.0, reported_date=date(2026, 6, 10),
         currency="USD",
     )
     assert evaluation.state == CaseState.ESCALATED
@@ -175,7 +183,7 @@ def test_confident_match_over_threshold_escalates_with_handoff(fixture_con):
 
 def test_zero_matches_asks_the_customer_to_pick(fixture_con):
     evaluation = evaluate_case(
-        SESSION, reported_amount=100.0, reported_date=date(2024, 3, 10),
+        SESSION, reported_amount=100.0, reported_date=date(2026, 6, 10),
         currency="USD",
     )
     assert evaluation.state == CaseState.SELECTING
@@ -187,16 +195,16 @@ def test_ambiguous_match_handoff_always_has_open_questions():
     from app.case_model import ReportedCharge
 
     for candidates in ((),):
-        evaluation = handoffs.ambiguous_match(ReportedCharge(100.0, date(2024, 3, 10), "USD"), candidates, 2)
+        evaluation = handoffs.ambiguous_match(ReportedCharge(100.0, date(2026, 6, 10), "USD"), candidates, 2)
         assert evaluation.state == CaseState.ESCALATED
         assert evaluation.handoff.open_questions
 
 
 def test_multiple_matches_goes_to_clarifying(fixture_con):
     _insert_txn(fixture_con, transaction_id="TRX-1")
-    _insert_txn(fixture_con, transaction_id="TRX-2", transaction_date="2024-03-11")
+    _insert_txn(fixture_con, transaction_id="TRX-2", transaction_date="2026-06-11")
     evaluation = evaluate_case(
-        SESSION, reported_amount=100.0, reported_date=date(2024, 3, 10),
+        SESSION, reported_amount=100.0, reported_date=date(2026, 6, 10),
         currency="USD",
     )
     assert evaluation.state == CaseState.SELECTING
@@ -206,7 +214,7 @@ def test_multiple_matches_goes_to_clarifying(fixture_con):
 def test_customer_requested_human_escalates_immediately_even_with_a_clean_match(fixture_con):
     _insert_txn(fixture_con)
     evaluation = evaluate_case(
-        SESSION, reported_amount=100.0, reported_date=date(2024, 3, 10),
+        SESSION, reported_amount=100.0, reported_date=date(2026, 6, 10),
         currency="USD", customer_requested_human=True,
     )
     assert evaluation.state == CaseState.ESCALATED
@@ -219,7 +227,7 @@ def test_escalated_case_never_has_empty_handoff_facts(fixture_con):
     """
     _insert_txn(fixture_con, amount_usd="500.0")
     evaluation = evaluate_case(
-        SESSION, reported_amount=100.0, reported_date=date(2024, 3, 10),
+        SESSION, reported_amount=100.0, reported_date=date(2026, 6, 10),
         currency="USD",
     )
     assert evaluation.state == CaseState.ESCALATED
@@ -262,7 +270,7 @@ def test_fixture_lookup_failure_forces_escalation_with_fallback_message(tmp_path
     monkeypatch.setattr(state_machine, "get_customer_profile", _broken_profile)
     app_db = tmp_path / "app.db"
     db.init_db(app_db)
-    extraction = {"amount": 100.0, "currency": None, "date": "2024-03-10", "merchant_hint": None,
+    extraction = {"amount": 100.0, "currency": None, "date": "2026-06-10", "merchant_hint": None,
                   "wants_human": False}
 
     with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(extraction)):
@@ -313,3 +321,14 @@ def test_terminal_case_reply_uses_the_current_turns_language_not_the_stored_one(
 
     assert "REF-TEST" in reply["reply"]
     assert "resolvido" in reply["reply"]  # Portuguese wording, not the Spanish "resuelto"
+
+
+@pytest.mark.parametrize("reason", list(DisputeReason))
+def test_a_stored_dispute_reason_reads_back_as_the_same_reason(tmp_path, reason):
+    app_db = tmp_path / "app.db"
+    db.init_db(app_db)
+    case = cases.create_case("CUST-1", "es", db_path=app_db)
+    assert cases.update_case(case.case_id, state=CaseState.SELECTING, dispute_reason=reason, db_path=app_db)
+
+    stored = cases.get_case(case.case_id, db_path=app_db)
+    assert ReportedCharge.from_case(stored, "USD").reason is reason

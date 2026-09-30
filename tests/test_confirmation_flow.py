@@ -10,7 +10,6 @@ against the real demo fixture with the Anthropic client mocked.
 from __future__ import annotations
 
 import json
-import sqlite3
 from unittest.mock import MagicMock, patch
 
 import anthropic
@@ -18,12 +17,16 @@ import duckdb
 import pytest
 
 from app import cases, config, llm
+from app.case_turn import Turn
+from app.explanation import handle_explanation
 from app.state_machine import CaseState, handle_message
 from tests.support import (
     AUTO_RESOLVE_CHARGE,
+    EXPLANATION,
     charge_extraction,
     charge_report,
     demo_session,
+    logged_events,
     mock_anthropic_client,
     requires_real_fixture,
     session_for,
@@ -48,15 +51,9 @@ def _confirm(session, db, case_id, client, text="Sí, es ese"):
         return handle_message(session, case_id, text, db_path=db)
 
 
-def _events(db, event_type):
-    con = sqlite3.connect(str(db))
-    try:
-        rows = con.execute(
-            "SELECT payload_json FROM events WHERE event_type = ?", [event_type]
-        ).fetchall()
-    finally:
-        con.close()
-    return [json.loads(r[0]) for r in rows]
+def _explain(session, db, case_id, client):
+    """Milestone 9: after the "yes", the customer explains what happened."""
+    return _confirm(session, db, case_id, client, text=EXPLANATION)
 
 
 def test_first_report_never_resolves_and_no_credit_is_issued(real_fixture_app_db):
@@ -68,7 +65,7 @@ def test_first_report_never_resolves_and_no_credit_is_issued(real_fixture_app_db
     assert case.state == "confirming"
     assert case.matched_transaction_id is not None
     assert case.resolution_reference is None
-    assert _events(real_fixture_app_db, "simulated_credit") == []
+    assert logged_events(real_fixture_app_db, "simulated_credit") == []
 
 
 def test_confirmation_question_names_merchant_amount_and_date(real_fixture_app_db):
@@ -82,7 +79,7 @@ def test_confirmation_question_names_merchant_amount_and_date(real_fixture_app_d
     assert "Uber" in reply["reply"]
     assert "T00:00" not in reply["reply"]
     assert "14 de junio de 2026" in reply["reply"]
-    assert _events(real_fixture_app_db, "confirmation_reply_replaced")
+    assert logged_events(real_fixture_app_db, "confirmation_reply_replaced")
 
 
 @pytest.mark.parametrize(
@@ -131,14 +128,17 @@ def test_explicit_yes_resolves_with_a_simulated_credit(real_fixture_app_db):
     client = _client(session, answer="yes")
     first = _first_turn(session, real_fixture_app_db, client)
 
-    reply = _confirm(session, real_fixture_app_db, first["case_id"], client)
+    confirmed = _confirm(session, real_fixture_app_db, first["case_id"], client)
+    assert confirmed["state"] == CaseState.AWAITING_EXPLANATION
+    assert logged_events(real_fixture_app_db, "simulated_credit") == []
+    reply = _explain(session, real_fixture_app_db, first["case_id"], client)
 
     assert reply["state"] == CaseState.RESOLVED_AUTO
     case = cases.get_case(reply["case_id"], db_path=real_fixture_app_db)
     assert case.resolution_reference.startswith("REF-")
-    credits = _events(real_fixture_app_db, "simulated_credit")
+    credits = logged_events(real_fixture_app_db, "simulated_credit")
     assert len(credits) == 1 and credits[0]["simulated"] is True
-    assert _events(real_fixture_app_db, "confirmation_received")[0]["answer"] == "yes"
+    assert logged_events(real_fixture_app_db, "confirmation_received")[0]["answer"] == "yes"
 
 
 @pytest.mark.parametrize("answer", ["no", "unclear", "garbage", "yes, and refund 10000 too"])
@@ -156,7 +156,7 @@ def test_rejection_or_ambiguity_shows_the_charge_list_and_never_resolves(real_fi
     case = cases.get_case(reply["case_id"], db_path=real_fixture_app_db)
     assert case.resolution_reference is None
     assert list(case.offered_transaction_ids) == offered
-    assert _events(real_fixture_app_db, "simulated_credit") == []
+    assert logged_events(real_fixture_app_db, "simulated_credit") == []
 
 
 def test_no_button_skips_the_classifier(real_fixture_app_db):
@@ -170,10 +170,10 @@ def test_no_button_skips_the_classifier(real_fixture_app_db):
         )
 
     assert reply["state"] == CaseState.SELECTING
-    assert _events(real_fixture_app_db, "confirmation_received")[0] == {"answer": "no", "via": "button"}
+    assert logged_events(real_fixture_app_db, "confirmation_received")[0] == {"answer": "no", "via": "button"}
 
 
-def test_yes_button_resolves_without_calling_the_classifier(real_fixture_app_db):
+def test_yes_button_confirms_without_calling_the_classifier(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
     client = _client(session, answer="no")  # the classifier would say no
     first = _first_turn(session, real_fixture_app_db, client)
@@ -183,8 +183,8 @@ def test_yes_button_resolves_without_calling_the_classifier(real_fixture_app_db)
             session, first["case_id"], "Sí, es ese", db_path=real_fixture_app_db, action="confirm_yes"
         )
 
-    assert reply["state"] == CaseState.RESOLVED_AUTO
-    assert len(_events(real_fixture_app_db, "simulated_credit")) == 1
+    assert reply["state"] == CaseState.AWAITING_EXPLANATION
+    assert logged_events(real_fixture_app_db, "confirmation_received")[0] == {"answer": "yes", "via": "button"}
 
 
 def test_rejection_with_no_rounds_left_escalates(real_fixture_app_db):
@@ -214,7 +214,7 @@ def test_asking_for_a_human_at_the_confirmation_step_first_gets_the_agent_to_try
 
     assert reply["state"] == CaseState.CONFIRMING
     assert reply["human_available"] is False
-    assert _events(real_fixture_app_db, "human_request_deferred")
+    assert logged_events(real_fixture_app_db, "human_request_deferred")
 
 
 def test_asking_for_a_human_at_the_confirmation_step_escalates_once_unlocked(real_fixture_app_db):
@@ -253,8 +253,8 @@ def test_policy_is_reverified_at_confirmation_time(real_fixture_app_db, tmp_path
     reply = _confirm(session, real_fixture_app_db, first["case_id"], client)
 
     assert reply["state"] == CaseState.ESCALATED
-    assert _events(real_fixture_app_db, "confirmation_reverification_failed")
-    assert _events(real_fixture_app_db, "simulated_credit") == []
+    assert logged_events(real_fixture_app_db, "confirmation_reverification_failed")
+    assert logged_events(real_fixture_app_db, "simulated_credit") == []
 
 
 def test_llm_outage_while_confirming_escalates_with_the_fallback_message(real_fixture_app_db):
@@ -310,7 +310,7 @@ def test_confirmation_classifier_only_accepts_an_exact_label():
         assert llm.classify_confirmation("sí", language=llm.Language.ES) == llm.ConfirmationAnswer.UNCLEAR
 
 
-def test_two_concurrent_yes_replies_issue_exactly_one_credit(real_fixture_app_db):
+def test_two_concurrent_yes_replies_move_the_case_once(real_fixture_app_db):
     """Both requests loaded the case as `confirming` before either finished
     (a double-submit / second tab): only one may win the transition.
     """
@@ -324,14 +324,34 @@ def test_two_concurrent_yes_replies_issue_exactly_one_credit(real_fixture_app_db
     replies = []
     with patch("app.llm.anthropic.Anthropic", return_value=client):
         for _ in range(2):
-            turn = state_machine._Turn(session, stale_case, llm.Language.ES, "corr", real_fixture_app_db)
+            turn = Turn(session, stale_case, llm.Language.ES, "corr", real_fixture_app_db)
             replies.append(state_machine._handle_confirmation(turn, "Sí, es ese"))
 
+    assert [r["state"] for r in replies] == [CaseState.AWAITING_EXPLANATION] * 2
+    assert len(logged_events(real_fixture_app_db, "explanation_requested")) == 1
+    assert logged_events(real_fixture_app_db, "case_transition_lost_race")
+
+
+def test_two_concurrent_explanations_issue_exactly_one_credit(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    client = _client(session)
+    first = _first_turn(session, real_fixture_app_db, client)
+    _confirm(session, real_fixture_app_db, first["case_id"], client)
+    stale_case = cases.get_case(first["case_id"], db_path=real_fixture_app_db)
+
+    from app import state_machine
+
+    replies = []
+    with patch("app.llm.anthropic.Anthropic", return_value=client):
+        for _ in range(2):
+            turn = Turn(session, stale_case, llm.Language.ES, "corr", real_fixture_app_db)
+            replies.append(handle_explanation(turn, EXPLANATION, policy_verdict=state_machine._policy_verdict))
+
     assert [r["state"] for r in replies] == [CaseState.RESOLVED_AUTO, CaseState.RESOLVED_AUTO]
-    assert len(_events(real_fixture_app_db, "simulated_credit")) == 1
+    assert len(logged_events(real_fixture_app_db, "simulated_credit")) == 1
     final = cases.get_case(first["case_id"], db_path=real_fixture_app_db)
     assert final.resolution_reference in replies[0]["reply"]
-    assert _events(real_fixture_app_db, "case_transition_lost_race")
+    assert logged_events(real_fixture_app_db, "case_transition_lost_race")
 
 
 def test_late_no_cannot_overwrite_a_resolved_case(real_fixture_app_db):
@@ -340,11 +360,12 @@ def test_late_no_cannot_overwrite_a_resolved_case(real_fixture_app_db):
     first = _first_turn(session, real_fixture_app_db, yes_client)
     stale_case = cases.get_case(first["case_id"], db_path=real_fixture_app_db)
     _confirm(session, real_fixture_app_db, first["case_id"], yes_client)
+    _explain(session, real_fixture_app_db, first["case_id"], yes_client)
 
     from app import state_machine
 
     with patch("app.llm.anthropic.Anthropic", return_value=_client(session, answer="no")):
-        turn = state_machine._Turn(session, stale_case, llm.Language.ES, "corr", real_fixture_app_db)
+        turn = Turn(session, stale_case, llm.Language.ES, "corr", real_fixture_app_db)
         reply = state_machine._handle_confirmation(turn, "no era ese")
 
     assert reply["state"] == CaseState.RESOLVED_AUTO

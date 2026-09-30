@@ -1,7 +1,9 @@
 """Customer-facing copy (Spanish and Portuguese) and how amounts/dates are
 written in it. These are the deterministic texts: the welcome message the chat
 opens with (served to the frontend by `/api/me`), and every fallback used when
-the LLM is unavailable or its reply fails a check in `app/state_machine.py`.
+the LLM is unavailable or its reply fails a check in a conversation step
+(`app/state_machine.py`, `app/explanation.py`, `app/credit.py`,
+`app/case_turn.py`).
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ from datetime import date
 from app.case_model import CaseState
 from app.charge_search import ListFilter, iso_day, txn_day
 from app.llm import Language
+from app.policy import DisputeReason
 from app.transactions import TransactionCandidate
 
 WELCOME = {
@@ -96,6 +99,41 @@ HUMAN_DEFERRED_WHILE_CONFIRMING = {
     ),
 }
 
+ASK_FOR_EXPLANATION = {
+    Language.ES: (
+        "Ya ubiqué el cargo: {charge}. Contame con tus palabras qué pasó: cómo te diste cuenta, si "
+        "reconocés el comercio, si tenés la tarjeta, si pagaste algo y no lo recibiste. Con eso "
+        "decido si puedo reintegrarlo ahora."
+    ),
+    Language.PT: (
+        "Já localizei a cobrança: {charge}. Me conte com suas palavras o que aconteceu: como você "
+        "percebeu, se reconhece o comerciante, se está com o cartão, se pagou algo e não recebeu. "
+        "Com isso decido se posso reembolsar agora."
+    ),
+}
+
+EXPLANATION_FOLLOWUP = {
+    Language.ES: (
+        "Gracias. Para poder decidir necesito un detalle más concreto: por ejemplo cómo te diste "
+        "cuenta del cargo, si tenés la tarjeta con vos o si recibiste lo que pagaste."
+    ),
+    Language.PT: (
+        "Obrigado. Para decidir preciso de um detalhe mais concreto: por exemplo como você percebeu "
+        "a cobrança, se está com o cartão ou se recebeu o que pagou."
+    ),
+}
+
+HUMAN_DEFERRED_WHILE_EXPLAINING = {
+    Language.ES: (
+        "Antes de pasarte con una persona dejame intentar resolverlo, que es más rápido: contame "
+        "qué pasó con ese cargo y lo reviso ahora mismo."
+    ),
+    Language.PT: (
+        "Antes de passar para uma pessoa, deixa eu tentar resolver, que é mais rápido: me conte o "
+        "que aconteceu com essa cobrança e eu reviso agora mesmo."
+    ),
+}
+
 ASK_FOR_ONE_DETAIL = {
     Language.ES: "Contame un dato más del cargo (monto aproximado, fecha o comercio) y lo busco.",
     Language.PT: "Me conte mais um dado da cobrança (valor aproximado, data ou comerciante) e eu procuro.",
@@ -118,14 +156,28 @@ ESCALATED = {
 }
 
 _RESOLVED = {
-    Language.ES: (
-        "Listo, tu caso quedó resuelto: se aplicó un crédito provisional por ese cargo. Tu número "
-        "de referencia es {reference}."
-    ),
-    Language.PT: (
-        "Pronto, seu caso foi resolvido: um crédito provisório foi aplicado por essa cobrança. Seu "
-        "número de referência é {reference}."
-    ),
+    Language.ES: {
+        DisputeReason.UNRECOGNIZED: (
+            "Listo: te aplicamos un crédito provisional por ese cargo. Por seguridad bloqueamos tu "
+            "tarjeta. El equipo revisa el caso y, si el cargo resultara tuyo, el crédito se revierte. "
+            "Tu número de referencia es {reference}."
+        ),
+        DisputeReason.DUPLICATE: (
+            "Listo: confirmamos que el cargo estaba duplicado y te devolvimos uno de los dos. Tu "
+            "número de referencia es {reference}."
+        ),
+    },
+    Language.PT: {
+        DisputeReason.UNRECOGNIZED: (
+            "Pronto: aplicamos um crédito provisório por essa cobrança. Por segurança bloqueamos seu "
+            "cartão. A equipe analisa o caso e, se a cobrança for sua, o crédito é revertido. Seu "
+            "número de referência é {reference}."
+        ),
+        DisputeReason.DUPLICATE: (
+            "Pronto: confirmamos que a cobrança estava duplicada e devolvemos uma das duas. Seu "
+            "número de referência é {reference}."
+        ),
+    },
 }
 
 _CONFIRMATION_QUESTION = {
@@ -174,14 +226,47 @@ def format_day(day: date, language: Language) -> str:
     return f"{day.day} de {_MONTHS[language][day.month - 1]} de {day.year}"
 
 
-def resolved(reference: str, language: Language) -> str:
-    return _RESOLVED[language].format(reference=reference)
+def resolved(reference: str, reason: DisputeReason, language: Language) -> str:
+    return _RESOLVED[language][reason].format(reference=reference)
+
+
+# What a resolution message must tell the customer, per reason: each entry is
+# one fact, satisfied by any of its word stems (lowercase).
+_REQUIRED_DISCLOSURES = {
+    Language.ES: {
+        DisputeReason.UNRECOGNIZED: (("provisional",), ("bloque",), ("revier", "revert")),
+        DisputeReason.DUPLICATE: (("duplicad",), ("uno de los dos", "devolvimos", "reintegr")),
+    },
+    Language.PT: {
+        DisputeReason.UNRECOGNIZED: (("provisóri", "provisori"), ("bloque",), ("revert",)),
+        DisputeReason.DUPLICATE: (("duplicad",), ("uma das duas", "devolvemos", "reembols")),
+    },
+}
+
+
+def states_required_disclosures(reply: str, reason: DisputeReason, language: Language) -> bool:
+    """Whether a model-written resolution tells the customer everything the
+    policy requires: for an unrecognized charge that the credit is provisional,
+    the card is blocked and the credit is reversed if the charge was theirs;
+    for a duplicate, that it was duplicated and one charge was returned.
+    """
+    text = reply.lower()
+    return all(any(stem in text for stem in fact) for fact in _REQUIRED_DISCLOSURES[language][reason])
 
 
 def terminal_case(state: CaseState, reference: str | None, language: Language) -> str:
     # The CURRENT request's language, not the case's: the customer may have
     # switched the ES/PT toggle after the case closed.
     return _TERMINAL[language][state].format(reference=reference)
+
+
+def charge_summary(matched: TransactionCandidate, language: Language) -> str:
+    merchant = matched.merchant_name or _UNKNOWN_MERCHANT[language]
+    return f"{merchant}, {format_amount(matched.amount, matched.currency)}, {format_day(txn_day(matched), language)}"
+
+
+def ask_for_explanation(matched: TransactionCandidate, language: Language) -> str:
+    return ASK_FOR_EXPLANATION[language].format(charge=charge_summary(matched, language))
 
 
 def confirmation_question(matched: TransactionCandidate, language: Language) -> str:
@@ -193,8 +278,8 @@ def confirmation_question(matched: TransactionCandidate, language: Language) -> 
 
 
 def names_the_facts(reply: str, matched: TransactionCandidate, language: Language) -> bool:
-    """Whether a model-written confirmation question shows the customer the
-    merchant, the exact amount and the date of the charge. Cents may be
+    """Whether a model-written confirmation question (or explanation request)
+    shows the customer the merchant, the exact amount and the date of the charge. Cents may be
     omitted only when they are zero ("38.500" for 38500.00), and the date may
     be written with the month name.
     """
