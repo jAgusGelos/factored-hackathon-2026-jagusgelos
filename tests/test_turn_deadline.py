@@ -23,6 +23,7 @@ from tests.support import (
     AUTO_RESOLVE_CHARGE,
     charge_extraction,
     demo_session,
+    logged_events,
     mock_anthropic_client,
     requires_real_fixture,
 )
@@ -105,7 +106,7 @@ def test_calls_of_one_turn_share_the_budget(clock):
 def test_a_used_up_budget_raises_without_calling_the_model(clock, caplog):
     client = _answering("ok")
     with patch("app.llm.anthropic.Anthropic", return_value=client):
-        with llm.turn_deadline(), pytest.raises(llm.LLMUnavailable):
+        with llm.turn_deadline(), pytest.raises(llm.LLMDeadlineExceeded):
             clock.now += config.TURN_DEADLINE_SECONDS
             llm.call_llm("hola")
     client.messages.create.assert_not_called()
@@ -162,3 +163,29 @@ def test_handle_message_runs_each_turn_inside_its_own_budget(real_fixture_app_db
         handle_message(session, None, "Tengo un cargo que no reconozco", db_path=real_fixture_app_db)
     assert budgets and all(b is not None and 0 < b <= config.TURN_DEADLINE_SECONDS for b in budgets)
     assert llm._remaining_budget() is None
+
+
+@requires_real_fixture
+@pytest.mark.parametrize(
+    ("error", "payload"),
+    [
+        (llm.LLMDeadlineExceeded("budget used up"), {"call": "extract_entities", "cause": "deadline"}),
+        (llm.LLMUnavailable("down"), {"call": "extract_entities"}),
+    ],
+)
+def test_a_call_stopped_by_the_deadline_is_logged_with_its_cause(real_fixture_app_db, error, payload):
+    session = demo_session(real_fixture_app_db)
+    with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(charge_extraction())), \
+            patch("app.llm.extract_entities", side_effect=error):
+        reply = handle_message(session, None, "Tengo un cargo que no reconozco", db_path=real_fixture_app_db)
+    assert reply["reply"] == llm.DETERMINISTIC_FALLBACK_MESSAGE[llm.Language.ES]
+    assert logged_events(real_fixture_app_db, "llm_unavailable") == [payload]
+
+
+@requires_real_fixture
+def test_a_reply_that_falls_back_on_the_deadline_is_logged_with_its_cause(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(charge_extraction())), \
+            patch("app.llm.generate_response", side_effect=llm.LLMDeadlineExceeded("budget used up")):
+        handle_message(session, None, "no sé el monto", db_path=real_fixture_app_db)
+    assert {"call": "generate_response", "cause": "deadline"} in logged_events(real_fixture_app_db, "llm_unavailable")

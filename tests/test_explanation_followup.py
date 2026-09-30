@@ -42,6 +42,16 @@ def _assessment_json(**overrides) -> str:
     return json.dumps({**CONVINCING_ASSESSMENT, **overrides})
 
 
+def _say(session, app_db, text, case_id=None, *, assessment, captured_prompts=None, nlg_down=False, **kwargs):
+    """One turn with the mocked model reading any explanation as `assessment`;
+    `nlg_down` makes the reply generation fail so the fallback is used.
+    """
+    client = mock_anthropic_client(charge_extraction(), assessment=assessment, captured_prompts=captured_prompts)
+    nlg = patch("app.llm.generate_response", side_effect=llm.LLMUnavailable("down")) if nlg_down else nullcontext()
+    with patch("app.llm.anthropic.Anthropic", return_value=client), nlg:
+        return handle_message(session, case_id, text, db_path=app_db, **kwargs)
+
+
 # -- The assessment contract -----------------------------------------------------
 
 
@@ -144,17 +154,14 @@ def test_the_follow_up_prompt_gets_the_missing_detail_and_never_the_customers_wo
     explanation = "no uso Uber, tengo la tarjeta conmigo guardada"
     prompts: list[str] = []
 
-    def say(text, case_id=None, **kwargs):
-        client = mock_anthropic_client(charge_extraction(), assessment=vague, captured_prompts=prompts)
-        with patch("app.llm.anthropic.Anthropic", return_value=client):
-            return handle_message(session, case_id, text, db_path=real_fixture_app_db, **kwargs)
-
-    listed = say("no sé el monto")
-    picked = say("cargo", case_id=listed["case_id"], selected_transaction_id=AUTO_RESOLVE_CHARGE)
+    turn = {"assessment": vague, "captured_prompts": prompts}
+    listed = _say(session, real_fixture_app_db, "no sé el monto", **turn)
+    picked = _say(session, real_fixture_app_db, "cargo", listed["case_id"],
+                  selected_transaction_id=AUTO_RESOLVE_CHARGE, **turn)
     assert picked["state"] == CaseState.AWAITING_EXPLANATION
     prompts.clear()
 
-    reply = say(explanation, case_id=picked["case_id"])
+    reply = _say(session, real_fixture_app_db, explanation, picked["case_id"], **turn)
 
     assert reply["state"] == CaseState.AWAITING_EXPLANATION
     followup_prompt = next(p for p in prompts if "case_state: explanation_followup" in p)
@@ -167,18 +174,11 @@ def test_with_the_model_down_the_follow_up_asks_for_the_missing_detail(real_fixt
     session = demo_session(real_fixture_app_db)
     vague = {**CONVINCING_ASSESSMENT, "specific": False, "missing_detail": "merchant_known"}
 
-    def say(text, case_id=None, nlg_down=False, **kwargs):
-        client = mock_anthropic_client(charge_extraction(), assessment=vague)
-        nlg = (
-            patch("app.llm.generate_response", side_effect=llm.LLMUnavailable("down"))
-            if nlg_down else nullcontext()
-        )
-        with patch("app.llm.anthropic.Anthropic", return_value=client), nlg:
-            return handle_message(session, case_id, text, db_path=real_fixture_app_db, **kwargs)
-
-    listed = say("no sé el monto")
-    picked = say("cargo", case_id=listed["case_id"], selected_transaction_id=AUTO_RESOLVE_CHARGE)
-    reply = say("tengo la tarjeta y no fui yo quien compró", case_id=picked["case_id"], nlg_down=True)
+    listed = _say(session, real_fixture_app_db, "no sé el monto", assessment=vague)
+    picked = _say(session, real_fixture_app_db, "cargo", listed["case_id"], assessment=vague,
+                  selected_transaction_id=AUTO_RESOLVE_CHARGE)
+    reply = _say(session, real_fixture_app_db, "tengo la tarjeta y no fui yo quien compró", picked["case_id"],
+                 assessment=vague, nlg_down=True)
 
     assert reply["reply"] == replies.explanation_followup(MissingDetail.MERCHANT_KNOWN, Language.ES)
 

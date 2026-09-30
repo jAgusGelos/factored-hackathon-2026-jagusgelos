@@ -461,10 +461,10 @@ def _handle_confirmation(turn: Turn, text: str, action: CustomerAction | None = 
     case = turn.case
     try:
         answer = _confirmation_answer(turn, text, action)
-    except llm.LLMUnavailable:
+    except llm.LLMUnavailable as exc:
         return force_escalation(
             turn, event_type="llm_unavailable", failed_call="classify_confirmation",
-            action_taken="El servicio de NLU no respondió al pedir la confirmación del cliente.",
+            action_taken="El servicio de NLU no respondió al pedir la confirmación del cliente.", error=exc,
         )
     turn.log_event("confirmation_received", {"answer": str(answer), "via": "button" if action else "text"})
     report = turn.report
@@ -749,10 +749,10 @@ def _handle_report(turn: Turn, text: str) -> ChatReply:
     """
     try:
         extraction = llm.extract_entities(text, language=turn.language, today=config.DATA_AS_OF)
-    except llm.LLMUnavailable:
+    except llm.LLMUnavailable as exc:
         return force_escalation(
             turn, event_type="llm_unavailable", failed_call="extract_entities",
-            action_taken="El servicio de NLU no respondió tras agotar los reintentos.",
+            action_taken="El servicio de NLU no respondió tras agotar los reintentos.", error=exc,
         )
     if extraction.parse_failed:
         turn.log_event("extraction_parse_failed", {"call": "extract_entities"})

@@ -73,8 +73,8 @@ class Turn:
     def generate_reply(self, context: llm.PromptContext, *, fallback: str) -> str:
         try:
             return llm.generate_response(context, language=self.language)
-        except llm.LLMUnavailable:
-            self.log_event("llm_unavailable", {"call": "generate_response"})
+        except llm.LLMUnavailable as exc:
+            self.log_event("llm_unavailable", llm.failure_payload("generate_response", exc))
             return fallback
 
 
@@ -128,8 +128,13 @@ def current_options(turn: Turn) -> list[ChargeOption]:
     return [charge_option(c) for c in offered_charges(turn.session, turn.case.offered_transaction_ids)]
 
 
-def force_escalation(turn: Turn, *, event_type: str, failed_call: str, action_taken: str) -> ChatReply:
-    turn.log_event(event_type, {"call": failed_call})
+def force_escalation(
+    turn: Turn, *, event_type: str, failed_call: str, action_taken: str, error: llm.LLMUnavailable | None = None,
+) -> ChatReply:
+    """`error`: the model failure that forced it, if any; one stopped by the
+    turn's deadline is logged with `"cause": "deadline"`.
+    """
+    turn.log_event(event_type, llm.failure_payload(failed_call, error) if error else {"call": failed_call})
     handoff = handoffs.service_failure(action_taken).to_dict()
     lost = transition(turn, CaseState.ESCALATED, handoff=handoff)
     if lost:

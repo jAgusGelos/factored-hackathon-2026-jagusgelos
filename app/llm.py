@@ -74,6 +74,22 @@ class LLMUnavailable(Exception):
     """
 
 
+class LLMDeadlineExceeded(LLMUnavailable):
+    """The chat turn's shared model budget (`turn_deadline()`) is used up, so
+    the call was not (or no longer) attempted.
+    """
+
+
+def failure_payload(call: str, exc: LLMUnavailable) -> dict[str, str]:
+    """The `llm_unavailable` event payload for a failed call, naming the turn's
+    deadline as the cause when that is what stopped it.
+    """
+    payload = {"call": call}
+    if isinstance(exc, LLMDeadlineExceeded):
+        payload["cause"] = "deadline"
+    return payload
+
+
 DETERMINISTIC_FALLBACK_MESSAGE = {
     Language.ES: (
         "Estamos teniendo dificultades técnicas para procesar tu solicitud en este "
@@ -149,18 +165,21 @@ def _remaining_budget() -> float | None:
     return None if deadline is None else deadline - time.monotonic()
 
 
-def _budget_after(wait: float, last_exc: Exception | None) -> float | None:
-    """Seconds of the turn's budget left once `wait` has passed; None outside a
-    turn. Raises `LLMUnavailable` when that would leave less than
-    `config.LLM_MIN_ATTEMPT_SECONDS` for the next attempt.
+def _require_budget(wait: float, last_exc: Exception | None) -> None:
+    """Raises `LLMDeadlineExceeded` when, once `wait` has passed, less than
+    `config.LLM_MIN_ATTEMPT_SECONDS` of the turn's budget would be left for
+    the next attempt. No-op outside a turn.
     """
     remaining = _remaining_budget()
-    if remaining is None:
-        return None
-    if remaining - wait < config.LLM_MIN_ATTEMPT_SECONDS:
+    if remaining is not None and remaining - wait < config.LLM_MIN_ATTEMPT_SECONDS:
         logger.error("llm_deadline_exceeded: the turn's model budget is used up (last error: %s)", last_exc)
-        raise LLMUnavailable("LLM call skipped: the turn's model budget is used up") from last_exc
-    return remaining - wait
+        raise LLMDeadlineExceeded("LLM call skipped: the turn's model budget is used up") from last_exc
+
+
+def _attempt_timeout() -> float:
+    """The per-attempt timeout, capped to what is left of the turn's budget."""
+    remaining = _remaining_budget()
+    return config.LLM_TIMEOUT_SECONDS if remaining is None else min(config.LLM_TIMEOUT_SECONDS, remaining)
 
 
 def call_llm(prompt: str, *, system: str | None = None, max_tokens: int | None = None) -> str:
@@ -171,7 +190,8 @@ def call_llm(prompt: str, *, system: str | None = None, max_tokens: int | None =
     are off (`max_retries=0`), so this loop is the whole retry budget. Inside
     a chat turn (`turn_deadline()`), each attempt's timeout is also capped to
     what is left of the turn's budget, a backoff that does not fit is not
-    slept, and a used-up budget raises `LLMUnavailable` at once. Raises
+    slept, and a used-up budget raises `LLMDeadlineExceeded` (an
+    `LLMUnavailable`) at once. Raises
     `LLMUnavailable` if every attempt fails — never returns a
     hallucinated/partial answer.
 
@@ -197,11 +217,11 @@ def call_llm(prompt: str, *, system: str | None = None, max_tokens: int | None =
 
     for attempt, delay in enumerate([0.0, *config.LLM_RETRY_BACKOFF_SECONDS], start=1):
         if delay:
-            _budget_after(delay, last_exc)
+            _require_budget(delay, last_exc)
             logger.warning("LLM call attempt %d failed, retrying in %.1fs", attempt - 1, delay)
             time.sleep(delay)
-        remaining = _budget_after(0.0, last_exc)
-        timeout = config.LLM_TIMEOUT_SECONDS if remaining is None else min(config.LLM_TIMEOUT_SECONDS, remaining)
+        _require_budget(0.0, last_exc)
+        timeout = _attempt_timeout()
         try:
             response = client.messages.create(
                 model=config.ANTHROPIC_MODEL,

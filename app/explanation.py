@@ -121,10 +121,10 @@ def handle_explanation(turn: Turn, text: str, *, policy_verdict: PolicyVerdict) 
     too_short = _too_short(explanation)
     try:
         assessment = _assess(turn, explanation, matched)
-    except llm.LLMUnavailable:
+    except llm.LLMUnavailable as exc:
         return force_escalation(
             turn, event_type="llm_unavailable", failed_call="assess_explanation",
-            action_taken="El servicio de NLU no respondió al evaluar la explicación del cliente.",
+            action_taken="El servicio de NLU no respondió al evaluar la explicación del cliente.", error=exc,
         )
     attempts_left = case.explanation_attempts + 1 < MAX_EXPLANATION_ATTEMPTS
     decision = _explanation_verdict(assessment, attempts_left=attempts_left)
