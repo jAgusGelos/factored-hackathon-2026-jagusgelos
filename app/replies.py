@@ -1,7 +1,9 @@
 """Customer-facing copy (Spanish and Portuguese) and how amounts/dates are
 written in it. These are the deterministic texts: the welcome message the chat
 opens with (served to the frontend by `/api/me`), and every fallback used when
-the LLM is unavailable or its reply fails a check in `app/state_machine.py`.
+the LLM is unavailable or its reply fails a check in a conversation step
+(`app/state_machine.py`, `app/explanation.py`, `app/credit.py`,
+`app/case_turn.py`).
 """
 
 from __future__ import annotations

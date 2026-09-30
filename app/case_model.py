@@ -1,7 +1,8 @@
 """The dispute case's vocabulary: states, customer actions, the policy
 verdict (`CaseEvaluation`), the structured handoff and what the customer has
-reported so far. Shared by `app/state_machine.py`, `app/handoffs.py` and
-`app/replies.py`, so none of them has to import the others.
+reported so far. Shared by the conversation modules (`app/state_machine.py`,
+`app/case_turn.py`, `app/credit.py`, `app/explanation.py`), `app/handoffs.py`
+and `app/replies.py`, so none of them has to import the others.
 """
 
 from __future__ import annotations

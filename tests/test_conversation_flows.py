@@ -14,7 +14,8 @@ from dataclasses import dataclass, replace
 from unittest.mock import patch
 
 from app import cases, db
-from app.policy import MAX_CASE_TURNS
+from app.case_turn import Turn
+from app.policy import MAX_CASE_TURNS, DisputeReason
 from app.state_machine import CaseState, handle_message
 from tests.support import (
     AUTO_RESOLVE_CHARGE,
@@ -415,7 +416,7 @@ def test_a_stale_confirming_write_cannot_reopen_a_resolved_case(real_fixture_app
          selected_transaction_id=AUTO_RESOLVE_CHARGE)
     _explain(session, real_fixture_app_db, listed["case_id"])
 
-    turn = state_machine._Turn(session, stale_case, llm_module.Language.ES, "corr", real_fixture_app_db)
+    turn = Turn(session, stale_case, llm_module.Language.ES, "corr", real_fixture_app_db)
     with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(charge_extraction())):
         reply = state_machine._handle_report(turn, "el de Uber")  # merchant path would propose Uber
 
@@ -546,7 +547,7 @@ def test_a_stale_tap_from_a_replaced_list_neither_resolves_nor_claims_escalation
     relisted = _say(session, real_fixture_app_db, charge_extraction(date="2026-06-05"), "fue el 5 de junio",
                     case_id=taxis["case_id"])
 
-    turn = state_machine._Turn(session, stale_case, llm_module.Language.ES, "corr", real_fixture_app_db)
+    turn = Turn(session, stale_case, llm_module.Language.ES, "corr", real_fixture_app_db)
     with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(charge_extraction())):
         reply = state_machine._handle_selection(turn, DUPLICATE_CHARGES[0])
 
@@ -569,7 +570,7 @@ def test_a_stale_yes_cannot_credit_a_charge_the_customer_rejected(real_fixture_a
     now = _say(session, real_fixture_app_db, charge_extraction(**farmacia), "era la farmacia", case_id=first["case_id"])
     assert now["state"] == CaseState.CONFIRMING
 
-    turn = state_machine._Turn(session, stale_case, llm_module.Language.ES, "corr", real_fixture_app_db)
+    turn = Turn(session, stale_case, llm_module.Language.ES, "corr", real_fixture_app_db)
     with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(charge_extraction())):
         state_machine._handle_confirmation(turn, "Sí", state_machine.CustomerAction.CONFIRM_YES)
 
@@ -894,6 +895,27 @@ def test_two_chats_cannot_reverse_both_charges_of_a_duplicate_pair(real_fixture_
     handoff = cases.get_case(second["case_id"], db_path=real_fixture_app_db).handoff
     assert handoff["facts"]["credited_in_case"] == first["case_id"]
     assert len(logged_events(real_fixture_app_db, "simulated_credit")) == 1
+
+
+def test_the_explanation_step_uses_the_state_machines_policy_verdict(real_fixture_app_db, monkeypatch):
+    """The dispatcher hands the explanation step `state_machine._policy_verdict`
+    as it is at call time, so patching it is seen by a real explanation turn.
+    """
+    from app import state_machine
+
+    real_verdict = state_machine._policy_verdict
+    reasons = []
+
+    def recording_verdict(*args, **kwargs):
+        reasons.append(kwargs.get("reason"))
+        return real_verdict(*args, **kwargs)
+
+    monkeypatch.setattr(state_machine, "_policy_verdict", recording_verdict)
+    session = demo_session(real_fixture_app_db)
+    reply = _pick_and_explain(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
+
+    assert reply["state"] == CaseState.RESOLVED_AUTO
+    assert DisputeReason.UNRECOGNIZED in reasons
 
 
 def test_an_unusable_assessment_is_reported_as_the_models_failure(real_fixture_app_db):

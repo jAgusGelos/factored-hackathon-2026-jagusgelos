@@ -17,6 +17,8 @@ import duckdb
 import pytest
 
 from app import cases, config, llm
+from app.case_turn import Turn
+from app.explanation import handle_explanation
 from app.state_machine import CaseState, handle_message
 from tests.support import (
     AUTO_RESOLVE_CHARGE,
@@ -322,7 +324,7 @@ def test_two_concurrent_yes_replies_move_the_case_once(real_fixture_app_db):
     replies = []
     with patch("app.llm.anthropic.Anthropic", return_value=client):
         for _ in range(2):
-            turn = state_machine._Turn(session, stale_case, llm.Language.ES, "corr", real_fixture_app_db)
+            turn = Turn(session, stale_case, llm.Language.ES, "corr", real_fixture_app_db)
             replies.append(state_machine._handle_confirmation(turn, "Sí, es ese"))
 
     assert [r["state"] for r in replies] == [CaseState.AWAITING_EXPLANATION] * 2
@@ -342,8 +344,8 @@ def test_two_concurrent_explanations_issue_exactly_one_credit(real_fixture_app_d
     replies = []
     with patch("app.llm.anthropic.Anthropic", return_value=client):
         for _ in range(2):
-            turn = state_machine._Turn(session, stale_case, llm.Language.ES, "corr", real_fixture_app_db)
-            replies.append(state_machine._handle_explanation(turn, EXPLANATION))
+            turn = Turn(session, stale_case, llm.Language.ES, "corr", real_fixture_app_db)
+            replies.append(handle_explanation(turn, EXPLANATION, policy_verdict=state_machine._policy_verdict))
 
     assert [r["state"] for r in replies] == [CaseState.RESOLVED_AUTO, CaseState.RESOLVED_AUTO]
     assert len(logged_events(real_fixture_app_db, "simulated_credit")) == 1
@@ -363,7 +365,7 @@ def test_late_no_cannot_overwrite_a_resolved_case(real_fixture_app_db):
     from app import state_machine
 
     with patch("app.llm.anthropic.Anthropic", return_value=_client(session, answer="no")):
-        turn = state_machine._Turn(session, stale_case, llm.Language.ES, "corr", real_fixture_app_db)
+        turn = Turn(session, stale_case, llm.Language.ES, "corr", real_fixture_app_db)
         reply = state_machine._handle_confirmation(turn, "no era ese")
 
     assert reply["state"] == CaseState.RESOLVED_AUTO

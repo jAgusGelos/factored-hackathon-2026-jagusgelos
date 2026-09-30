@@ -346,7 +346,7 @@ def evaluate_resolution(txn: TransactionCandidate, ctx: DisputeContext) -> Resol
 
     With `ctx.reason` None (the customer has not explained yet) only the
     screening conditions run, and AUTO_RESOLVE means "may go on to the
-    explanation", never "credit it": `app/state_machine.py` only credits
+    explanation", never "credit it": `app/explanation.py` only credits
     after a verdict WITH a reason.
 
     `ctx.classifier_priority` (Milestone 3, AD-6) is DECISION SUPPORT ONLY: a

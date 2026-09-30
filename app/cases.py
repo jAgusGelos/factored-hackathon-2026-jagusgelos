@@ -1,8 +1,8 @@
 """Case + message persistence (SQLite `cases`/`messages`/`events` tables).
 
 Deliberately returns plain data (a `Case` dataclass with `state: str`, not
-`app.state_machine.CaseState`) to avoid a circular import — `state_machine.py`
-converts at its boundary. This module never imports `state_machine`.
+`app.case_model.CaseState`) to avoid a circular import — the conversation
+modules convert at their boundary. This module never imports `state_machine`.
 
 Ownership: `get_case()` returns a case regardless of who asks and exists for
 tests/back-office reads only. Every customer-facing path must go through

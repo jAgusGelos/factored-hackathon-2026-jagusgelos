@@ -223,7 +223,7 @@ class ExtractedEntities:
     currency: str | None
     date: str | None
     # Narrows the customer's charge list (and proposes the charge when only
-    # one of theirs matches), see app/state_machine.py::_find_charges.
+    # one of theirs matches), see app/charge_search.py::find_charges.
     merchant_hint: str | None
     wants_human: bool
     parse_failed: bool

@@ -39,6 +39,11 @@ budget (`llm.LLMUnavailable`) or a failed fixture lookup (`duckdb.Error`)
 forces escalation with the NFR's deterministic fallback message, never a
 crash or a hallucinated answer.
 
+The explanation step lives in `app/explanation.py` (it receives this
+module's `_policy_verdict`) and the credit it may grant in `app/credit.py`;
+what every step shares (`Turn`, the compare-and-set transition, escalation)
+is in `app/case_turn.py`.
+
 Two databases are in play and must never be conflated: `db_path` below is the
 APP db (SQLite sessions/cases, `config.APP_DB_PATH`) and is only ever passed to
 `app/cases.py`; every fixture read in `app/transactions.py` uses its own
@@ -48,35 +53,42 @@ APP db (SQLite sessions/cases, `config.APP_DB_PATH`) and is only ever passed to
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
-from typing import TypedDict
 
 import duckdb
 
 from app import cases, classifier, config, handoffs, llm, replies
 from app.auth import Session
 from app.case_model import (
-    NON_TERMINAL_STATES,
     TERMINAL_STATES,
     CaseEvaluation,
     CaseState,
     CustomerAction,
     ReportedCharge,
 )
+from app.case_turn import (
+    DEFAULT_CURRENCY,
+    ChatReply,
+    Turn,
+    current_options,
+    escalate,
+    finish_escalated,
+    force_escalation,
+    human_handoff_available,
+    transition,
+)
 from app.charge_search import (
-    ChargeOption,
     ChargeSearch,
     ListFilter,
     charge_option,
     find_charges,
     iso_day,
     matching_charges,
-    offered_charges,
     recent_charges,
     txn_day,
 )
+from app.explanation import ask_for_explanation, handle_explanation
 from app.llm import Language, PromptScene
 from app.policy import (
     ABUSE_GUARD_WINDOW_DAYS,
@@ -86,17 +98,11 @@ from app.policy import (
     MATCH_DATE_TOLERANCE_DAYS,
     MAX_CASE_TURNS,
     MAX_CLARIFICATION_ROUNDS,
-    MAX_EXPLANATION_ATTEMPTS,
-    MIN_EXPLANATION_WORDS,
     DisputeContext,
     DisputeReason,
-    ExplanationAssessment,
-    ExplanationVerdict,
     MatchOutcome,
     ResolutionDecision,
     credit_key,
-    effective_amount_usd,
-    evaluate_explanation,
     evaluate_match,
     evaluate_resolution,
     match_amount_tolerance,
@@ -119,22 +125,11 @@ __all__ = [
 ]
 
 _COUNTRY_CURRENCY = {"México": "MXN", "Colombia": "COP", "Argentina": "ARS"}
-_DEFAULT_CURRENCY = "USD"
 
 IDENTIFIED_BY_REPORT = "Se localizó una transacción que coincide con el monto y la fecha reportados."
 IDENTIFIED_BY_PICK = "El cliente eligió este cargo de la lista de sus movimientos."
 IDENTIFIED_BY_MERCHANT = "El cliente nombró el comercio y es su único cargo que coincide."
 IDENTIFIED_BY_CONFIRMATION = "El cliente confirmó el cargo propuesto."
-IDENTIFIED_AND_EXPLAINED = "El cliente identificó el cargo y explicó qué pasó."
-
-
-class ChatReply(TypedDict):
-    case_id: str
-    state: CaseState
-    customer_id: str
-    reply: str
-    options: list[ChargeOption]
-    human_available: bool
 
 
 # -- Policy verdicts (no side effects) ----------------------------------------
@@ -239,49 +234,11 @@ def evaluate_transaction(
 
 def _infer_currency(profile: CustomerProfile | None) -> str:
     if profile is None or profile.country is None:
-        return _DEFAULT_CURRENCY
-    return _COUNTRY_CURRENCY.get(profile.country, _DEFAULT_CURRENCY)
+        return DEFAULT_CURRENCY
+    return _COUNTRY_CURRENCY.get(profile.country, DEFAULT_CURRENCY)
 
 
 # -- One turn ------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class _Turn:
-    session: Session
-    case: cases.Case
-    language: Language
-    correlation_id: str
-    db_path: Path | None
-
-    @property
-    def report(self) -> ReportedCharge:
-        return ReportedCharge.from_case(self.case, _DEFAULT_CURRENCY)
-
-    def log_event(self, event_type: str, payload: dict) -> None:
-        cases.log_event(self.correlation_id, self.case.case_id, event_type, payload, db_path=self.db_path)
-
-    def reply(self, state: CaseState, text: str, options: list[ChargeOption] | None = None) -> ChatReply:
-        cases.log_message(self.case.case_id, "agent", text, db_path=self.db_path)
-        return {
-            "case_id": self.case.case_id,
-            "state": state,
-            "customer_id": self.session.customer_id,
-            "reply": text,
-            "options": options or [],
-            "human_available": state not in TERMINAL_STATES and self._handoff_unlocked_now(),
-        }
-
-    def _handoff_unlocked_now(self) -> bool:
-        current = cases.get_case(self.case.case_id, db_path=self.db_path)
-        return current is not None and _human_handoff_available(current)
-
-    def generate_reply(self, context: llm.PromptContext, *, fallback: str) -> str:
-        try:
-            return llm.generate_response(context, language=self.language)
-        except llm.LLMUnavailable:
-            self.log_event("llm_unavailable", {"call": "generate_response"})
-            return fallback
 
 
 def _load_or_create_case(
@@ -294,43 +251,7 @@ def _load_or_create_case(
     return cases.create_case(session.customer_id, language, db_path=db_path)
 
 
-def _reply_for_lost_race(turn: _Turn, attempted_state: CaseState) -> ChatReply:
-    """Another request moved this case first; report where it is now instead
-    of overwriting it.
-    """
-    current = cases.get_case(turn.case.case_id, db_path=turn.db_path)
-    turn.log_event(
-        "case_transition_lost_race", {"current_state": current.state, "attempted_state": attempted_state}
-    )
-    state = CaseState(current.state)
-    if state in TERMINAL_STATES:
-        return turn.reply(state, replies.terminal_case(state, current.resolution_reference, turn.language))
-    fresh = replace(turn, case=current)
-    return turn.reply(state, replies.CASE_MOVED_ON[turn.language], _current_options(fresh))
-
-
-def _transition(
-    turn: _Turn, state: CaseState, *, expected_states: tuple[str, ...] = NON_TERMINAL_STATES, **fields,
-) -> ChatReply | None:
-    """Claims the transition (compare-and-set). Returns None when it was
-    claimed, or the reply to send when another request got there first.
-    """
-    claimed = cases.update_case(
-        turn.case.case_id, state=state, expected_states=expected_states, db_path=turn.db_path, **fields
-    )
-    return None if claimed else _reply_for_lost_race(turn, state)
-
-
-def _current_options(turn: _Turn) -> list[ChargeOption]:
-    """The list the customer can still pick from, re-sent with any reply that
-    stays in `selecting` without a new list.
-    """
-    if turn.case.state != CaseState.SELECTING or not turn.case.offered_transaction_ids:
-        return []
-    return [charge_option(c) for c in offered_charges(turn.session, turn.case.offered_transaction_ids)]
-
-
-def _unless_already_credited(turn: _Turn, evaluation: CaseEvaluation, report: ReportedCharge) -> CaseEvaluation:
+def _unless_already_credited(turn: Turn, evaluation: CaseEvaluation, report: ReportedCharge) -> CaseEvaluation:
     if evaluation.state != CaseState.RESOLVED_AUTO:
         return evaluation
     matched = evaluation.matched_transaction
@@ -341,7 +262,7 @@ def _unless_already_credited(turn: _Turn, evaluation: CaseEvaluation, report: Re
 
 
 def _policy_verdict(
-    turn: _Turn, matched: TransactionCandidate, report: ReportedCharge, how_identified: str,
+    turn: Turn, matched: TransactionCandidate, report: ReportedCharge, how_identified: str,
     *, reason: DisputeReason | None = None,
 ) -> CaseEvaluation:
     evaluation = evaluate_transaction(
@@ -353,152 +274,8 @@ def _policy_verdict(
 # -- Terminal and intermediate outcomes ----------------------------------------
 
 
-def _force_escalation(turn: _Turn, *, event_type: str, failed_call: str, action_taken: str) -> ChatReply:
-    turn.log_event(event_type, {"call": failed_call})
-    handoff = handoffs.service_failure(action_taken).to_dict()
-    lost = _transition(turn, CaseState.ESCALATED, handoff=handoff)
-    if lost:
-        return lost
-    turn.log_event("case_escalated", handoff)
-    return turn.reply(CaseState.ESCALATED, llm.DETERMINISTIC_FALLBACK_MESSAGE[turn.language])
-
-
-def _finish_escalated(
-    turn: _Turn, evaluation: CaseEvaluation, report: ReportedCharge,
-    *, expected_offered: tuple[str, ...] | None = None, drop_proposed_match: bool = False,
-) -> ChatReply:
-    """`drop_proposed_match`: the customer rejected the proposed charge, so it
-    stays in the handoff evidence but is no longer the case's match.
-    """
-    if evaluation.handoff is None:
-        raise ValueError(f"Escalation without a handoff record (case {turn.case.case_id})")
-    handoff = evaluation.handoff.to_dict()
-    matched = evaluation.matched_transaction
-    lost = _transition(
-        turn, CaseState.ESCALATED, handoff=handoff,
-        matched_transaction_id=matched.transaction_id if matched is not None else None,
-        clear_fields=("matched_transaction_id",) if drop_proposed_match else (),
-        expected_offered_transaction_ids=expected_offered, **report.update_fields(),
-    )
-    if lost:
-        return lost
-    turn.log_event("case_escalated", handoff)
-    context = llm.build_prompt_context(case_state=CaseState.ESCALATED, language=turn.language)
-    fallback = replies.ESCALATED[turn.language]
-    reply = turn.generate_reply(context, fallback=fallback)
-    if "?" in reply:
-        # The chat is over once a case is handed off (every later message gets
-        # the terminal reply), so a closing question would be left unanswered.
-        turn.log_event("escalation_reply_replaced", {"reason": "asks_a_question"})
-        reply = fallback
-    return turn.reply(CaseState.ESCALATED, reply)
-
-
-def _escalate(turn: _Turn, evaluation: CaseEvaluation) -> ChatReply:
-    return _finish_escalated(turn, evaluation, turn.report)
-
-
-def _simulate_provisional_credit(
-    turn: _Turn, matched: TransactionCandidate, reference: str, reason: DisputeReason,
-) -> None:
-    """AD-11 Row 6's auto-resolution action: a SIMULATED provisional credit,
-    logged as such — never a real transfer, never a call to any payment
-    provider (there is no such integration in this codebase). An unrecognized
-    charge also blocks the card (simulated) and queues the credit for
-    back-office review, where it is reversed if the charge was the customer's.
-    """
-    turn.log_event(
-        "simulated_credit",
-        {
-            "reference": reference, "matched_transaction_id": matched.transaction_id,
-            "amount": matched.amount, "currency": matched.currency, "reason": reason, "simulated": True,
-        },
-    )
-    if reason == DisputeReason.UNRECOGNIZED:
-        turn.log_event("simulated_card_block", {"reference": reference, "simulated": True})
-        turn.log_event("credit_review_queued", {"reference": reference, "reversible": True})
-
-
-def _credit_grant(
-    matched: TransactionCandidate, reason: DisputeReason, twins: tuple[str, ...],
-) -> cases.CreditGrant:
-    amount_usd = effective_amount_usd(matched)
-    if amount_usd is None:
-        raise ValueError(f"No USD amount for {matched.transaction_id}: screening must have escalated it")
-    return cases.CreditGrant(key=credit_key(matched, reason, twins), reason=reason, amount_usd=amount_usd)
-
-
-def _finish_resolved(
-    turn: _Turn, matched: TransactionCandidate, *, reason: DisputeReason, twins: tuple[str, ...],
-    expected_states: tuple[CaseState, ...], expected_match: str | None = None,
-) -> ChatReply:
-    """Only ever called after a verdict WITH a reason. The credit limits are
-    checked again inside the claiming UPDATE (`cases.CreditGrant`), so a second
-    case of the same customer running at the same time cannot slip past them.
-    """
-    reference = f"REF-{uuid.uuid4().hex[:10].upper()}"
-    grant = _credit_grant(matched, reason, twins)
-    report = replace(turn.report, reason=reason)
-    # The transition is claimed BEFORE the credit is logged: of two concurrent
-    # requests exactly one flips the case to resolved_auto and issues a credit.
-    try:
-        claimed = cases.update_case(
-            turn.case.case_id, state=CaseState.RESOLVED_AUTO, expected_states=expected_states,
-            expected_matched_transaction_id=expected_match, matched_transaction_id=matched.transaction_id,
-            resolution_reference=reference, dispute_reason=reason, credit=grant, db_path=turn.db_path,
-        )
-    except cases.DuplicateCreditError:
-        credited_in = _case_that_credited(turn, matched, grant)
-        turn.log_event("credit_already_granted", {"credit_key": grant.key, "credited_in_case": credited_in})
-        return _finish_escalated(turn, handoffs.already_credited(report, matched, credited_in), report)
-    if not claimed:
-        current = cases.get_case(turn.case.case_id, db_path=turn.db_path)
-        if current.state == turn.case.state and current.matched_transaction_id == turn.case.matched_transaction_id:
-            # Nothing else moved the case: the credit limits refused it.
-            turn.log_event("credit_limit_reached", {"matched_transaction_id": matched.transaction_id})
-            return _finish_escalated(turn, handoffs.credit_limit_reached(report, matched), report)
-        return _reply_for_lost_race(turn, CaseState.RESOLVED_AUTO)
-    _simulate_provisional_credit(turn, matched, reference, reason)
-    turn.log_event(
-        "case_resolved",
-        {
-            "matched_transaction_id": matched.transaction_id, "amount": matched.amount,
-            "currency": matched.currency, "resolution_reference": reference, "reason": reason,
-        },
-    )
-    context = llm.build_prompt_context(
-        case_state=CaseState.RESOLVED_AUTO, language=turn.language,
-        candidate_amount=matched.amount, candidate_currency=matched.currency,
-        candidate_date=iso_day(matched), candidate_merchant_name=matched.merchant_name,
-        resolution_reference=reference, dispute_reason=reason,
-    )
-    fallback = replies.resolved(reference, reason, turn.language)
-    reply = turn.generate_reply(context, fallback=fallback)
-    if reference not in reply:
-        # A resolution message without the case reference is useless to the
-        # customer; never send one, whatever the model wrote.
-        turn.log_event("resolution_reply_replaced", {"reason": "reference_missing"})
-        reply = fallback
-    elif not replies.states_required_disclosures(reply, reason, turn.language):
-        turn.log_event("resolution_reply_replaced", {"reason": "disclosures_missing"})
-        reply = fallback
-    return turn.reply(CaseState.RESOLVED_AUTO, reply)
-
-
-def _case_that_credited(turn: _Turn, matched: TransactionCandidate, grant: cases.CreditGrant) -> str:
-    """The case whose credit collided with this one: on the transaction itself,
-    or on its duplicate pair's shared credit key.
-    """
-    customer_id = turn.session.customer_id
-    return (
-        cases.credited_case_for_transaction(customer_id, matched.transaction_id, db_path=turn.db_path)
-        or cases.credited_case_for_key(customer_id, grant.key, db_path=turn.db_path)
-        or "desconocido"
-    )
-
-
-def _finish_confirming(turn: _Turn, matched: TransactionCandidate, report: ReportedCharge) -> ChatReply:
-    lost = _transition(
+def _finish_confirming(turn: Turn, matched: TransactionCandidate, report: ReportedCharge) -> ChatReply:
+    lost = transition(
         turn, CaseState.CONFIRMING, matched_transaction_id=matched.transaction_id, **report.update_fields()
     )
     if lost:
@@ -521,7 +298,7 @@ def _finish_confirming(turn: _Turn, matched: TransactionCandidate, report: Repor
 
 
 def _propose_or_escalate(
-    turn: _Turn, matched: TransactionCandidate, report: ReportedCharge, how_identified: str,
+    turn: Turn, matched: TransactionCandidate, report: ReportedCharge, how_identified: str,
 ) -> ChatReply:
     """An identified charge: ask the customer to confirm it if policy would
     resolve it (AD-12), otherwise hand it off.
@@ -529,11 +306,7 @@ def _propose_or_escalate(
     evaluation = _policy_verdict(turn, matched, report, how_identified)
     if evaluation.state == CaseState.RESOLVED_AUTO:
         return _finish_confirming(turn, matched, report)
-    return _finish_escalated(turn, evaluation, report)
-
-
-def _human_handoff_available(case: cases.Case) -> bool:
-    return case.handoff_unlocked or case.clarification_rounds >= MAX_CLARIFICATION_ROUNDS
+    return finish_escalated(turn, evaluation, report)
 
 
 def _unlocks_handoff(report: ReportedCharge, search: ChargeSearch, *, spend_round: bool) -> bool:
@@ -545,7 +318,7 @@ def _unlocks_handoff(report: ReportedCharge, search: ChargeSearch, *, spend_roun
 
 
 def _offer(
-    turn: _Turn, search: ChargeSearch, report: ReportedCharge, *, spend_round: bool,
+    turn: Turn, search: ChargeSearch, report: ReportedCharge, *, spend_round: bool,
     human_deferred: bool = False,
 ) -> ChatReply:
     """Shows the customer their own charges to pick from (AD-11 Row 3's
@@ -557,7 +330,7 @@ def _offer(
     if not search.charges:
         return _ask_for_details(turn, report, spend_round=spend_round)
     offered = tuple(c.transaction_id for c in search.charges)
-    lost = _transition(
+    lost = transition(
         turn, CaseState.SELECTING, offered_transaction_ids=offered, add_clarification_round=spend_round,
         unlock_handoff=_unlocks_handoff(report, search, spend_round=spend_round),
         clear_fields=("matched_transaction_id",), **report.update_fields(),
@@ -580,9 +353,9 @@ def _offer(
     return turn.reply(CaseState.SELECTING, text, [charge_option(c) for c in search.charges])
 
 
-def _ask_for_details(turn: _Turn, report: ReportedCharge, *, spend_round: bool) -> ChatReply:
+def _ask_for_details(turn: Turn, report: ReportedCharge, *, spend_round: bool) -> ChatReply:
     """Only for a customer with no outgoing charges to list at all."""
-    lost = _transition(
+    lost = transition(
         turn, CaseState.CLARIFYING, add_clarification_round=spend_round, unlock_handoff=report.has_details,
         clear_fields=("matched_transaction_id",), **report.update_fields(),
     )
@@ -597,7 +370,7 @@ def _ask_for_details(turn: _Turn, report: ReportedCharge, *, spend_round: bool) 
     return turn.reply(CaseState.CLARIFYING, turn.generate_reply(context, fallback=replies.ASK_FOR_DETAILS[turn.language]))
 
 
-def _introduce(turn: _Turn, scene: PromptScene) -> ChatReply:
+def _introduce(turn: Turn, scene: PromptScene) -> ChatReply:
     """A greeting gets an introduction and an out-of-scope request (balance,
     loans...) a plain statement of what this channel can do (the challenge's
     "unsupported request: abstain" case). Neither changes the case state or
@@ -607,35 +380,35 @@ def _introduce(turn: _Turn, scene: PromptScene) -> ChatReply:
     fallback = replies.WELCOME if scene == PromptScene.GREETING else replies.OUT_OF_SCOPE
     context = llm.build_prompt_context(case_state=scene, language=turn.language)
     reply = turn.generate_reply(context, fallback=fallback[turn.language])
-    return turn.reply(CaseState(turn.case.state), reply, _current_options(turn))
+    return turn.reply(CaseState(turn.case.state), reply, current_options(turn))
 
 
 # -- Handlers ------------------------------------------------------------------
 
 
-def _handle_human_request(turn: _Turn) -> ChatReply:
+def _handle_human_request(turn: Turn) -> ChatReply:
     """Honored once the agent has shown it cannot resolve the case; before
     that the agent keeps trying (the charge list, or the pending
     confirmation) and says it will hand off if it cannot find the charge.
     """
     case = turn.case
-    if _human_handoff_available(case):
+    if human_handoff_available(case):
         if case.state == CaseState.CONFIRMING:
-            return _escalate(turn, handoffs.confirmation_outcome(
+            return escalate(turn, handoffs.confirmation_outcome(
                 turn.report, case, customer_confirmation=str(llm.ConfirmationAnswer.HUMAN),
                 action="Cliente solicitó explícitamente hablar con un agente humano.",
                 open_question="El cliente prefirió hablar con una persona antes de confirmar el cargo propuesto.",
             ))
-        return _escalate(turn, handoffs.human_request(turn.report))
+        return escalate(turn, handoffs.human_request(turn.report))
     turn.log_event("human_request_deferred", {"state": case.state})
     if case.state == CaseState.AWAITING_EXPLANATION:
-        lost = _transition(
+        lost = transition(
             turn, CaseState.AWAITING_EXPLANATION, expected_states=(CaseState.AWAITING_EXPLANATION,),
             add_clarification_round=True,
         )
         return lost or turn.reply(CaseState.AWAITING_EXPLANATION, replies.HUMAN_DEFERRED_WHILE_EXPLAINING[turn.language])
     if case.state == CaseState.CONFIRMING:
-        lost = _transition(turn, CaseState.CONFIRMING, expected_states=(CaseState.CONFIRMING,), add_clarification_round=True)
+        lost = transition(turn, CaseState.CONFIRMING, expected_states=(CaseState.CONFIRMING,), add_clarification_round=True)
         if lost:
             return lost
         context = llm.build_prompt_context(case_state=PromptScene.HUMAN_DEFERRED, language=turn.language)
@@ -652,14 +425,14 @@ _ACTION_ANSWERS = {
 }
 
 
-def _confirmation_answer(turn: _Turn, text: str, action: CustomerAction | None) -> llm.ConfirmationAnswer:
+def _confirmation_answer(turn: Turn, text: str, action: CustomerAction | None) -> llm.ConfirmationAnswer:
     """Raises `llm.LLMUnavailable` when typed text cannot be classified."""
     if action in _ACTION_ANSWERS:
         return _ACTION_ANSWERS[action]
     return llm.classify_confirmation(text, language=turn.language)
 
 
-def _handle_confirmation(turn: _Turn, text: str, action: CustomerAction | None = None) -> ChatReply:
+def _handle_confirmation(turn: Turn, text: str, action: CustomerAction | None = None) -> ChatReply:
     """AD-12: the one bounded confirmation round. Only an explicit "yes" can
     resolve, and even then AD-11 is re-run on the stored transaction, looked
     up again through the session. "Not that one" (or an unclear answer) shows
@@ -669,7 +442,7 @@ def _handle_confirmation(turn: _Turn, text: str, action: CustomerAction | None =
     try:
         answer = _confirmation_answer(turn, text, action)
     except llm.LLMUnavailable:
-        return _force_escalation(
+        return force_escalation(
             turn, event_type="llm_unavailable", failed_call="classify_confirmation",
             action_taken="El servicio de NLU no respondió al pedir la confirmación del cliente.",
         )
@@ -681,7 +454,7 @@ def _handle_confirmation(turn: _Turn, text: str, action: CustomerAction | None =
     if answer == llm.ConfirmationAnswer.HUMAN:
         return _handle_human_request(turn)
     if case.clarification_rounds >= MAX_CLARIFICATION_ROUNDS:
-        return _finish_escalated(turn, handoffs.confirmation_outcome(
+        return finish_escalated(turn, handoffs.confirmation_outcome(
             report, case, customer_confirmation=str(answer),
             action=f"Se propuso al cliente la transacción coincidente y no la confirmó (respuesta: {answer}); "
                    "no quedan rondas de aclaración.",
@@ -690,7 +463,7 @@ def _handle_confirmation(turn: _Turn, text: str, action: CustomerAction | None =
     return _offer(turn, _charges_other_than_proposed(turn, report), report, spend_round=True)
 
 
-def _confirm_proposed_charge(turn: _Turn, report: ReportedCharge) -> ChatReply:
+def _confirm_proposed_charge(turn: Turn, report: ReportedCharge) -> ChatReply:
     case = turn.case
     matched = get_own_transaction(turn.session, case.matched_transaction_id) if case.matched_transaction_id else None
     evaluation = (
@@ -698,19 +471,19 @@ def _confirm_proposed_charge(turn: _Turn, report: ReportedCharge) -> ChatReply:
         if matched is not None else CaseEvaluation(state=CaseState.ESCALATED)
     )
     if evaluation.state == CaseState.RESOLVED_AUTO:
-        return _ask_for_explanation(
+        return ask_for_explanation(
             turn, matched, expected_states=(CaseState.CONFIRMING,), expected_match=matched.transaction_id,
         )
     turn.log_event("confirmation_reverification_failed", {"state": evaluation.state})
     reasons = evaluation.resolution_reasons or (evaluation.handoff.open_questions if evaluation.handoff else ())
-    return _escalate(turn, handoffs.confirmation_outcome(
+    return escalate(turn, handoffs.confirmation_outcome(
         report, case, customer_confirmation=str(llm.ConfirmationAnswer.YES),
         action="El cliente confirmó el cargo propuesto, pero la política no permitió auto-resolverlo al re-verificar.",
         open_question="; ".join(reasons) or "No se pudo volver a verificar la transacción propuesta.",
     ))
 
 
-def _charges_other_than_proposed(turn: _Turn, report: ReportedCharge) -> ChargeSearch:
+def _charges_other_than_proposed(turn: Turn, report: ReportedCharge) -> ChargeSearch:
     proposed = turn.case.matched_transaction_id
     around_date = ReportedCharge(amount=None, date=report.date, currency=report.currency)
     for search in (find_charges(turn.session, around_date), recent_charges(turn.session)):
@@ -720,7 +493,7 @@ def _charges_other_than_proposed(turn: _Turn, report: ReportedCharge) -> ChargeS
     return ChargeSearch((), ListFilter.RECENT)
 
 
-def _handle_selection(turn: _Turn, transaction_id: str) -> ChatReply:
+def _handle_selection(turn: Turn, transaction_id: str) -> ChatReply:
     """The customer tapped one of the charges they were shown. Accepted only if
     the case is still offering that exact list, the id is on it, and it is
     this session's own transaction; anything else changes nothing.
@@ -738,150 +511,20 @@ def _handle_selection(turn: _Turn, transaction_id: str) -> ChatReply:
         turn.log_event(
             "selection_rejected", {"transaction_id": transaction_id, "reason": rejection, "state": case.state}
         )
-        return turn.reply(CaseState(case.state), replies.SELECTION_UNAVAILABLE[turn.language], _current_options(turn))
+        return turn.reply(CaseState(case.state), replies.SELECTION_UNAVAILABLE[turn.language], current_options(turn))
 
     turn.log_event("charge_selected", {"transaction_id": transaction_id})
     evaluation = _policy_verdict(turn, matched, turn.report, IDENTIFIED_BY_PICK)
     if evaluation.state == CaseState.RESOLVED_AUTO:
         # Picking the charge is the customer's identification of it (AD-12);
         # what happened with it comes next.
-        return _ask_for_explanation(
+        return ask_for_explanation(
             turn, matched, expected_states=(CaseState.SELECTING,), expected_offered=case.offered_transaction_ids,
         )
-    return _finish_escalated(turn, evaluation, turn.report, expected_offered=case.offered_transaction_ids)
+    return finish_escalated(turn, evaluation, turn.report, expected_offered=case.offered_transaction_ids)
 
 
-def _charge_context(turn: _Turn, state: str, matched: TransactionCandidate) -> llm.PromptContext:
-    return llm.build_prompt_context(
-        case_state=state, language=turn.language,
-        candidate_amount=matched.amount, candidate_currency=matched.currency,
-        candidate_date=iso_day(matched), candidate_merchant_name=matched.merchant_name,
-        candidate_merchant_category=matched.merchant_category, candidate_channel=matched.channel,
-    )
-
-
-def _ask_for_explanation(
-    turn: _Turn, matched: TransactionCandidate, *, expected_states: tuple[CaseState, ...],
-    expected_offered: tuple[str, ...] | None = None, expected_match: str | None = None,
-) -> ChatReply:
-    """The charge is identified and policy-eligible: before any credit the
-    customer explains, in their own words, what happened with it.
-    """
-    lost = _transition(
-        turn, CaseState.AWAITING_EXPLANATION, expected_states=expected_states,
-        expected_offered_transaction_ids=expected_offered, expected_matched_transaction_id=expected_match,
-        matched_transaction_id=matched.transaction_id,
-    )
-    if lost:
-        return lost
-    turn.log_event("explanation_requested", {"matched_transaction_id": matched.transaction_id})
-    fallback = replies.ask_for_explanation(matched, turn.language)
-    reply = turn.generate_reply(_charge_context(turn, CaseState.AWAITING_EXPLANATION, matched), fallback=fallback)
-    if not replies.names_the_facts(reply, matched, turn.language):
-        turn.log_event("explanation_request_replaced", {"reason": "facts_missing"})
-        reply = fallback
-    return turn.reply(CaseState.AWAITING_EXPLANATION, reply)
-
-
-_TOO_SHORT = ExplanationAssessment(
-    reason=DisputeReason.UNCLEAR, specific=False, consistent=True, contradictions=(),
-    summary="Explicación demasiado breve para evaluar.",
-)
-
-
-def _assess(turn: _Turn, explanation: str, matched: TransactionCandidate) -> ExplanationAssessment | None:
-    """Raises `llm.LLMUnavailable`. None when the model's answer is unusable."""
-    if _too_short(explanation):
-        return _TOO_SHORT
-    assessment = llm.assess_explanation(
-        explanation, charge=_charge_context(turn, CaseState.AWAITING_EXPLANATION, matched),
-    )
-    if assessment is None:
-        turn.log_event("explanation_parse_failed", {"call": "assess_explanation"})
-    return assessment
-
-
-def _too_short(explanation: str) -> bool:
-    return len(explanation.split()) < MIN_EXPLANATION_WORDS
-
-
-def _explanation_verdict(
-    assessment: ExplanationAssessment | None, *, attempts_left: bool,
-) -> tuple[ExplanationVerdict, str | None]:
-    """An unusable model answer is the model's failure, not the customer's:
-    ask once more, then escalate saying so.
-    """
-    if assessment is not None:
-        return evaluate_explanation(assessment, attempts_left=attempts_left)
-    if attempts_left:
-        return ExplanationVerdict.NEEDS_DETAIL, None
-    return ExplanationVerdict.ESCALATE, handoffs.ASSESSMENT_FAILED
-
-
-def _handle_explanation(turn: _Turn, text: str) -> ChatReply:
-    """The customer's account of what happened. The model only assesses it;
-    `policy.evaluate_explanation` may ask for one more detail or escalate, and
-    otherwise the charge still has to pass the evidence check for the reason
-    the explanation names (AD-13) before any credit.
-    """
-    case = turn.case
-    matched = get_own_transaction(turn.session, case.matched_transaction_id) if case.matched_transaction_id else None
-    if matched is None:
-        return _escalate(turn, handoffs.unidentified_charge(turn.report, case))
-    explanation = f"{case.explanation_text}\n{text}" if case.explanation_text else text
-    too_short = _too_short(explanation)
-    try:
-        assessment = _assess(turn, explanation, matched)
-    except llm.LLMUnavailable:
-        return _force_escalation(
-            turn, event_type="llm_unavailable", failed_call="assess_explanation",
-            action_taken="El servicio de NLU no respondió al evaluar la explicación del cliente.",
-        )
-    attempts_left = case.explanation_attempts + 1 < MAX_EXPLANATION_ATTEMPTS
-    verdict, why = _explanation_verdict(assessment, attempts_left=attempts_left)
-    turn.log_event(
-        "explanation_assessed",
-        {"verdict": verdict, "reason": assessment.reason if assessment else None,
-         "specific": assessment.specific if assessment else None,
-         "consistent": assessment.consistent if assessment else None},
-    )
-    report = replace(turn.report, reason=assessment.reason if assessment else None)
-
-    if verdict == ExplanationVerdict.NEEDS_DETAIL:
-        return _ask_for_more_detail(turn, text)
-    if verdict == ExplanationVerdict.ESCALATE:
-        return _finish_escalated(
-            turn, handoffs.explanation_not_accepted(report, matched, why, assessment, too_short=too_short), report,
-        )
-    # The explanation raised no red flag; the evidence check for the reason it
-    # names decides (a persuasive story alone never credits anything).
-    evaluation = _policy_verdict(turn, matched, report, IDENTIFIED_AND_EXPLAINED, reason=assessment.reason)
-    if evaluation.state == CaseState.RESOLVED_AUTO:
-        return _finish_resolved(
-            turn, matched, reason=assessment.reason, twins=evaluation.duplicate_twins,
-            expected_states=(CaseState.AWAITING_EXPLANATION,), expected_match=matched.transaction_id,
-        )
-    facts = {**evaluation.handoff.facts, **handoffs.explanation_facts(assessment, too_short=too_short)}
-    handoff = replace(evaluation.handoff, facts=facts)
-    return _finish_escalated(turn, replace(evaluation, handoff=handoff), report)
-
-
-def _ask_for_more_detail(turn: _Turn, text: str) -> ChatReply:
-    """Appends this turn's text in SQL, so two messages sent at the same time
-    both end up in the explanation the next assessment reads.
-    """
-    lost = _transition(
-        turn, CaseState.AWAITING_EXPLANATION, expected_states=(CaseState.AWAITING_EXPLANATION,),
-        append_explanation=text, add_explanation_attempt=True,
-    )
-    if lost:
-        return lost
-    context = llm.build_prompt_context(case_state=PromptScene.EXPLANATION_FOLLOWUP, language=turn.language)
-    reply = turn.generate_reply(context, fallback=replies.EXPLANATION_FOLLOWUP[turn.language])
-    return turn.reply(CaseState.AWAITING_EXPLANATION, reply)
-
-
-def _handle_none_of_these(turn: _Turn) -> ChatReply:
+def _handle_none_of_these(turn: Turn) -> ChatReply:
     """Not in the list: with no details from the customer yet, the agent asks
     for one and keeps looking; after details, it hands off.
     """
@@ -890,7 +533,7 @@ def _handle_none_of_these(turn: _Turn) -> ChatReply:
         turn.log_event("selection_rejected", {"reason": "none_of_these_outside_selecting", "state": case.state})
         return turn.reply(CaseState(case.state), replies.SELECTION_UNAVAILABLE[turn.language])
     if not turn.report.has_details and case.clarification_rounds < MAX_CLARIFICATION_ROUNDS:
-        lost = _transition(turn, CaseState.SELECTING, expected_states=(CaseState.SELECTING,), add_clarification_round=True)
+        lost = transition(turn, CaseState.SELECTING, expected_states=(CaseState.SELECTING,), add_clarification_round=True)
         if lost:
             return lost
         turn.log_event("details_requested", {"reason": "not_in_unfiltered_list"})
@@ -898,7 +541,7 @@ def _handle_none_of_these(turn: _Turn) -> ChatReply:
         return turn.reply(
             CaseState.SELECTING, turn.generate_reply(context, fallback=replies.ASK_FOR_ONE_DETAIL[turn.language]),
         )
-    return _finish_escalated(
+    return finish_escalated(
         turn, handoffs.not_in_list(turn.report, case), turn.report, expected_offered=case.offered_transaction_ids,
     )
 
@@ -929,7 +572,7 @@ def handle_message(
     language = Language(language)
     action = CustomerAction(action) if action is not None else None
     case = _load_or_create_case(session, case_id, language, db_path)
-    turn = _Turn(session, case, language, uuid.uuid4().hex, db_path)
+    turn = Turn(session, case, language, uuid.uuid4().hex, db_path)
     if case_id is not None and case.case_id != case_id:
         turn.log_event("unknown_case_id_new_case_started", {"requested_case_id": case_id})
     cases.log_message(case.case_id, "customer", text, db_path=db_path)
@@ -948,10 +591,10 @@ def handle_message(
         if case.state == CaseState.CONFIRMING:
             return _handle_confirmation(turn, text, action)
         if case.state == CaseState.AWAITING_EXPLANATION:
-            return _handle_explanation(turn, text)
+            return handle_explanation(turn, text, policy_verdict=_policy_verdict)
         return _handle_report(turn, text)
     except duckdb.Error:
-        return _force_escalation(
+        return force_escalation(
             turn, event_type="fixture_unavailable", failed_call="fixture_lookup",
             action_taken="La consulta a los datos del cliente falló.",
         )
@@ -960,7 +603,7 @@ def handle_message(
 # -- Free-text reports -----------------------------------------------------------
 
 
-def _merged_report(turn: _Turn, extraction: llm.ExtractedEntities) -> ReportedCharge:
+def _merged_report(turn: Turn, extraction: llm.ExtractedEntities) -> ReportedCharge:
     """This turn's details on top of what the case already has: a follow-up
     that does not restate the amount, date, currency or merchant keeps the
     earlier value.
@@ -984,21 +627,21 @@ def _brings_new_info(extraction: llm.ExtractedEntities, case: cases.Case) -> boo
     return new_amount or new_date or new_merchant
 
 
-def _handle_report(turn: _Turn, text: str) -> ChatReply:
+def _handle_report(turn: Turn, text: str) -> ChatReply:
     """A free-text turn: extract what the customer said, then either match it
     (AD-11), show them their charges to pick from, or escalate.
     """
     try:
         extraction = llm.extract_entities(text, language=turn.language, today=config.DATA_AS_OF)
     except llm.LLMUnavailable:
-        return _force_escalation(
+        return force_escalation(
             turn, event_type="llm_unavailable", failed_call="extract_entities",
             action_taken="El servicio de NLU no respondió tras agotar los reintentos.",
         )
     if extraction.parse_failed:
         turn.log_event("extraction_parse_failed", {"call": "extract_entities"})
     has_details = extraction.has_details
-    if extraction.wants_human and (_human_handoff_available(turn.case) or not has_details):
+    if extraction.wants_human and (human_handoff_available(turn.case) or not has_details):
         return _handle_human_request(turn)
     if extraction.wants_human:
         # Asked for a person but also gave details: try them first.
@@ -1008,7 +651,7 @@ def _handle_report(turn: _Turn, text: str) -> ChatReply:
     if not has_details and extraction.intent == llm.ExtractionIntent.OTHER:
         return _introduce(turn, PromptScene.OUT_OF_SCOPE)
     if cases.increment_turn_count(turn.case.case_id, db_path=turn.db_path) > MAX_CASE_TURNS:
-        return _escalate(turn, handoffs.turn_limit(turn.report, turn.case))
+        return escalate(turn, handoffs.turn_limit(turn.report, turn.case))
 
     report = _merged_report(turn, extraction)
     if not has_details and extraction.intent == llm.ExtractionIntent.SHOW_CHARGES:
@@ -1023,7 +666,7 @@ def _handle_report(turn: _Turn, text: str) -> ChatReply:
     )
 
 
-def _handle_full_report(turn: _Turn, report: ReportedCharge, *, spend_round: bool, can_ask_again: bool) -> ChatReply:
+def _handle_full_report(turn: Turn, report: ReportedCharge, *, spend_round: bool, can_ask_again: bool) -> ChatReply:
     evaluation = _unless_already_credited(
         turn,
         evaluate_case(
@@ -1038,9 +681,9 @@ def _handle_full_report(turn: _Turn, report: ReportedCharge, *, spend_round: boo
         # report: the customer confirms the matched charge first (AD-12).
         return _finish_confirming(turn, evaluation.matched_transaction, report)
     if evaluation.state == CaseState.ESCALATED:
-        return _finish_escalated(turn, evaluation, report)
+        return finish_escalated(turn, evaluation, report)
     if not can_ask_again:
-        return _finish_escalated(
+        return finish_escalated(
             turn, handoffs.ambiguous_match(report, evaluation.candidates, turn.case.clarification_rounds), report,
         )
     matches = matching_charges(turn.session, report)
@@ -1049,10 +692,10 @@ def _handle_full_report(turn: _Turn, report: ReportedCharge, *, spend_round: boo
 
 
 def _handle_partial_report(
-    turn: _Turn, report: ReportedCharge, *, merchant_named_now: bool, spend_round: bool, can_ask_again: bool,
+    turn: Turn, report: ReportedCharge, *, merchant_named_now: bool, spend_round: bool, can_ask_again: bool,
 ) -> ChatReply:
     if not can_ask_again:
-        return _escalate(turn, handoffs.unidentified_charge(report, turn.case))
+        return escalate(turn, handoffs.unidentified_charge(report, turn.case))
     search = find_charges(turn.session, report)
     if merchant_named_now and search.matched_on_merchant and len(search.charges) == 1:
         # "El de Uber": exactly one of their charges is at that merchant, so
