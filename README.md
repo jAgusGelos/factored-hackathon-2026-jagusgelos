@@ -205,6 +205,7 @@ own app database:
 - Safe automated resolution rate: 0.22 (6/27; the mix is mostly escalation/adversarial by design).
 - Containment rate: 0.25 (6/24 concluded cases).
 - Pipeline latency (excludes real LLM network time): p50 0.26s, p95 0.44s.
+- Real Claude Haiku 4.5 turn latency (manual runs, 2026-09-30): the explanation turn that resolves took 1.3-6.6 s (median 3.2 s over 8 ES/PT runs; 3.1-17.8 s before the resolution message became a validated template), while a first typed report, which makes two model calls, took 6-22 s. Every turn's model calls share a 20 s budget and the chat shows a typing indicator, then a retry option at 25 s.
 - Estimated cost (Haiku 4.5 list pricing, not measured billing): ~$0.0015/attempted case,
   ~$0.0066/successful resolution.
 
