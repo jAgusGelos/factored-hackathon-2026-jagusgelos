@@ -437,8 +437,8 @@ async function renderReply(reply, prevState) {
 function appendRetryCard(turn, inProgress) {
   const retryBtn = quickButton(t("retry"), () => {
     if (state.busy) return;
-    // This retry row is retired for good; turn.retired keeps the blocks the
-    // first send took away, the only ones a rejection may give back.
+    // Retires this retry row too. It never comes back: a rejection restores
+    // only turn.retired, the blocks the first send took away.
     retireInteractiveBlocks();
     runTurn(turn);
   }, "btn-secondary");
