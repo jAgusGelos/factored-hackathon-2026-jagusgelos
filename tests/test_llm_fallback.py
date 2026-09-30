@@ -16,6 +16,7 @@ import httpx
 import pytest
 
 from app import llm
+from app.policy import DisputeReason
 
 
 @pytest.fixture(autouse=True)
@@ -148,3 +149,9 @@ def test_unknown_or_missing_intent_defaults_to_report():
     assert llm._parse_extraction_response(base + "}").intent == llm.ExtractionIntent.REPORT
     assert llm._parse_extraction_response(base + ', "intent": "approve_refund"}').intent == llm.ExtractionIntent.REPORT
     assert llm._parse_extraction_response(base + ', "intent": "greeting"}').intent == llm.ExtractionIntent.GREETING
+
+
+@pytest.mark.parametrize("reason", list(DisputeReason))
+def test_the_assessment_prompt_offers_and_describes_every_dispute_reason(reason):
+    assert f'"{reason}"' in llm._ASSESSMENT_SYSTEM_PROMPT
+    assert f"{reason} = " in llm._ASSESSMENT_SYSTEM_PROMPT

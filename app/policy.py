@@ -169,9 +169,40 @@ class ExplanationVerdict(StrEnum):
     ESCALATE = "escalate"
 
 
-def evaluate_explanation(
-    assessment: ExplanationAssessment, *, attempts_left: bool
-) -> tuple[ExplanationVerdict, str | None]:
+@dataclass(frozen=True)
+class ExplanationDecision:
+    """An ESCALATE always says why (for the handoff); the other verdicts never do."""
+
+    verdict: ExplanationVerdict
+    escalation_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.verdict == ExplanationVerdict.ESCALATE:
+            if not isinstance(self.escalation_reason, str) or self.escalation_reason == "":
+                raise ValueError(
+                    "ExplanationDecision: an ESCALATE needs a non-empty str escalation_reason, "
+                    f"got {self.escalation_reason!r}"
+                )
+        elif self.escalation_reason is not None:
+            raise ValueError(
+                f"ExplanationDecision: only an ESCALATE carries an escalation_reason, got "
+                f"{self.escalation_reason!r} on {self.verdict.name}"
+            )
+
+    @classmethod
+    def accept(cls) -> ExplanationDecision:
+        return cls(ExplanationVerdict.ACCEPT)
+
+    @classmethod
+    def needs_detail(cls) -> ExplanationDecision:
+        return cls(ExplanationVerdict.NEEDS_DETAIL)
+
+    @classmethod
+    def escalate(cls, reason: str) -> ExplanationDecision:
+        return cls(ExplanationVerdict.ESCALATE, reason)
+
+
+def evaluate_explanation(assessment: ExplanationAssessment, *, attempts_left: bool) -> ExplanationDecision:
     """What the model's read of the explanation may change: ask for one more
     detail, or force escalation. ACCEPT is NOT eligibility: it only means the
     explanation raised no red flag, and the charge still has to pass the
@@ -180,20 +211,20 @@ def evaluate_explanation(
     """
     if not assessment.specific or assessment.reason == DisputeReason.UNCLEAR:
         if attempts_left:
-            return ExplanationVerdict.NEEDS_DETAIL, None
-        return ExplanationVerdict.ESCALATE, (
+            return ExplanationDecision.needs_detail()
+        return ExplanationDecision.escalate(
             "La explicación del cliente no fue lo bastante concreta para decidir, aun después de "
             "pedirle más detalle."
         )
     if not assessment.consistent:
         contradictions = "; ".join(assessment.contradictions) or "sin detalle"
-        return ExplanationVerdict.ESCALATE, (
+        return ExplanationDecision.escalate(
             f"La explicación contradice los datos del cargo: {contradictions}."
         )
     person_needed = REASONS_REQUIRING_A_PERSON.get(assessment.reason)
     if person_needed is not None:
-        return ExplanationVerdict.ESCALATE, person_needed
-    return ExplanationVerdict.ACCEPT, None
+        return ExplanationDecision.escalate(person_needed)
+    return ExplanationDecision.accept()
 
 
 class MatchOutcome(StrEnum):
@@ -339,6 +370,13 @@ def _duplicate_failures(txn: TransactionCandidate, ctx: DisputeContext) -> list[
     return reasons
 
 
+# One evidence check per reason in AUTO_CREDITABLE_REASONS (pinned by tests/test_policy.py).
+_EVIDENCE_CHECKS = {
+    DisputeReason.DUPLICATE: _duplicate_failures,
+    DisputeReason.UNRECOGNIZED: _unrecognized_failures,
+}
+
+
 def evaluate_resolution(txn: TransactionCandidate, ctx: DisputeContext) -> ResolutionEvaluation:
     """Row 4/5 of AD-11 (with AD-13's reason-specific rows), given a single
     CONFIDENT match. Never called for an ambiguous match — that path is Row
@@ -357,10 +395,8 @@ def evaluate_resolution(txn: TransactionCandidate, ctx: DisputeContext) -> Resol
     auto-resolves. Enforced by `tests/test_policy_not_overridden.py`.
     """
     reasons = list(screening_failures(txn, ctx))
-    if ctx.reason == DisputeReason.DUPLICATE:
-        reasons += _duplicate_failures(txn, ctx)
-    elif ctx.reason == DisputeReason.UNRECOGNIZED:
-        reasons += _unrecognized_failures(txn, ctx)
+    if ctx.reason in AUTO_CREDITABLE_REASONS:
+        reasons += _EVIDENCE_CHECKS[ctx.reason](txn, ctx)
     elif ctx.reason is not None:
         reasons.append(REASONS_REQUIRING_A_PERSON.get(
             ctx.reason, f"dispute reason {ctx.reason!r} is never credited automatically",

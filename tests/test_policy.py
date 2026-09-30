@@ -3,12 +3,17 @@ from datetime import date
 
 import pytest
 
+from app import policy, replies
+from app.llm import Language
 from app.policy import (
+    AUTO_CREDITABLE_REASONS,
     MAX_AUTO_CREDIT_TOTAL_USD,
     MAX_TRANSACTION_AGE_DAYS,
+    REASONS_REQUIRING_A_PERSON,
     DisputeContext,
     DisputeReason,
     ExplanationAssessment,
+    ExplanationDecision,
     ExplanationVerdict,
     MatchOutcome,
     ResolutionDecision,
@@ -209,31 +214,60 @@ def _assessment(**overrides) -> ExplanationAssessment:
 
 def test_a_vague_explanation_asks_for_one_more_detail_then_escalates():
     vague = _assessment(specific=False)
-    assert evaluate_explanation(vague, attempts_left=True) == (ExplanationVerdict.NEEDS_DETAIL, None)
-    verdict, why = evaluate_explanation(vague, attempts_left=False)
-    assert verdict == ExplanationVerdict.ESCALATE and why
+    assert evaluate_explanation(vague, attempts_left=True) == ExplanationDecision.needs_detail()
+    decision = evaluate_explanation(vague, attempts_left=False)
+    assert decision.verdict == ExplanationVerdict.ESCALATE and decision.escalation_reason
 
 
 def test_an_inconsistent_explanation_escalates_with_the_contradictions():
-    verdict, why = evaluate_explanation(
+    decision = evaluate_explanation(
         _assessment(consistent=False, contradictions=("dice que fue en marzo",)), attempts_left=True,
     )
-    assert verdict == ExplanationVerdict.ESCALATE
-    assert "marzo" in why
+    assert decision.verdict == ExplanationVerdict.ESCALATE
+    assert "marzo" in decision.escalation_reason
 
 
 @pytest.mark.parametrize("reason", [DisputeReason.NOT_RECEIVED, DisputeReason.WRONG_AMOUNT, DisputeReason.CARD_LOST_STOLEN])
 def test_explanations_naming_a_person_only_reason_escalate(reason):
-    verdict, why = evaluate_explanation(_assessment(reason=reason), attempts_left=True)
-    assert verdict == ExplanationVerdict.ESCALATE and why
+    decision = evaluate_explanation(_assessment(reason=reason), attempts_left=True)
+    assert decision.verdict == ExplanationVerdict.ESCALATE and decision.escalation_reason
 
 
 def test_accepting_an_explanation_does_not_make_an_ineligible_charge_creditable():
     """The most convincing explanation possible still leaves the charge to
     the evidence check: a card-present "unrecognized" charge escalates.
     """
-    assert evaluate_explanation(_assessment(), attempts_left=True)[0] == ExplanationVerdict.ACCEPT
+    assert evaluate_explanation(_assessment(), attempts_left=True) == ExplanationDecision.accept()
     assert evaluate_resolution(clean_txn(channel="POS"), clean_ctx()).decision == ResolutionDecision.FORCED_ESCALATION
+
+
+@pytest.mark.parametrize("reason", [None, ""])
+def test_an_escalation_always_carries_its_reason(reason):
+    with pytest.raises(ValueError):
+        ExplanationDecision(ExplanationVerdict.ESCALATE, reason)
+
+
+@pytest.mark.parametrize("verdict", [ExplanationVerdict.ACCEPT, ExplanationVerdict.NEEDS_DETAIL])
+def test_only_an_escalation_carries_a_reason(verdict):
+    with pytest.raises(ValueError):
+        ExplanationDecision(verdict, "why")
+
+
+# -- One set of automatically creditable reasons ----------------------------------------
+
+
+def test_every_creditable_reason_has_exactly_one_evidence_check():
+    assert set(policy._EVIDENCE_CHECKS) == AUTO_CREDITABLE_REASONS
+
+
+def test_no_creditable_reason_is_also_sent_to_a_person():
+    assert not AUTO_CREDITABLE_REASONS & set(REASONS_REQUIRING_A_PERSON)
+
+
+@pytest.mark.parametrize("language", [Language.ES, Language.PT])
+def test_every_creditable_reason_has_a_resolution_message_and_its_disclosures(language):
+    assert set(replies._RESOLVED[language]) == AUTO_CREDITABLE_REASONS
+    assert set(replies._REQUIRED_DISCLOSURES[language]) == AUTO_CREDITABLE_REASONS
 
 
 # -- USD pricing ----------------------------------------------------------------------

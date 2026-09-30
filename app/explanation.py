@@ -22,6 +22,7 @@ from app.policy import (
     MIN_EXPLANATION_WORDS,
     DisputeReason,
     ExplanationAssessment,
+    ExplanationDecision,
     ExplanationVerdict,
     evaluate_explanation,
 )
@@ -94,15 +95,15 @@ def _too_short(explanation: str) -> bool:
 
 def _explanation_verdict(
     assessment: ExplanationAssessment | None, *, attempts_left: bool,
-) -> tuple[ExplanationVerdict, str | None]:
+) -> ExplanationDecision:
     """An unusable model answer is the model's failure, not the customer's:
     ask once more, then escalate saying so.
     """
     if assessment is not None:
         return evaluate_explanation(assessment, attempts_left=attempts_left)
     if attempts_left:
-        return ExplanationVerdict.NEEDS_DETAIL, None
-    return ExplanationVerdict.ESCALATE, handoffs.ASSESSMENT_FAILED
+        return ExplanationDecision.needs_detail()
+    return ExplanationDecision.escalate(handoffs.ASSESSMENT_FAILED)
 
 
 def handle_explanation(turn: Turn, text: str, *, policy_verdict: PolicyVerdict) -> ChatReply:
@@ -125,20 +126,26 @@ def handle_explanation(turn: Turn, text: str, *, policy_verdict: PolicyVerdict) 
             action_taken="El servicio de NLU no respondió al evaluar la explicación del cliente.",
         )
     attempts_left = case.explanation_attempts + 1 < MAX_EXPLANATION_ATTEMPTS
-    verdict, why = _explanation_verdict(assessment, attempts_left=attempts_left)
+    decision = _explanation_verdict(assessment, attempts_left=attempts_left)
     turn.log_event(
         "explanation_assessed",
-        {"verdict": verdict, "reason": assessment.reason if assessment else None,
+        {"verdict": decision.verdict, "reason": assessment.reason if assessment else None,
          "specific": assessment.specific if assessment else None,
          "consistent": assessment.consistent if assessment else None},
     )
     report = replace(turn.report, reason=assessment.reason if assessment else None)
 
-    if verdict == ExplanationVerdict.NEEDS_DETAIL:
+    if decision.verdict == ExplanationVerdict.NEEDS_DETAIL:
         return _ask_for_more_detail(turn, text)
-    if verdict == ExplanationVerdict.ESCALATE:
+    # Only an ESCALATE carries a reason (ExplanationDecision enforces it), so
+    # this is the ESCALATE branch with the reason narrowed to str.
+    if decision.escalation_reason is not None:
         return finish_escalated(
-            turn, handoffs.explanation_not_accepted(report, matched, why, assessment, too_short=too_short), report,
+            turn,
+            handoffs.explanation_not_accepted(
+                report, matched, decision.escalation_reason, assessment, too_short=too_short,
+            ),
+            report,
         )
     # The explanation raised no red flag; the evidence check for the reason it
     # names decides (a persuasive story alone never credits anything).
