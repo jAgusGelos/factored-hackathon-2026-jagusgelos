@@ -12,7 +12,7 @@ from dataclasses import replace
 from typing import Protocol
 
 from app import handoffs, llm, replies
-from app.case_model import CaseEvaluation, CaseState, ReportedCharge
+from app.case_model import CaseEvaluation, CaseState, EscalationReason, ReportedCharge
 from app.case_turn import ChatReply, Turn, escalate, finish_escalated, force_escalation, transition
 from app.charge_search import iso_day
 from app.credit import finish_resolved
@@ -20,6 +20,7 @@ from app.llm import PromptScene
 from app.policy import (
     MAX_EXPLANATION_ATTEMPTS,
     MIN_EXPLANATION_WORDS,
+    REASONS_REQUIRING_A_PERSON,
     DisputeReason,
     ExplanationAssessment,
     ExplanationDecision,
@@ -125,6 +126,7 @@ def handle_explanation(turn: Turn, text: str, *, policy_verdict: PolicyVerdict) 
         return force_escalation(
             turn, event_type="llm_unavailable", failed_call="assess_explanation",
             action_taken="El servicio de NLU no respondió al evaluar la explicación del cliente.", error=exc,
+            charge=matched,
         )
     attempts_left = case.explanation_attempts + 1 < MAX_EXPLANATION_ATTEMPTS
     decision = _explanation_verdict(assessment, attempts_left=attempts_left)
@@ -143,6 +145,7 @@ def handle_explanation(turn: Turn, text: str, *, policy_verdict: PolicyVerdict) 
             turn,
             handoffs.explanation_not_accepted(
                 report, matched, decision.reason_to_escalate, assessment, too_short=too_short,
+                customer_reason=_customer_reason(assessment, decision),
             ),
             report,
         )
@@ -157,6 +160,23 @@ def handle_explanation(turn: Turn, text: str, *, policy_verdict: PolicyVerdict) 
     facts = {**evaluation.handoff.facts, **handoffs.explanation_facts(assessment, too_short=too_short)}
     handoff = replace(evaluation.handoff, facts=facts)
     return finish_escalated(turn, replace(evaluation, handoff=handoff), report)
+
+
+# The dispute reasons a person handles, as the customer is told them.
+_PERSON_REASONS = {
+    DisputeReason.NOT_RECEIVED: EscalationReason.NOT_RECEIVED,
+    DisputeReason.WRONG_AMOUNT: EscalationReason.WRONG_AMOUNT,
+    DisputeReason.CARD_LOST_STOLEN: EscalationReason.CARD_LOST_STOLEN,
+}
+
+
+def _customer_reason(assessment: ExplanationAssessment | None, decision: ExplanationDecision) -> EscalationReason:
+    """The reason the customer gave, when that reason alone sent the case to a
+    person; a vague, contradictory or unassessable explanation is NEEDS_REVIEW.
+    """
+    if assessment is not None and decision.reason_to_escalate == REASONS_REQUIRING_A_PERSON.get(assessment.reason):
+        return _PERSON_REASONS[assessment.reason]
+    return EscalationReason.NEEDS_REVIEW
 
 
 def _ask_for_more_detail(turn: Turn, text: str, missing_detail: MissingDetail | None) -> ChatReply:

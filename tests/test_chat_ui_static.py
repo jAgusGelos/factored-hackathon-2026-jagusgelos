@@ -25,6 +25,8 @@ APP_CSS = (STATIC / "css" / "app.css").read_text(encoding="utf-8")
 NEW_KEYS = (
     "waitGeneric", "waitSearching", "waitConfirming", "waitExplanation", "waitSlow",
     "turnError", "retry", "quickNewClaim", "claimResolved", "claimEscalated", "claimDivider",
+    "caseNumberLabel", "escalationStepDone", "escalationStepPending", "escalationDeadline",
+    "stepDone", "stepPending", "escalationCharge", "escalationReason", "escalationNote",
 )
 
 
@@ -127,3 +129,65 @@ def test_the_client_actions_match_the_server_ones():
 def test_the_show_charges_starter_is_an_action_not_free_text():
     starter = re.search(r"function starterButtons\(\) \{(.*?)^\}", CHAT_JS, re.MULTILINE | re.DOTALL)
     assert starter and "ACTIONS.SHOW_CHARGES" in starter.group(1)
+
+
+# -- Escalation card and client panel (usability-s2 DESIGN.md, direction B) ------
+
+
+def _function_body(name: str) -> str:
+    match = re.search(rf"^(?:async )?function {name}\(.*?\) \{{\n(.*?)^\}}", CHAT_JS, re.MULTILINE | re.DOTALL)
+    assert match, f"function {name} not found in chat.js"
+    return match.group(1)
+
+
+def test_the_escalation_copy_follows_the_design():
+    es, pt = _entries("es"), _entries("pt")
+    assert '"Número de caso"' in es["caseNumberLabel"] and '"Número do caso"' in pt["caseNumberLabel"]
+    assert '"Le contactamos"' in es["escalationStepPending"]
+    assert "En un plazo de hasta ${days} días hábiles" in es["escalationDeadline"]
+    assert "Em até ${days} dias úteis" in pt["escalationDeadline"]
+    assert '"Este chat ya no agrega información al caso."' in es["escalationNote"]
+    assert '"Hecho:"' in es["stepDone"] and '"Pendiente:"' in es["stepPending"]
+
+
+def test_the_timeline_never_says_today():
+    for lang in ("es", "pt"):
+        entries = _entries(lang)
+        for key in ("escalationStepDone", "escalationStepPending", "escalationDeadline"):
+            assert not re.search(r"\b(Hoy|Hoje)\b", entries[key]), (lang, key)
+
+
+def test_card_and_panel_share_one_escalation_helper():
+    assert "escalationDetailsHtml()" in _function_body("renderTurnActionCard")
+    assert "escalationDetailsHtml()" in _function_body("renderPersonaView")
+    assert CHAT_JS.count("function escalationDetailsHtml(") == 1
+    helper = _function_body("escalationDetailsHtml")
+    assert "caseStatus" not in helper and "handoff" not in helper
+    # The charge line exists only when the charge is known: no placeholder.
+    assert re.search(r"if \(esc\.charge\) html \+=", helper)
+    assert re.search(r"if \(esc\.reason\) html \+=", helper)
+    assert "time" in helper and "contact_business_days" in helper
+
+
+def test_the_escalation_card_does_not_depend_on_the_case_refresh():
+    render = _function_body("renderReply")
+    assert "rememberEscalation(reply.escalation)" in render
+    assert "reply.state === CASE_STATES.ESCALATED" in render
+    # The panel falls back to the stored escalation when the refresh failed.
+    assert "state.escalation ? CASE_STATES.ESCALATED" in _function_body("renderPanel")
+
+
+def test_a_new_claim_clears_the_stored_escalation():
+    assert "state.escalation = null;" in _function_body("startNewClaim")
+
+
+def test_the_timeline_states_are_spoken_not_only_drawn():
+    helper = _function_body("escalationDetailsHtml")
+    assert 't("stepDone")' in helper and 't("stepPending")' in helper
+    assert 'class="sr-only"' in _function_body("verifyStepHtml")
+
+
+def test_only_two_new_css_rules_for_the_escalation():
+    assert re.search(r"^\.case-id \{[^}]*tabular-nums", APP_CSS, re.MULTILINE)
+    assert re.search(r"^\.action-card__timeline \{", APP_CSS, re.MULTILINE)
+

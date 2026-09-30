@@ -29,7 +29,7 @@ import pytest
 from app import cases, db
 from app import transactions as txns_module
 from app.auth import Session
-from app.case_model import ReportedCharge
+from app.case_model import EscalationReason, ReportedCharge
 from app.policy import DisputeReason
 from app.state_machine import CaseState, evaluate_case, handle_message
 from app.transactions import (
@@ -42,6 +42,7 @@ from app.transactions import (
     list_own_charges,
     search_own_transactions,
 )
+from tests.support import assert_escalation_notice
 
 CUSTOMER_DATA_FUNCTIONS = (
     search_own_transactions,
@@ -261,7 +262,7 @@ def test_customer_requested_human_without_amount_or_date_records_no_fabricated_f
 def test_fixture_lookup_failure_forces_escalation_with_fallback_message(tmp_path, monkeypatch):
     from unittest.mock import patch
 
-    from app import llm, state_machine
+    from app import state_machine
     from tests.support import mock_anthropic_client
 
     def _broken_profile(_session):
@@ -277,7 +278,7 @@ def test_fixture_lookup_failure_forces_escalation_with_fallback_message(tmp_path
         reply = handle_message(SESSION, None, "Tengo un cargo que no reconozco", db_path=app_db)
 
     assert reply["state"] == CaseState.ESCALATED
-    assert reply["reply"] == llm.DETERMINISTIC_FALLBACK_MESSAGE[llm.Language.ES]
+    assert_escalation_notice(reply, EscalationReason.SERVICE_ISSUE, charge_named=False)
 
 
 def test_unknown_case_id_starts_a_new_case_and_logs_it(tmp_path):

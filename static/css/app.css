@@ -144,6 +144,9 @@ button:focus-visible, input:focus-visible, a:focus-visible, [tabindex]:focus-vis
 .action-card--error { border-color: var(--status-critical); background: var(--status-critical-bg); }
 .action-card--error .action-card__head { color: var(--status-critical); }
 .action-card__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+/* Escalation details (usability-s2 DESIGN.md, direction B): the case number is the hero. */
+.case-id { font-size: var(--text-lg); font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: .02em; color: var(--text); user-select: text; }
+.action-card__timeline { margin: var(--space-3) 0; }
 
 /* -- Typing indicator (usability-s1 DESIGN.md): an agent bubble with dots and a
    step-aware caption. The whole bubble is aria-hidden; the wait is announced

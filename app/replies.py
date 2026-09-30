@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import re
 from datetime import date
+from typing import TypedDict
 
-from app.case_model import CaseState
-from app.charge_search import ListFilter, iso_day, txn_day
+from app.case_model import CaseState, EscalationReason
+from app.charge_search import ChargeOption, ListFilter, charge_option, iso_day, txn_day
 from app.llm import Language
-from app.policy import DisputeReason, MissingDetail
+from app.policy import ESCALATION_CONTACT_BUSINESS_DAYS, DisputeReason, MissingDetail
 from app.transactions import TransactionCandidate
 
 WELCOME = {
@@ -168,15 +169,75 @@ CASE_MOVED_ON = {
     Language.PT: "Seu caso mudou enquanto eu respondia (talvez em outra aba). Seguimos daqui.",
 }
 
-ESCALATED = {
+class EscalationNotice(TypedDict):
+    """What the customer is told about a case that went to a person, for the
+    chat's card and client panel (`ChatReply.escalation`). The same values
+    are in the notice text, so the message and the card cannot disagree.
+    """
+
+    case_number: str
+    # Only a charge the customer identified (picked, named, confirmed): never
+    # an unconfirmed proposal (plan.md AD-5).
+    charge: ChargeOption | None
+    # Localized; None for a case escalated before the reason was stored.
+    reason: str | None
+    contact_business_days: int
+
+
+# The reason sentence of the escalation notice, one per EscalationReason. No
+# threshold, score or rule name: every policy outcome is NEEDS_REVIEW.
+_ESCALATION_REASON = {
+    Language.ES: {
+        EscalationReason.HUMAN_REQUESTED: "usted pidió hablar con una persona",
+        EscalationReason.CHARGE_NOT_IDENTIFIED: "no pudimos identificar el cargo con los datos disponibles",
+        EscalationReason.NEEDS_REVIEW: "el cargo necesita la revisión de una persona antes de cualquier reintegro",
+        EscalationReason.NOT_RECEIVED: (
+            "usted indicó que no recibió lo que pagó, y ese reclamo se gestiona con el comercio"
+        ),
+        EscalationReason.WRONG_AMOUNT: "usted indicó que el monto no es el correcto, y hay que determinar el monto real",
+        EscalationReason.CARD_LOST_STOLEN: (
+            "usted indicó que perdió la tarjeta o se la robaron, y una persona revisa sus movimientos recientes"
+        ),
+        EscalationReason.ALREADY_CREDITED: "ese cargo ya tuvo un crédito en otro caso",
+        EscalationReason.ALREADY_IN_REVIEW: "ese cargo ya se está revisando en otro caso",
+        EscalationReason.SERVICE_ISSUE: "tuvimos un problema técnico al procesar su solicitud",
+    },
+    Language.PT: {
+        EscalationReason.HUMAN_REQUESTED: "você pediu para falar com uma pessoa",
+        EscalationReason.CHARGE_NOT_IDENTIFIED: "não conseguimos identificar a cobrança com os dados disponíveis",
+        EscalationReason.NEEDS_REVIEW: "a cobrança precisa da análise de uma pessoa antes de qualquer reembolso",
+        EscalationReason.NOT_RECEIVED: (
+            "você informou que não recebeu o que pagou, e essa contestação é tratada com o comerciante"
+        ),
+        EscalationReason.WRONG_AMOUNT: "você informou que o valor não está correto, e é preciso definir o valor real",
+        EscalationReason.CARD_LOST_STOLEN: (
+            "você informou que perdeu o cartão ou que ele foi roubado, e uma pessoa analisa suas "
+            "movimentações recentes"
+        ),
+        EscalationReason.ALREADY_CREDITED: "essa cobrança já teve um crédito em outro caso",
+        EscalationReason.ALREADY_IN_REVIEW: "essa cobrança já está em análise em outro caso",
+        EscalationReason.SERVICE_ISSUE: "tivemos um problema técnico ao processar sua solicitação",
+    },
+}
+
+_ESCALATION_NOTICE = {
     Language.ES: (
-        "Derivé su caso a una persona del equipo de disputas, con todo lo que revisamos hasta "
-        "aquí. Le contactará para continuar."
+        "Derivé su caso a una persona del equipo de disputas.{charge} Motivo: {reason}. Su número "
+        "de caso es {case_number}. Le contactaremos en un plazo de hasta {days} días hábiles. Este "
+        "chat ya no agrega información al caso: si tiene algo más para contar, podrá hacerlo cuando "
+        "le contacten."
     ),
     Language.PT: (
-        "Vou passar seu caso para uma pessoa da equipe de disputas, com tudo o que revisamos até "
-        "aqui. Ela vai entrar em contato para seguir."
+        "Encaminhei seu caso para uma pessoa da equipe de contestações.{charge} Motivo: {reason}. O "
+        "número do seu caso é {case_number}. Entraremos em contato em até {days} dias úteis. Este "
+        "chat não adiciona mais informações ao caso: se tiver algo mais a contar, poderá fazer isso "
+        "quando entrarmos em contato."
     ),
+}
+
+_ESCALATION_CHARGE = {
+    Language.ES: " El cargo es {charge}.",
+    Language.PT: " A cobrança é {charge}.",
 }
 
 _RESOLVED = {
@@ -223,11 +284,17 @@ _UNKNOWN_MERCHANT = {
 _TERMINAL = {
     Language.ES: {
         CaseState.RESOLVED_AUTO: "Su caso ya fue resuelto (referencia {reference}).",
-        CaseState.ESCALATED: "Su caso ya fue derivado a una persona del equipo, que le contactará.",
+        CaseState.ESCALATED: (
+            "Su caso {case_number} ya fue derivado a una persona del equipo, que le contactará en un "
+            "plazo de hasta {days} días hábiles desde la derivación."
+        ),
     },
     Language.PT: {
         CaseState.RESOLVED_AUTO: "Seu caso já foi resolvido (referência {reference}).",
-        CaseState.ESCALATED: "Seu caso já foi encaminhado a um agente humano; você será contatado em breve.",
+        CaseState.ESCALATED: (
+            "Seu caso {case_number} já foi encaminhado a uma pessoa da equipe, que entrará em contato "
+            "em até {days} dias úteis a partir do encaminhamento."
+        ),
     },
 }
 
@@ -254,10 +321,38 @@ def resolved(reference: str, reason: DisputeReason, language: Language) -> str:
     return _RESOLVED[language][reason].format(reference=reference)
 
 
-def terminal_case(state: CaseState, reference: str | None, language: Language) -> str:
+def terminal_case(state: CaseState, *, case_number: str, reference: str | None, language: Language) -> str:
     # The CURRENT request's language, not the case's: the customer may have
     # switched the ES/PT toggle after the case closed.
-    return _TERMINAL[language][state].format(reference=reference)
+    return _TERMINAL[language][state].format(
+        reference=reference, case_number=case_number, days=ESCALATION_CONTACT_BUSINESS_DAYS,
+    )
+
+
+def escalation_summary(
+    case_number: str, reason: EscalationReason | None, charge: TransactionCandidate | None, language: Language,
+) -> EscalationNotice:
+    return {
+        "case_number": case_number,
+        "charge": charge_option(charge) if charge is not None else None,
+        "reason": _ESCALATION_REASON[language][reason] if reason is not None else None,
+        "contact_business_days": ESCALATION_CONTACT_BUSINESS_DAYS,
+    }
+
+
+def escalation_notice(
+    case_number: str, reason: EscalationReason, charge: TransactionCandidate | None, language: Language,
+) -> tuple[str, EscalationNotice]:
+    """The message a case gets when it goes to a person, always this template
+    (never the model): the charge when the customer identified it, the reason,
+    the case number and the contact deadline.
+    """
+    notice = escalation_summary(case_number, reason, charge, language)
+    text = _ESCALATION_NOTICE[language].format(
+        charge=_ESCALATION_CHARGE[language].format(charge=charge_summary(charge, language)) if charge else "",
+        reason=notice["reason"], case_number=case_number, days=notice["contact_business_days"],
+    )
+    return text, notice
 
 
 def charge_summary(matched: TransactionCandidate, language: Language) -> str:

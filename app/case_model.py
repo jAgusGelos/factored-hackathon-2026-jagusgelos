@@ -43,6 +43,26 @@ class CustomerAction(StrEnum):
     SHOW_CHARGES = "show_charges"
 
 
+class EscalationReason(StrEnum):
+    """Why a case went to a person, in the customer's terms: the escalation
+    notice (`replies.escalation_notice`) turns it into one sentence in the
+    customer's language. Chosen at the site that escalates, never by the model,
+    and never split by policy rule: every policy, fraud, amount, limit,
+    contradiction or vague-explanation outcome is NEEDS_REVIEW, so no
+    threshold or rule name can reach the customer.
+    """
+
+    HUMAN_REQUESTED = "human_requested"
+    CHARGE_NOT_IDENTIFIED = "charge_not_identified"
+    NEEDS_REVIEW = "needs_review"
+    NOT_RECEIVED = "not_received"
+    WRONG_AMOUNT = "wrong_amount"
+    CARD_LOST_STOLEN = "card_lost_stolen"
+    ALREADY_CREDITED = "already_credited"
+    ALREADY_IN_REVIEW = "already_in_review"
+    SERVICE_ISSUE = "service_issue"
+
+
 @dataclass(frozen=True)
 class HandoffRecord:
     """The structured artifact a case that escalates produces — facts,
@@ -74,6 +94,9 @@ class CaseEvaluation:
     # The customer's other charges that make the matched one a verifiable
     # duplicate (AD-13); they decide the credit key of a duplicate reversal.
     duplicate_twins: tuple[str, ...] = field(default_factory=tuple)
+    # Set on every ESCALATED verdict (`case_turn.finish_escalated` refuses one
+    # without it): what the escalation notice tells the customer.
+    customer_reason: EscalationReason | None = None
 
 
 @dataclass(frozen=True)

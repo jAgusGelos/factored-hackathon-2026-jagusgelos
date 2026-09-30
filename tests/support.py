@@ -12,7 +12,15 @@ from datetime import date
 
 import pytest
 
-from app.policy import DisputeContext, DisputeReason, ExplanationAssessment
+from app import replies
+from app.case_model import CaseState, EscalationReason
+from app.llm import Language
+from app.policy import (
+    ESCALATION_CONTACT_BUSINESS_DAYS,
+    DisputeContext,
+    DisputeReason,
+    ExplanationAssessment,
+)
 from app.transactions import TransactionCandidate
 from support import (
     AUTO_RESOLVE_CHARGE,
@@ -72,6 +80,7 @@ __all__ = [
     "requires_real_fixture",
     "STATIC",
     "chat_js_language_block",
+    "assert_escalation_notice",
 ]
 
 STATIC = REPO_ROOT / "static"
@@ -87,6 +96,29 @@ def chat_js_language_block(chat_js: str, lang: str) -> str:
     match = re.search(rf"^  {lang}: \{{\n(.*?)^  \}},?$", chat_js, re.MULTILINE | re.DOTALL)
     assert match, f"STRINGS.{lang} not found in chat.js"
     return match.group(1)
+
+
+def assert_escalation_notice(
+    reply: dict, reason: EscalationReason, *, charge_named: bool, language: Language = Language.ES,
+) -> None:
+    """The reply escalated with the notice for `reason`: its `escalation`
+    object and its text carry the same case number, reason and deadline, and
+    the charge is named exactly when `charge_named`.
+    """
+    assert reply["state"] == CaseState.ESCALATED
+    escalation = reply["escalation"]
+    reason_text = replies.escalation_summary(reply["case_id"], reason, None, language)["reason"]
+    assert escalation["case_number"] == reply["case_id"]
+    assert escalation["reason"] == reason_text
+    assert escalation["contact_business_days"] == ESCALATION_CONTACT_BUSINESS_DAYS
+    assert (escalation["charge"] is not None) == charge_named
+    text = reply["reply"]
+    assert reply["case_id"] in text and reason_text in text
+    days = "días hábiles" if language == Language.ES else "dias úteis"
+    assert f"{ESCALATION_CONTACT_BUSINESS_DAYS} {days}" in text
+    assert (("El cargo es" if language == Language.ES else "A cobrança é") in text) == charge_named
+    if charge_named:
+        assert escalation["charge"]["merchant"] in text
 
 
 def clean_txn(**overrides) -> TransactionCandidate:

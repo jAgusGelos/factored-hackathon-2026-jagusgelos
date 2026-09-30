@@ -18,8 +18,9 @@ import pytest
 
 from app import auth, cases, config, db
 from app.auth import Session
+from app.case_model import EscalationReason
 from app.state_machine import CaseState, handle_message
-from tests.support import EXPLANATION, mock_anthropic_client
+from tests.support import EXPLANATION, assert_escalation_notice, mock_anthropic_client
 
 SESSION = Session(customer_id="CLI-1", expires_at=datetime.now(UTC) + timedelta(hours=1))
 OTHER_SESSION = Session(customer_id="CLI-OTHER", expires_at=datetime.now(UTC) + timedelta(hours=1))
@@ -226,7 +227,7 @@ def test_tool_failure_llm_exhausted_retries_forces_escalation_not_a_crash(app_db
         reply = handle_message(SESSION, None, "Tengo un cargo que no reconozco", db_path=app_db)
 
     assert reply["state"] == CaseState.ESCALATED
-    assert reply["reply"] == llm.DETERMINISTIC_FALLBACK_MESSAGE[llm.Language.ES]
+    assert_escalation_notice(reply, EscalationReason.SERVICE_ISSUE, charge_named=False)
 
 
 def test_mixed_language_input_processed_gracefully_never_a_hard_failure(app_db):

@@ -17,7 +17,7 @@ every call site uses — never hardcoded per call site). It enforces the NFR's
 bounded-retry contract: a 15s timeout, at most 2 retries with 1s/2s backoff,
 all inside the chat turn's shared model budget (`turn_deadline()`), then
 `LLMUnavailable` — the caller (Task 2.4's orchestration) is required to
-catch that and force escalation with a deterministic fallback message, never
+catch that and force escalation with the deterministic escalation notice, never
 crash, hang, or hallucinate a best-guess answer.
 """
 
@@ -88,18 +88,6 @@ def failure_payload(call: str, exc: LLMUnavailable) -> dict[str, str]:
     if isinstance(exc, LLMDeadlineExceeded):
         payload["cause"] = "deadline"
     return payload
-
-
-DETERMINISTIC_FALLBACK_MESSAGE = {
-    Language.ES: (
-        "Estamos teniendo dificultades técnicas para procesar su solicitud en este "
-        "momento. Una persona del equipo va a revisar su caso."
-    ),
-    Language.PT: (
-        "Estamos com dificuldades técnicas para processar sua solicitação neste "
-        "momento. Um agente humano vai revisar seu caso em breve."
-    ),
-}
 
 
 def build_prompt_context(
@@ -474,12 +462,6 @@ _STATE_INSTRUCTION = {
             "'¿es ese el cargo que no reconoce?'). Pídale que lo confirme o que lo corrija. NO "
             "diga que el caso está resuelto ni que se devuelve dinero todavía."
         ),
-        "escalated": (
-            "Indíquele que su caso pasa a una persona del equipo que lo va a revisar y se va a "
-            "comunicar con él. No prometa plazos ni resultados. No nombre estados internos del "
-            "sistema (como 'escalado') ni diga que entiende algo que el cliente no dijo. No le "
-            "haga preguntas ni le pida más datos: esta conversación termina aquí."
-        ),
         "greeting": (
             "Preséntese como el asistente de disputas de LATAM Bank (sin nombre propio) y "
             "explique qué puede hacer: ayudarle con un cargo que no reconoce, mostrarle sus "
@@ -538,12 +520,6 @@ _STATE_INSTRUCTION = {
             "de forma direta se é essa a cobrança que ele não reconhece (por exemplo: 'é essa "
             "a cobrança que você não reconhece?'). Peça que confirme ou corrija. NÃO "
             "diga que o caso está resolvido nem que o dinheiro será devolvido ainda."
-        ),
-        "escalated": (
-            "Conte que vai passar o caso para uma pessoa da equipe, que vai revisá-lo e "
-            "entrar em contato. Não prometa prazos nem resultados. Não cite estados internos "
-            "do sistema (como 'escalado'). Não faça perguntas nem peça mais dados: esta "
-            "conversa termina aqui."
         ),
         "greeting": (
             "Apresente-se como o assistente de contestações do LATAM Bank (sem nome próprio) e "

@@ -17,6 +17,7 @@ import duckdb
 import pytest
 
 from app import cases, config, llm
+from app.case_model import EscalationReason
 from app.case_turn import Turn
 from app.explanation import handle_explanation
 from app.state_machine import CaseState, handle_message
@@ -24,6 +25,7 @@ from tests.support import (
     AUTO_RESOLVE_CHARGE,
     EXPLANATION,
     OPENING,
+    assert_escalation_notice,
     charge_extraction,
     charge_report,
     demo_session,
@@ -267,7 +269,7 @@ def test_llm_outage_while_confirming_escalates_with_the_fallback_message(real_fi
         reply = _confirm(session, real_fixture_app_db, first["case_id"], down)
 
     assert reply["state"] == CaseState.ESCALATED
-    assert reply["reply"] == llm.DETERMINISTIC_FALLBACK_MESSAGE[llm.Language.ES]
+    assert_escalation_notice(reply, EscalationReason.SERVICE_ISSUE, charge_named=False)
 
 
 def test_llm_outage_on_the_confirmation_question_still_asks_deterministically(real_fixture_app_db):

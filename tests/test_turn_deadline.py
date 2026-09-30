@@ -18,9 +18,11 @@ import anthropic
 import pytest
 
 from app import config, llm
+from app.case_model import EscalationReason
 from app.state_machine import handle_message
 from tests.support import (
     AUTO_RESOLVE_CHARGE,
+    assert_escalation_notice,
     charge_extraction,
     demo_session,
     logged_events,
@@ -178,7 +180,7 @@ def test_a_call_stopped_by_the_deadline_is_logged_with_its_cause(real_fixture_ap
     with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(charge_extraction())), \
             patch("app.llm.extract_entities", side_effect=error):
         reply = handle_message(session, None, "Tengo un cargo que no reconozco", db_path=real_fixture_app_db)
-    assert reply["reply"] == llm.DETERMINISTIC_FALLBACK_MESSAGE[llm.Language.ES]
+    assert_escalation_notice(reply, EscalationReason.SERVICE_ISSUE, charge_named=False)
     assert logged_events(real_fixture_app_db, "llm_unavailable") == [payload]
 
 

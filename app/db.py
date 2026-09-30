@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS cases (
     credit_key TEXT,
     credited_amount_usd REAL,
     credited_at TEXT,
+    escalation_reason TEXT,
     predicted_priority TEXT,
     resolution_reference TEXT,
     handoff_json TEXT,
@@ -127,6 +128,7 @@ _ADDED_COLUMNS = {
         ("credit_key", "TEXT"),
         ("credited_amount_usd", "REAL"),
         ("credited_at", "TEXT"),
+        ("escalation_reason", "TEXT"),
     ),
     "chat_turns": (
         ("failed_at", "TEXT"),

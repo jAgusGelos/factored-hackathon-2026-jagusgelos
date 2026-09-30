@@ -102,12 +102,6 @@ def test_call_llm_raises_llm_unavailable_when_api_key_is_missing(monkeypatch):
     mock_client.messages.create.assert_not_called()
 
 
-def test_deterministic_fallback_message_exists_for_spanish_and_portuguese():
-    assert llm.DETERMINISTIC_FALLBACK_MESSAGE["es"]
-    assert llm.DETERMINISTIC_FALLBACK_MESSAGE["pt"]
-    assert llm.DETERMINISTIC_FALLBACK_MESSAGE["es"] != llm.DETERMINISTIC_FALLBACK_MESSAGE["pt"]
-
-
 def test_call_llm_maps_a_non_retryable_provider_error_to_llm_unavailable_without_retrying():
     """A revoked/invalid (but non-empty) key returns HTTP 401 — that must reach
     the caller's fallback path, not crash the request with an uncaught 500.

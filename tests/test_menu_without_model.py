@@ -14,7 +14,7 @@ from unittest.mock import patch
 import pytest
 
 from app import cases, replies, state_machine
-from app.case_model import CaseState, CustomerAction
+from app.case_model import CaseState, CustomerAction, EscalationReason
 from app.case_turn import Turn
 from app.charge_search import ListFilter
 from app.state_machine import handle_message
@@ -23,6 +23,7 @@ from tests.support import (
     EXPLANATION,
     FRAUD_SCORE_CHARGE,
     OPENING,
+    assert_escalation_notice,
     charge_extraction,
     demo_session,
     logged_events,
@@ -161,7 +162,7 @@ def test_the_human_button_is_answered_without_the_model(session, real_fixture_ap
     assert deferred["state"] == CaseState.SELECTING
     assert deferred["reply"] == replies.HUMAN_DEFERRED["es"]
     assert escalated["state"] == CaseState.ESCALATED
-    assert escalated["reply"] == replies.ESCALATED["es"]
+    assert_escalation_notice(escalated, EscalationReason.HUMAN_REQUESTED, charge_named=False)
 
 
 def test_the_human_button_while_confirming_is_answered_without_the_model(session, real_fixture_app_db):
@@ -216,7 +217,7 @@ def test_tapping_a_charge_that_fails_the_policy_escalates_without_the_model(sess
 
     assert calls == 0
     assert reply["state"] == CaseState.ESCALATED
-    assert reply["reply"] == replies.ESCALATED["es"]
+    assert_escalation_notice(reply, EscalationReason.NEEDS_REVIEW, charge_named=True)
 
 
 def test_not_in_the_list_after_a_detail_escalates_without_the_model(session, real_fixture_app_db):
@@ -229,7 +230,7 @@ def test_not_in_the_list_after_a_detail_escalates_without_the_model(session, rea
 
     assert calls == 0
     assert reply["state"] == CaseState.ESCALATED
-    assert reply["reply"] == replies.ESCALATED["es"]
+    assert_escalation_notice(reply, EscalationReason.CHARGE_NOT_IDENTIFIED, charge_named=False)
 
 
 def test_the_show_charges_button_on_a_closed_case_gets_the_closed_case_reply(session, real_fixture_app_db):

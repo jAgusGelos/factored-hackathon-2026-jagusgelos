@@ -20,11 +20,13 @@ from app.case_model import (
     TERMINAL_STATES,
     CaseEvaluation,
     CaseState,
+    EscalationReason,
     ReportedCharge,
 )
 from app.charge_search import ChargeOption, charge_option, offered_charges
 from app.llm import Language
 from app.policy import MAX_CLARIFICATION_ROUNDS
+from app.transactions import TransactionCandidate
 
 DEFAULT_CURRENCY = "USD"
 
@@ -38,6 +40,9 @@ class ChatReply(TypedDict):
     reply: str
     options: list[ChargeOption]
     human_available: bool
+    # On every reply about an escalated case (the escalating turn, and any
+    # later, lost-race or abandoned-turn reply); None otherwise.
+    escalation: replies.EscalationNotice | None
 
 
 @dataclass(frozen=True)
@@ -58,20 +63,26 @@ class Turn:
     def log_event(self, event_type: str, payload: dict) -> None:
         cases.log_event(self.correlation_id, self.case.case_id, event_type, payload, db_path=self.db_path)
 
-    def reply(self, state: CaseState, text: str, options: list[ChargeOption] | None = None) -> ChatReply:
+    def reply(
+        self, state: CaseState, text: str, options: list[ChargeOption] | None = None,
+        *, escalation: replies.EscalationNotice | None = None,
+    ) -> ChatReply:
+        """`escalation`: the escalating turn's own notice; any other reply in
+        `escalated` gets the one built from the stored reason.
+        """
         cases.log_message(self.case.case_id, "agent", text, db_path=self.db_path)
+        current = cases.get_case(self.case.case_id, db_path=self.db_path)
+        if escalation is None and state == CaseState.ESCALATED and current is not None:
+            escalation = escalation_of(current, self.language)
         return {
             "case_id": self.case.case_id,
             "state": state,
             "customer_id": self.session.customer_id,
             "reply": text,
             "options": options or [],
-            "human_available": state not in TERMINAL_STATES and self._handoff_unlocked_now(),
+            "human_available": state not in TERMINAL_STATES and current is not None and human_handoff_available(current),
+            "escalation": escalation,
         }
-
-    def _handoff_unlocked_now(self) -> bool:
-        current = cases.get_case(self.case.case_id, db_path=self.db_path)
-        return current is not None and human_handoff_available(current)
 
     def generate_reply(self, context: llm.PromptContext, *, fallback: str) -> str:
         if self.from_menu:
@@ -90,6 +101,18 @@ class Turn:
 
 def human_handoff_available(case: cases.Case) -> bool:
     return case.handoff_unlocked or case.clarification_rounds >= MAX_CLARIFICATION_ROUNDS
+
+
+def escalation_of(case: cases.Case, language: Language) -> replies.EscalationNotice | None:
+    """The escalation object of any reply about an already escalated case
+    (a later message, a lost race, an abandoned turn), from the stored reason.
+    It names no charge: only the escalating turn knows the customer identified
+    one (plan.md AD-5).
+    """
+    if case.state != CaseState.ESCALATED:
+        return None
+    reason = EscalationReason(case.escalation_reason) if case.escalation_reason else None
+    return replies.escalation_summary(case.case_id, reason, None, language)
 
 
 def reply_for_lost_race(turn: Turn, attempted_state: CaseState) -> ChatReply:
@@ -113,7 +136,9 @@ def where_the_case_is(case: cases.Case, language: Language) -> tuple[CaseState, 
     """
     state = CaseState(case.state)
     if state in TERMINAL_STATES:
-        return state, replies.terminal_case(state, case.resolution_reference, language)
+        return state, replies.terminal_case(
+            state, case_number=case.case_id, reference=case.resolution_reference, language=language,
+        )
     return state, replies.CASE_MOVED_ON[language]
 
 
@@ -138,34 +163,54 @@ def current_options(turn: Turn) -> list[ChargeOption]:
     return [charge_option(c) for c in offered_charges(turn.session, turn.case.offered_transaction_ids)]
 
 
+def _escalation_reply(
+    turn: Turn, reason: EscalationReason, charge: TransactionCandidate | None,
+) -> ChatReply:
+    # A fixed template, not a model call: the case number, reason, deadline
+    # and what the chat can still do are promises, so they come from code.
+    text, notice = replies.escalation_notice(turn.case.case_id, reason, charge, turn.language)
+    return turn.reply(CaseState.ESCALATED, text, escalation=notice)
+
+
 def force_escalation(
     turn: Turn, *, event_type: str, failed_call: str, action_taken: str, error: llm.LLMUnavailable | None = None,
+    charge: TransactionCandidate | None = None,
 ) -> ChatReply:
     """`error`: the model failure that forced it, if any; one stopped by the
-    turn's deadline is logged with `"cause": "deadline"`.
+    turn's deadline is logged with `"cause": "deadline"`. `charge`: one the
+    customer already identified (and the caller already looked up), to name
+    in the notice.
     """
     turn.log_event(event_type, llm.failure_payload(failed_call, error) if error else {"call": failed_call})
     handoff = handoffs.service_failure(action_taken).to_dict()
-    lost = transition(turn, CaseState.ESCALATED, handoff=handoff)
+    reason = EscalationReason.SERVICE_ISSUE
+    lost = transition(turn, CaseState.ESCALATED, handoff=handoff, escalation_reason=reason)
     if lost:
         return lost
     turn.log_event("case_escalated", handoff)
-    return turn.reply(CaseState.ESCALATED, llm.DETERMINISTIC_FALLBACK_MESSAGE[turn.language])
+    return _escalation_reply(turn, reason, charge)
 
 
 def finish_escalated(
     turn: Turn, evaluation: CaseEvaluation, report: ReportedCharge,
     *, expected_offered: tuple[str, ...] | None = None, drop_proposed_match: bool = False,
+    charge: TransactionCandidate | None = None,
 ) -> ChatReply:
     """`drop_proposed_match`: the customer rejected the proposed charge, so it
     stays in the handoff evidence but is no longer the case's match.
+    `charge`: a charge the customer identified that the verdict does not carry
+    (e.g. the one they confirmed, when its re-verification failed); otherwise
+    the notice names the verdict's own match, if any.
     """
     if evaluation.handoff is None:
         raise ValueError(f"Escalation without a handoff record (case {turn.case.case_id})")
+    reason = evaluation.customer_reason
+    if reason is None:
+        raise ValueError(f"Escalation without a customer reason (case {turn.case.case_id})")
     handoff = evaluation.handoff.to_dict()
     matched = evaluation.matched_transaction
     lost = transition(
-        turn, CaseState.ESCALATED, handoff=handoff,
+        turn, CaseState.ESCALATED, handoff=handoff, escalation_reason=reason,
         matched_transaction_id=matched.transaction_id if matched is not None else None,
         clear_fields=("matched_transaction_id",) if drop_proposed_match else (),
         expected_offered_transaction_ids=expected_offered, **report.update_fields(),
@@ -173,16 +218,8 @@ def finish_escalated(
     if lost:
         return lost
     turn.log_event("case_escalated", handoff)
-    context = llm.build_prompt_context(case_state=CaseState.ESCALATED, language=turn.language)
-    fallback = replies.ESCALATED[turn.language]
-    reply = turn.generate_reply(context, fallback=fallback)
-    if "?" in reply:
-        # The chat is over once a case is handed off (every later message gets
-        # the terminal reply), so a closing question would be left unanswered.
-        turn.log_event("escalation_reply_replaced", {"reason": "asks_a_question"})
-        reply = fallback
-    return turn.reply(CaseState.ESCALATED, reply)
+    return _escalation_reply(turn, reason, charge if charge is not None else matched)
 
 
-def escalate(turn: Turn, evaluation: CaseEvaluation) -> ChatReply:
-    return finish_escalated(turn, evaluation, turn.report)
+def escalate(turn: Turn, evaluation: CaseEvaluation, *, charge: TransactionCandidate | None = None) -> ChatReply:
+    return finish_escalated(turn, evaluation, turn.report, charge=charge)

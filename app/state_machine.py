@@ -38,7 +38,7 @@ free text goes through NLU entity extraction (`app/llm.py`) ->
 `evaluate_case()` -> grounded NLG. An exhausted LLM retry
 budget (`llm.LLMUnavailable`, also raised once the turn's shared model budget
 `llm.turn_deadline()` is used up) or a failed fixture lookup (`duckdb.Error`)
-forces escalation with the NFR's deterministic fallback message, never a
+forces escalation with the deterministic escalation notice (the NFR), never a
 crash or a hallucinated answer. A quick-reply tapped outside the state it
 belongs to (an old button still on screen) changes nothing, and a turn sent
 with a `turn_id` is applied at most once (`app/turns.py`).
@@ -70,6 +70,7 @@ from app.case_model import (
     CaseEvaluation,
     CaseState,
     CustomerAction,
+    EscalationReason,
     ReportedCharge,
 )
 from app.case_turn import (
@@ -78,6 +79,7 @@ from app.case_turn import (
     Turn,
     current_options,
     escalate,
+    escalation_of,
     finish_escalated,
     force_escalation,
     human_handoff_available,
@@ -437,8 +439,9 @@ def _handle_human_request(turn: Turn) -> ChatReply:
                 turn.report, case, customer_confirmation=str(llm.ConfirmationAnswer.HUMAN),
                 action="Cliente solicitó explícitamente hablar con un agente humano.",
                 open_question="El cliente prefirió hablar con una persona antes de confirmar el cargo propuesto.",
+                customer_reason=EscalationReason.HUMAN_REQUESTED,
             ))
-        return escalate(turn, handoffs.human_request(turn.report))
+        return escalate(turn, handoffs.human_request(turn.report), charge=_charge_being_explained(turn))
     turn.log_event("human_request_deferred", {"state": case.state})
     if case.state == CaseState.AWAITING_EXPLANATION:
         lost = transition(
@@ -456,6 +459,17 @@ def _handle_human_request(turn: Turn) -> ChatReply:
     report = turn.report
     search = find_charges(turn.session, report) if report.has_details else recent_charges(turn.session)
     return _offer(turn, search, report, spend_round=True, human_deferred=True)
+
+
+def _charge_being_explained(turn: Turn) -> TransactionCandidate | None:
+    """In `awaiting_explanation` the case's match is a charge the customer
+    picked or confirmed, so an escalation there may name it (plan.md AD-5).
+    Anywhere else the stored match may be an unconfirmed proposal: None.
+    """
+    case = turn.case
+    if case.state != CaseState.AWAITING_EXPLANATION or not case.matched_transaction_id:
+        return None
+    return get_own_transaction(turn.session, case.matched_transaction_id)
 
 
 _ACTION_ANSWERS = {
@@ -498,6 +512,7 @@ def _handle_confirmation(turn: Turn, text: str, action: CustomerAction | None = 
             action=f"Se propuso al cliente la transacción coincidente y no la confirmó (respuesta: {answer}); "
                    "no quedan rondas de aclaración.",
             open_question="¿Cuál es la transacción que el cliente no reconoce?",
+            customer_reason=EscalationReason.CHARGE_NOT_IDENTIFIED,
         ), report, drop_proposed_match=True)
     return _offer(
         turn, _charges_other_than_proposed(turn, report), report, spend_round=True,
@@ -522,7 +537,8 @@ def _confirm_proposed_charge(turn: Turn, report: ReportedCharge) -> ChatReply:
         report, case, customer_confirmation=str(llm.ConfirmationAnswer.YES),
         action="El cliente confirmó el cargo propuesto, pero la política no permitió auto-resolverlo al re-verificar.",
         open_question="; ".join(reasons) or "No se pudo volver a verificar la transacción propuesta.",
-    ))
+        customer_reason=EscalationReason.NEEDS_REVIEW,
+    ), charge=matched)
 
 
 def _charges_other_than_proposed(turn: Turn, report: ReportedCharge) -> ChargeSearch:
@@ -697,6 +713,7 @@ def _abandoned_turn_reply(
         return {
             "case_id": None, "state": CaseState.AWAITING_REPORT, "customer_id": session.customer_id,
             "reply": replies.CASE_MOVED_ON[language], "options": [], "human_available": False,
+            "escalation": None,
         }
     state, text = where_the_case_is(case, language)
     turn = Turn(session, case, language, correlation_id, db_path)
@@ -704,6 +721,7 @@ def _abandoned_turn_reply(
         "case_id": case.case_id, "state": state, "customer_id": session.customer_id, "reply": text,
         "options": current_options(turn),
         "human_available": state not in TERMINAL_STATES and human_handoff_available(case),
+        "escalation": escalation_of(case, language),
     }
 
 

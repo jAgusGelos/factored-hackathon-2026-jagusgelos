@@ -69,6 +69,10 @@ class Case:
     explanation_attempts: int = 0
     # The automatic credit this case granted, if any (AD-13 exposure limits).
     credit_key: str | None = None
+    # Why the case went to a person (`case_model.EscalationReason`), written in
+    # the same update that moves it to `escalated`; NULL on cases escalated
+    # before the column existed.
+    escalation_reason: str | None = None
     # The charges last shown to the customer to pick from; a selection is only
     # ever accepted if it is one of these (and it is re-checked as their own).
     offered_transaction_ids: tuple[str, ...] = ()
@@ -114,6 +118,7 @@ def _row_to_case(row: sqlite3.Row) -> Case:
         explanation_text=row["explanation_text"],
         explanation_attempts=row["explanation_attempts"],
         credit_key=row["credit_key"],
+        escalation_reason=row["escalation_reason"],
         offered_transaction_ids=tuple(json.loads(row["offered_transaction_ids"] or "[]")),
     )
 
@@ -179,6 +184,7 @@ def update_case(
     expected_offered_transaction_ids: tuple[str, ...] | None = None,
     expected_matched_transaction_id: str | None = None,
     credit: CreditGrant | None = None,
+    escalation_reason: str | None = None,
     db_path: Path | None = None,
 ) -> bool:
     """A compare-and-set: returns False (and writes nothing) when the case no
@@ -230,6 +236,7 @@ def update_case(
                     credit_key = COALESCE(?, credit_key),
                     credited_amount_usd = COALESCE(?, credited_amount_usd),
                     credited_at = COALESCE(?, credited_at),
+                    escalation_reason = COALESCE(?, escalation_reason),
                     updated_at = ?
                 WHERE case_id = ?{guards}
                 """,
@@ -241,7 +248,7 @@ def update_case(
                     clarification_rounds, 1 if add_clarification_round else 0,
                     1 if unlock_handoff else 0,
                     dispute_reason, append_explanation, append_explanation, 1 if add_explanation_attempt else 0,
-                    *credit_params, now.isoformat(), case_id, *guard_params,
+                    *credit_params, escalation_reason, now.isoformat(), case_id, *guard_params,
                 ],
             )
             con.commit()

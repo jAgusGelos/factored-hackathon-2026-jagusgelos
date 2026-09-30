@@ -67,6 +67,21 @@ lists of voseo, tuteo and colloquial forms; `tests/test_register.py` sweeps ever
 text with them, and every model reply is checked at runtime: one with voseo or slang ("mirá",
 "contame", "dale") is replaced by that step's template and logged as `nlg_reply_replaced`.
 
+**Escalation notice.** When a case goes to a person the customer gets a fixed notice built in code,
+never by the model: the charge (merchant, amount, date) only when the customer identified it, the
+reason in their language, the case number and "le contactaremos en un plazo de hasta 3 días
+hábiles", plus the fact that this chat no longer adds information to the case. The reason is one of
+nine closed values (`case_model.EscalationReason`), chosen at the step that escalates and stored in
+`cases.escalation_reason` in the same compare-and-set that moves the case to `escalated`; every
+policy, fraud, amount or limit outcome is the same "needs a person's review", so no threshold, score
+or rule name reaches the customer. The reply carries the same values in `escalation`, and the chat's
+"Caso derivado" card and the client panel render from it (case number first, then a two-step
+timeline: handed off, then "Le contactamos" within the deadline). **The deadline is a demo
+assumption** (`policy.ESCALATION_CONTACT_BUSINESS_DAYS = 3`; this simulated bank has no real contact
+process), sized from the dataset: for "Cargo no reconocido" complaints (n = 12,297) the first
+response took a median of 37 h and a p90 of 58 h, so 3 business days covers the p90 once a weekend
+is in the way. It promises contact, not a resolution.
+
 ## Dispute policy: the evidence decides, not the claim (AD-13)
 
 An agent that credits money because a customer says "no lo reconozco" is a refund button. The
@@ -127,7 +142,7 @@ uvicorn app.main:app --reload --port 8000
 # data/demo_users.json after step 2)
 
 # 5. Tests, lint, eval harness
-pytest                              # 462 tests
+pytest                              # 547 tests
 ruff check .
 python -m eval.run_eval             # -> data/eval_report.json (see "Evaluation results" below)
 ```
@@ -156,10 +171,10 @@ dataset is in USD (there is no MXN transaction at all), a data finding in its ow
 | Automated resolution (typed) | "No reconozco un cargo de 38.500 pesos del 14 de junio", then explain ("no uso Uber hace meses, tengo la tarjeta conmigo") | Confident match (Uber) -> the agent names merchant/amount/date and asks (`confirming`, with "Sí, es ese" / "No es ese" buttons) -> "yes" -> `awaiting_explanation` -> the unrecognized-charge evidence check passes (online purchase, no other Uber charges) -> `resolved_auto`: provisional credit, card blocked (simulated), back-office review, reference |
 | Automated resolution (picked) | Tap "Ver mis últimos cargos" (or type "Se me perdió un monto, mostrame mis cargos") -> tap Uber or Cine Premium, then explain | The customer's own charges as cards (`selecting`); tapping one is the customer's explicit identification (the AD-12 confirmation) -> explanation -> policy -> `resolved_auto`. A second unrecognized charge in the same 90 days goes to a person |
 | Ambiguous: duplicated charge | "Me cobraron dos veces un taxi de 27 mil" -> tap either taxi -> "tomé un solo taxi y me lo cobraron dos veces" | Two matches (AD-11 Row 3) -> only those two cards are shown -> the customer picks one -> the twin is verified in the data -> `resolved_auto`, one of the two reversed (no card block). Disputing the other one afterwards escalates |
-| Ineligible on the evidence | Tap Farmacia Salud / Super Ahorro / Gasolinera Express (POS), or say a taxi was "not recognized" | However convincing the explanation: card-present purchase, or an existing relationship with the merchant -> `escalated` with the policy reasons and the model's neutral summary in the handoff |
-| Ambiguous: not in the list | A list shown after a detail ("fue el 14 de junio") -> "No está en la lista" | `escalated` with the charges shown as evidence and an open question for the agent. With no detail yet, the agent asks for one instead of escalating |
+| Ineligible on the evidence | Tap Farmacia Salud / Super Ahorro / Gasolinera Express (POS), or say a taxi was "not recognized" | However convincing the explanation: card-present purchase, or an existing relationship with the merchant -> `escalated` with the policy reasons and the model's neutral summary in the handoff; the customer gets the notice naming the charge, "necesita la revisión de una persona", the case number and the 3-business-day deadline |
+| Ambiguous: not in the list | A list shown after a detail ("fue el 14 de junio") -> "No está en la lista" | `escalated` with the charges shown as evidence and an open question for the agent; the notice names no charge (none was identified) and says it could not be identified. With no detail yet, the agent asks for one instead of escalating |
 | Unsupported request | "¿Cuál es mi saldo?" | Declines and says what this channel does; no guess, no state change |
-| Human escalation (policy) | "No reconozco una compra en Tienda Online Global", or tap Boutique Moda / Tienda Don José | Fails AD-11 (fraud score 91 / ~610 USD / Pending) -> `escalated` with a structured handoff (facts, actions, evidence, open questions) |
+| Human escalation (policy) | "No reconozco una compra en Tienda Online Global", or tap Boutique Moda / Tienda Don José | Fails AD-11 (fraud score 91 / ~610 USD / Pending) -> `escalated` with a structured handoff (facts, actions, evidence, open questions); the customer's notice names the charge and "necesita la revisión de una persona", never the score or the threshold |
 | Human escalation (request) | Give a detail the agent cannot match (e.g. "fue el 22/04/2024"), then "Hablar con una persona" | The agent tries first: asking for a person before that gets the charge list and a "let me try first" reply. The button only appears once the customer gave details and the agent could not resolve them (nothing matched, a rejected proposal, or a round with nothing new). Each deferral spends a clarification round, so a customer who insists without details reaches a person on the third request |
 | Second claim in the same chat | After any closed case (`resolved_auto` or `escalated`): tap "Reportar otro cargo" / "Contestar outra cobrança", or just type the next complaint (e.g. "No reconozco una compra en Tienda Online Global" after the Uber resolution) | A divider "Nuevo reclamo · caso anterior REF-... (resuelto)" marks the new claim, the case panel goes back to "Esperando reporte" and the message goes out without a `case_id`, so the server opens a new case. The closed case is never reopened or changed (state, reference, credit); its "Verificación del sistema" / "Caso derivado" card appears once, only on the turn that closed it |
 
@@ -228,7 +243,8 @@ turns, over-strict fact checks on natural wordings) are pinned by regression tes
   runs against Claude Haiku 4.5, and the walkthrough plus manual sessions exercise it end to end,
   but `eval/run_eval.py` uses a mocked client for reproducibility, so its latency/cost figures
   exclude the real model. Without a key the app still degrades gracefully: every LLM failure
-  forces escalation with a deterministic fallback message (verified live, not just in tests).
+  forces escalation with the deterministic escalation notice, whose reason is a technical problem
+  (verified live, not just in tests).
 - **The demo customer's history is partly synthetic.** 6 of the 14 charges are real dataset rows;
   8 are team-generated to cover every scenario and are labeled as such in the fixture
   (`_is_synthetic`, `_source_file = 'synthetic'`). The dataset window is a snapshot ending
@@ -277,7 +293,7 @@ app/            FastAPI backend — auth, state machine, policy, LLM boundary, c
 etl/            Offline ETL: extraction, quality checks, fixture generation, classifier training
 eval/           Eval harness (Milestone 5)
 static/         Frontend (vanilla HTML/CSS/JS, no build step — AD-1)
-tests/          pytest suite (462 tests)
+tests/          pytest suite (547 tests)
 support.py      Shared test/eval mock helpers (no pytest dependency — used by eval/ too)
 docs/           Challenge requirements digest
 data/           Local ETL artifacts, fixture, trained model (gitignored — never commit raw data)

@@ -100,6 +100,14 @@ DUPLICATE_WINDOW_DAYS = 1
 
 MAX_CLARIFICATION_ROUNDS = 2
 
+# The contact deadline the escalation notice promises (a demo assumption: this
+# simulated bank has no real contact process). Sized from the warehouse's
+# `complaints`, subcategory "Cargo no reconocido" (n = 12,297): time to first
+# response has a median of 37 h and a p90 of 58 h, and 20.4% breached their
+# SLA; 2 business days would fall under that p90 once a weekend is in the way.
+# It promises contact, not a resolution (whose median is 15 days).
+ESCALATION_CONTACT_BUSINESS_DAYS = 3
+
 # Milestone 8: "pick your charge" list. Showing the list is how a clarification
 # round is spent now (Row 3), instead of a free-text question. A turn that
 # brings NEW information (an amount, date or merchant the case did not have)

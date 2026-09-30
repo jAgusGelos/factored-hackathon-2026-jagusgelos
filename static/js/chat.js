@@ -45,6 +45,16 @@ const STRINGS = {
       `Cargo confirmado (${amount}). Crédito provisional simulado registrado (referencia ${ref}).`,
     actionCardEscalatedTitle: "Caso derivado",
     actionCardEscalatedBody: "El caso fue derivado a un agente humano con el resumen estructurado del reclamo.",
+    // Escalation card and client panel (usability-s2 DESIGN.md, direction B).
+    caseNumberLabel: "Número de caso",
+    escalationStepDone: "Caso derivado a una persona del equipo",
+    escalationStepPending: "Le contactamos",
+    escalationDeadline: (days) => `En un plazo de hasta ${days} días hábiles`,
+    stepDone: "Hecho:",
+    stepPending: "Pendiente:",
+    escalationCharge: (charge) => `Cargo: ${charge}`,
+    escalationReason: (reason) => `Motivo: ${reason}`,
+    escalationNote: "Este chat ya no agrega información al caso.",
     personaClient: "Vista Cliente",
     personaInternal: "Vista Interna",
     handoffTitle: "Resumen para el agente humano",
@@ -110,6 +120,15 @@ const STRINGS = {
       `Cobrança confirmada (${amount}). Crédito provisório simulado registrado (referência ${ref}).`,
     actionCardEscalatedTitle: "Caso encaminhado",
     actionCardEscalatedBody: "O caso foi encaminhado a um agente humano com o resumo estruturado da reclamação.",
+    caseNumberLabel: "Número do caso",
+    escalationStepDone: "Caso encaminhado a uma pessoa da equipe",
+    escalationStepPending: "Entraremos em contato",
+    escalationDeadline: (days) => `Em até ${days} dias úteis`,
+    stepDone: "Feito:",
+    stepPending: "Pendente:",
+    escalationCharge: (charge) => `Cobrança: ${charge}`,
+    escalationReason: (reason) => `Motivo: ${reason}`,
+    escalationNote: "Este chat não adiciona mais informações ao caso.",
     personaClient: "Vista Cliente",
     personaInternal: "Vista Interna",
     handoffTitle: "Resumo para o agente humano",
@@ -149,6 +168,9 @@ const state = {
   caseStatus: null,
   caseState: null, // the state from the last delivered reply (null = no case yet)
   closedCase: null, // {state, reference} of a terminal case until a new claim starts
+  // reply.escalation of the escalated case plus the time it arrived; the card
+  // and the client panel render from it, never from /api/case.
+  escalation: null,
   personaView: "client", // "client" | "internal"
   busy: false,
 };
@@ -304,13 +326,18 @@ function scrollLogToEnd() {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-function appendActionCard(title, body, { isError = false, actions = [] } = {}) {
+function currentTime() {
+  return new Date().toLocaleTimeString(t("timeLocale"), { hour: "2-digit", minute: "2-digit" });
+}
+
+// `bodyHtml`: markup already escaped by its builder (the escalation details).
+function appendActionCard(title, body, { isError = false, actions = [], bodyHtml = null } = {}) {
   const card = document.createElement("div");
   card.className = `action-card${isError ? " action-card--error" : ""}`;
-  const time = new Date().toLocaleTimeString(t("timeLocale"), { hour: "2-digit", minute: "2-digit" });
+  const content = bodyHtml ?? (body ? escapeHtml(body) : "");
   card.innerHTML = `
-    <div class="action-card__head">${escapeHtml(title)}<span class="action-card__time">${escapeHtml(time)}</span></div>
-    ${body ? `<div class="action-card__body">${escapeHtml(body)}</div>` : ""}
+    <div class="action-card__head">${escapeHtml(title)}<span class="action-card__time">${escapeHtml(currentTime())}</span></div>
+    ${content ? `<div class="action-card__body">${content}</div>` : ""}
   `;
   if (actions.length) {
     // "interactive": the next send retires these buttons like any other block.
@@ -444,19 +471,28 @@ async function renderReply(reply, prevState) {
   state.caseState = reply.state || null;
   appendBubble("agent", reply.reply);
   if (reply.options && reply.options.length) appendChargeList(reply.options);
+  rememberEscalation(reply.escalation);
 
-  if (!state.caseId) {
-    state.caseStatus = null;
-  } else if (await refreshCaseStatus()) {
-    // The card marks the transition into a terminal state, once per case.
-    if (!TERMINAL_STATES.has(prevState)) renderTurnActionCard(reply.state);
+  const refreshed = state.caseId ? await refreshCaseStatus() : false;
+  if (!state.caseId) state.caseStatus = null;
+  // The card marks the transition into a terminal state, once per case. The
+  // escalation card needs only the reply, so a failed refresh cannot drop it.
+  if (!TERMINAL_STATES.has(prevState) && (refreshed || reply.state === CASE_STATES.ESCALATED)) {
+    renderTurnActionCard(reply.state);
   }
   // Last, so the next thing the customer can do sits at the end of the thread.
   appendQuickReplies(reply.state, reply.human_available);
   state.closedCase = TERMINAL_STATES.has(reply.state)
-    ? { state: reply.state, reference: state.caseStatus ? state.caseStatus.resolution_reference : null }
+    ? { state: reply.state, reference: closedCaseReference(reply.state) }
     : null;
   renderPanel();
+}
+
+// What the new-claim divider names: the resolution reference, or the case
+// number of an escalated case.
+function closedCaseReference(caseState) {
+  if (caseState === CASE_STATES.ESCALATED) return state.escalation ? state.escalation.case_number : null;
+  return state.caseStatus ? state.caseStatus.resolution_reference : null;
 }
 
 function appendRetryCard(turn, inProgress) {
@@ -525,6 +561,7 @@ function startNewClaim({ fromButton = false } = {}) {
   state.caseStatus = null;
   state.caseState = null;
   state.closedCase = null;
+  state.escalation = null;
   state.personaView = "client";
 
   if (closed) appendClaimDivider(closed);
@@ -681,15 +718,46 @@ function renderTurnActionCard(newState) {
       t("actionCardResolvedBody", caseChargeLabel(status), status.resolution_reference),
     );
   } else if (newState === CASE_STATES.ESCALATED) {
-    appendActionCard(t("actionCardEscalatedTitle"), t("actionCardEscalatedBody"));
+    // A legacy reply without an escalation object keeps the generic sentence.
+    if (state.escalation) appendActionCard(t("actionCardEscalatedTitle"), "", { bodyHtml: escalationDetailsHtml() });
+    else appendActionCard(t("actionCardEscalatedTitle"), t("actionCardEscalatedBody"));
   }
 }
 
-function verifyStepHtml(variant, dotLabel, label, detail) {
+// The first escalation object of a case is kept: later replies about it name
+// no charge (only the escalating turn knows the customer identified one).
+function rememberEscalation(escalation) {
+  if (!escalation) return;
+  if (state.escalation && state.escalation.case_number === escalation.case_number) return;
+  state.escalation = { ...escalation, time: currentTime() };
+}
+
+// The one builder of the escalation details, for the card and the client
+// panel: case number, the two-step timeline, the charge (only when known),
+// the reason and the note. Every value is escaped here.
+function escalationDetailsHtml() {
+  const esc = state.escalation;
+  let html = `
+    <div class="client-summary">${escapeHtml(t("caseNumberLabel"))}</div>
+    <div class="case-id">${escapeHtml(esc.case_number)}</div>
+    <div class="action-card__timeline">
+      ${verifyStepHtml("done", "✓", t("escalationStepDone"), esc.time, t("stepDone"))}
+      ${verifyStepHtml("pending", "2", t("escalationStepPending"), t("escalationDeadline", esc.contact_business_days), t("stepPending"))}
+    </div>
+  `;
+  if (esc.charge) html += `<p class="client-summary">${escapeHtml(t("escalationCharge", chargeLabel(esc.charge)))}</p>`;
+  if (esc.reason) html += `<p class="client-summary">${escapeHtml(t("escalationReason", esc.reason))}</p>`;
+  html += `<p class="client-summary">${escapeHtml(t("escalationNote"))}</p>`;
+  return html;
+}
+
+// `srState`: the step's state in words for screen readers (the dot is aria-hidden).
+function verifyStepHtml(variant, dotLabel, label, detail, srState = null) {
+  const prefix = srState ? `<span class="sr-only">${escapeHtml(srState)} </span>` : "";
   return `
     <div class="verify-step verify-step--${variant}">
       <div class="dot" aria-hidden="true">${dotLabel}</div>
-      <div class="label">${escapeHtml(label)}</div>
+      <div class="label">${prefix}${escapeHtml(label)}</div>
       <div class="detail">${escapeHtml(detail)}</div>
     </div>
   `;
@@ -701,7 +769,8 @@ function badgeHtml(variant, label) {
 
 function renderPanel() {
   const status = state.caseStatus;
-  const caseState = status ? status.state : null;
+  // Without a case status (its refresh failed) an escalation still shows.
+  const caseState = status ? status.state : state.escalation ? CASE_STATES.ESCALATED : null;
   const transactionFound = () => t("stepTransactionFound", caseChargeLabel(status));
 
   let badge;
@@ -734,7 +803,7 @@ function renderPanel() {
     step3Detail = t("stepPolicyResolved");
   } else if (caseState === CASE_STATES.ESCALATED) {
     badge = badgeHtml("info", t("badgeEscalated"));
-    if (status.matched_transaction_id) {
+    if (status && status.matched_transaction_id) {
       step2Variant = "done"; step2Dot = "✓";
       step2Detail = transactionFound();
     } else {
@@ -782,13 +851,14 @@ function renderPersonaToggle() {
 
 function renderPersonaView() {
   if (state.personaView === "client") {
+    if (state.escalation) return escalationDetailsHtml();
     return `<p class="client-summary">${escapeHtml(t("actionCardEscalatedBody"))}</p>`;
   }
   return renderHandoffCard();
 }
 
 function renderHandoffCard() {
-  const handoff = state.caseStatus.handoff;
+  const handoff = state.caseStatus ? state.caseStatus.handoff : null;
   if (!handoff) return "";
 
   const factsRows = Object.entries(handoff.facts || {})
