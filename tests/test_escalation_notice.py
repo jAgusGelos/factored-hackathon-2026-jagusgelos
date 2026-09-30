@@ -26,7 +26,6 @@ from app.case_model import (
 from app.case_turn import Turn, transition
 from app.llm import Language
 from app.policy import ESCALATION_CONTACT_BUSINESS_DAYS, REASONS_REQUIRING_A_PERSON
-from app.state_machine import handle_message
 from tests.support import (
     AUTO_RESOLVE_CHARGE,
     CONTACT_DEADLINE,
@@ -35,13 +34,15 @@ from tests.support import (
     EXPLANATION,
     FRAUD_SCORE_CHARGE,
     NOT_RECEIVED_ASSESSMENT,
-    OPENING,
     app_db_rows,
     assert_escalation_notice,
     charge_extraction,
     clean_txn,
     demo_session,
     mock_anthropic_client,
+    mocked_turn,
+    reach_confirming,
+    reach_explaining,
     requires_real_fixture,
 )
 
@@ -197,28 +198,9 @@ def test_a_lost_compare_and_set_writes_neither_the_state_nor_the_reason(real_fix
 # -- Every escalation path (plan.md AD-4 matrix), against the real fixture ---------
 
 
-def _turn(session, app_db, text, case_id=None, *, extraction=None, language="es", client=None, **kwargs):
-    client = client or mock_anthropic_client(extraction or charge_extraction(), **kwargs.pop("mock", {}))
-    with patch("app.llm.anthropic.Anthropic", return_value=client), patch.object(llm.time, "sleep"):
-        return handle_message(session, case_id, text, language=language, db_path=app_db, **kwargs)
-
-
 @pytest.fixture()
 def session(real_fixture_app_db):
     return demo_session(real_fixture_app_db)
-
-
-def _confirming(session, app_db):
-    reply = _turn(session, app_db, OPENING, extraction=charge_extraction(AUTO_RESOLVE_CHARGE))
-    assert reply["state"] == CaseState.CONFIRMING
-    return reply["case_id"]
-
-
-def _explaining(session, app_db):
-    case_id = _confirming(session, app_db)
-    reply = _turn(session, app_db, "Sí, es ese", case_id, action=CustomerAction.CONFIRM_YES)
-    assert reply["state"] == CaseState.AWAITING_EXPLANATION
-    return case_id
 
 
 def _unlock(case_id, app_db, state):
@@ -231,10 +213,10 @@ def _stored_reason(case_id, app_db):
 
 @requires_real_fixture
 def test_human_request_in_confirming_names_no_charge(session, real_fixture_app_db):
-    case_id = _confirming(session, real_fixture_app_db)
+    case_id = reach_confirming(session, real_fixture_app_db)
     _unlock(case_id, real_fixture_app_db, CaseState.CONFIRMING)
 
-    reply = _turn(session, real_fixture_app_db, "Hablar con una persona", case_id, action=CustomerAction.HUMAN)
+    reply = mocked_turn(session, real_fixture_app_db, "Hablar con una persona", case_id, action=CustomerAction.HUMAN)
 
     assert_escalation_notice(reply, EscalationReason.HUMAN_REQUESTED, charge_named=False)
     assert _stored_reason(case_id, real_fixture_app_db) == EscalationReason.HUMAN_REQUESTED
@@ -242,10 +224,10 @@ def test_human_request_in_confirming_names_no_charge(session, real_fixture_app_d
 
 @requires_real_fixture
 def test_human_request_while_explaining_names_the_confirmed_charge(session, real_fixture_app_db):
-    case_id = _explaining(session, real_fixture_app_db)
+    case_id = reach_explaining(session, real_fixture_app_db)
     _unlock(case_id, real_fixture_app_db, CaseState.AWAITING_EXPLANATION)
 
-    reply = _turn(session, real_fixture_app_db, "Hablar con una persona", case_id, action=CustomerAction.HUMAN)
+    reply = mocked_turn(session, real_fixture_app_db, "Hablar con una persona", case_id, action=CustomerAction.HUMAN)
 
     assert_escalation_notice(reply, EscalationReason.HUMAN_REQUESTED, charge_named=True)
     assert reply["escalation"]["charge"]["transaction_id"] == AUTO_RESOLVE_CHARGE
@@ -253,21 +235,21 @@ def test_human_request_while_explaining_names_the_confirmed_charge(session, real
 
 @requires_real_fixture
 def test_human_request_while_selecting_names_no_charge(session, real_fixture_app_db):
-    listed = _turn(session, real_fixture_app_db, "Ver mis últimos cargos", action=CustomerAction.SHOW_CHARGES)
+    listed = mocked_turn(session, real_fixture_app_db, "Ver mis últimos cargos", action=CustomerAction.SHOW_CHARGES)
     _unlock(listed["case_id"], real_fixture_app_db, CaseState.SELECTING)
 
-    reply = _turn(session, real_fixture_app_db, "Hablar con una persona", listed["case_id"], action=CustomerAction.HUMAN)
+    reply = mocked_turn(session, real_fixture_app_db, "Hablar con una persona", listed["case_id"], action=CustomerAction.HUMAN)
 
     assert_escalation_notice(reply, EscalationReason.HUMAN_REQUESTED, charge_named=False)
 
 
 @requires_real_fixture
 def test_classifier_down_while_confirming_is_a_service_issue(session, real_fixture_app_db):
-    case_id = _confirming(session, real_fixture_app_db)
+    case_id = reach_confirming(session, real_fixture_app_db)
     client = mock_anthropic_client(charge_extraction())
     client.messages.create.side_effect = anthropic.APITimeoutError(request=None)
 
-    reply = _turn(session, real_fixture_app_db, "mmm no sé", case_id, client=client)
+    reply = mocked_turn(session, real_fixture_app_db, "mmm no sé", case_id, client=client)
 
     assert_escalation_notice(reply, EscalationReason.SERVICE_ISSUE, charge_named=False)
     assert _stored_reason(case_id, real_fixture_app_db) == EscalationReason.SERVICE_ISSUE
@@ -275,23 +257,23 @@ def test_classifier_down_while_confirming_is_a_service_issue(session, real_fixtu
 
 @requires_real_fixture
 def test_no_with_every_round_used_is_charge_not_identified(session, real_fixture_app_db):
-    case_id = _confirming(session, real_fixture_app_db)
+    case_id = reach_confirming(session, real_fixture_app_db)
     cases.update_case(case_id, state=CaseState.CONFIRMING, clarification_rounds=2, db_path=real_fixture_app_db)
 
-    reply = _turn(session, real_fixture_app_db, "No es ese", case_id, action=CustomerAction.CONFIRM_NO)
+    reply = mocked_turn(session, real_fixture_app_db, "No es ese", case_id, action=CustomerAction.CONFIRM_NO)
 
     assert_escalation_notice(reply, EscalationReason.CHARGE_NOT_IDENTIFIED, charge_named=False)
 
 
 @requires_real_fixture
 def test_yes_with_a_failed_reverification_names_the_confirmed_charge(session, real_fixture_app_db):
-    case_id = _confirming(session, real_fixture_app_db)
+    case_id = reach_confirming(session, real_fixture_app_db)
 
     def ineligible(turn, matched, report, how_identified, *, reason=None):
         return handoffs.ineligible_match(report, matched, ("motivo interno",), how_identified=how_identified)
 
     with patch.object(state_machine, "_policy_verdict", ineligible):
-        reply = _turn(session, real_fixture_app_db, "Sí, es ese", case_id, action=CustomerAction.CONFIRM_YES)
+        reply = mocked_turn(session, real_fixture_app_db, "Sí, es ese", case_id, action=CustomerAction.CONFIRM_YES)
 
     assert_escalation_notice(reply, EscalationReason.NEEDS_REVIEW, charge_named=True)
     assert reply["escalation"]["charge"]["transaction_id"] == AUTO_RESOLVE_CHARGE
@@ -300,13 +282,13 @@ def test_yes_with_a_failed_reverification_names_the_confirmed_charge(session, re
 
 @requires_real_fixture
 def test_picking_an_ineligible_charge_names_it(session, real_fixture_app_db):
-    listed = _turn(session, real_fixture_app_db, "Ver mis últimos cargos", action=CustomerAction.SHOW_CHARGES)
+    listed = mocked_turn(session, real_fixture_app_db, "Ver mis últimos cargos", action=CustomerAction.SHOW_CHARGES)
     cases.update_case(
         listed["case_id"], state=CaseState.SELECTING, offered_transaction_ids=(FRAUD_SCORE_CHARGE,),
         db_path=real_fixture_app_db,
     )
 
-    reply = _turn(
+    reply = mocked_turn(
         session, real_fixture_app_db, "Tienda Online Global", listed["case_id"], selected_transaction_id=FRAUD_SCORE_CHARGE,
     )
 
@@ -317,9 +299,9 @@ def test_picking_an_ineligible_charge_names_it(session, real_fixture_app_db):
 
 @requires_real_fixture
 def test_not_in_the_list_after_a_detail_names_no_charge(session, real_fixture_app_db):
-    listed = _turn(session, real_fixture_app_db, "fue el 14 de junio", extraction=charge_extraction(date="2026-06-14"))
+    listed = mocked_turn(session, real_fixture_app_db, "fue el 14 de junio", extraction=charge_extraction(date="2026-06-14"))
 
-    reply = _turn(
+    reply = mocked_turn(
         session, real_fixture_app_db, "No está en la lista", listed["case_id"], action=CustomerAction.NONE_OF_THESE,
     )
 
@@ -328,22 +310,22 @@ def test_not_in_the_list_after_a_detail_names_no_charge(session, real_fixture_ap
 
 @requires_real_fixture
 def test_the_turn_cap_names_no_charge(session, real_fixture_app_db):
-    listed = _turn(session, real_fixture_app_db, "Ver mis últimos cargos", action=CustomerAction.SHOW_CHARGES)
+    listed = mocked_turn(session, real_fixture_app_db, "Ver mis últimos cargos", action=CustomerAction.SHOW_CHARGES)
     with db.app_connection(real_fixture_app_db) as con:
         con.execute("UPDATE cases SET turn_count = 99 WHERE case_id = ?", [listed["case_id"]])
         con.commit()
 
-    reply = _turn(session, real_fixture_app_db, "fue el 14", listed["case_id"], extraction=charge_extraction(date="2026-06-14"))
+    reply = mocked_turn(session, real_fixture_app_db, "fue el 14", listed["case_id"], extraction=charge_extraction(date="2026-06-14"))
 
     assert_escalation_notice(reply, EscalationReason.CHARGE_NOT_IDENTIFIED, charge_named=False)
 
 
 @requires_real_fixture
 def test_a_fixture_failure_is_a_service_issue_without_a_charge(session, real_fixture_app_db):
-    case_id = _explaining(session, real_fixture_app_db)
+    case_id = reach_explaining(session, real_fixture_app_db)
 
     with patch.object(state_machine, "handle_explanation", side_effect=duckdb.Error("down")):
-        reply = _turn(session, real_fixture_app_db, EXPLANATION, case_id)
+        reply = mocked_turn(session, real_fixture_app_db, EXPLANATION, case_id)
 
     assert_escalation_notice(reply, EscalationReason.SERVICE_ISSUE, charge_named=False)
 
@@ -363,9 +345,9 @@ def _assessment_down_client():
 
 @requires_real_fixture
 def test_the_assessment_down_names_the_confirmed_charge(session, real_fixture_app_db):
-    case_id = _explaining(session, real_fixture_app_db)
+    case_id = reach_explaining(session, real_fixture_app_db)
 
-    reply = _turn(session, real_fixture_app_db, EXPLANATION, case_id, client=_assessment_down_client())
+    reply = mocked_turn(session, real_fixture_app_db, EXPLANATION, case_id, client=_assessment_down_client())
 
     assert_escalation_notice(reply, EscalationReason.SERVICE_ISSUE, charge_named=True)
 
@@ -386,9 +368,9 @@ def test_the_assessment_down_names_the_confirmed_charge(session, real_fixture_ap
 def test_an_explanation_that_escalates_names_the_charge_and_its_reason(
     session, real_fixture_app_db, assessment, reason,
 ):
-    case_id = _explaining(session, real_fixture_app_db)
+    case_id = reach_explaining(session, real_fixture_app_db)
 
-    reply = _turn(session, real_fixture_app_db, EXPLANATION, case_id, mock={"assessment": assessment})
+    reply = mocked_turn(session, real_fixture_app_db, EXPLANATION, case_id, mock={"assessment": assessment})
 
     assert_escalation_notice(reply, reason, charge_named=True)
     assert _stored_reason(case_id, real_fixture_app_db) == reason
@@ -396,11 +378,11 @@ def test_an_explanation_that_escalates_names_the_charge_and_its_reason(
 
 @requires_real_fixture
 def test_a_vague_explanation_twice_is_needs_review(session, real_fixture_app_db):
-    case_id = _explaining(session, real_fixture_app_db)
+    case_id = reach_explaining(session, real_fixture_app_db)
     vague = {**NOT_RECEIVED_ASSESSMENT, "reason": "unclear", "specific": False}
 
-    first = _turn(session, real_fixture_app_db, EXPLANATION, case_id, mock={"assessment": vague})
-    second = _turn(session, real_fixture_app_db, EXPLANATION, case_id, mock={"assessment": vague})
+    first = mocked_turn(session, real_fixture_app_db, EXPLANATION, case_id, mock={"assessment": vague})
+    second = mocked_turn(session, real_fixture_app_db, EXPLANATION, case_id, mock={"assessment": vague})
 
     assert first["state"] == CaseState.AWAITING_EXPLANATION
     assert_escalation_notice(second, EscalationReason.NEEDS_REVIEW, charge_named=True)
@@ -410,8 +392,8 @@ def test_a_vague_explanation_twice_is_needs_review(session, real_fixture_app_db)
 
 
 def _escalated_case(session, app_db):
-    listed = _turn(session, app_db, "fue el 14 de junio", extraction=charge_extraction(date="2026-06-14"))
-    reply = _turn(session, app_db, "No está en la lista", listed["case_id"], action=CustomerAction.NONE_OF_THESE)
+    listed = mocked_turn(session, app_db, "fue el 14 de junio", extraction=charge_extraction(date="2026-06-14"))
+    reply = mocked_turn(session, app_db, "No está en la lista", listed["case_id"], action=CustomerAction.NONE_OF_THESE)
     assert reply["state"] == CaseState.ESCALATED
     return reply
 
@@ -421,7 +403,7 @@ def _escalated_case(session, app_db):
 def test_a_later_message_gets_the_escalation_in_the_current_language(session, real_fixture_app_db, language):
     escalated = _escalated_case(session, real_fixture_app_db)
 
-    later = _turn(session, real_fixture_app_db, "¿Y ahora?", escalated["case_id"], language=language)
+    later = mocked_turn(session, real_fixture_app_db, "¿Y ahora?", escalated["case_id"], language=language)
 
     assert later["state"] == CaseState.ESCALATED
     assert later["escalation"] == replies.escalation_summary(
@@ -432,7 +414,7 @@ def test_a_later_message_gets_the_escalation_in_the_current_language(session, re
 
 @requires_real_fixture
 def test_a_lost_race_into_an_escalated_case_gets_the_escalation(session, real_fixture_app_db):
-    listed = _turn(session, real_fixture_app_db, "Ver mis últimos cargos", action=CustomerAction.SHOW_CHARGES)
+    listed = mocked_turn(session, real_fixture_app_db, "Ver mis últimos cargos", action=CustomerAction.SHOW_CHARGES)
     stale = cases.get_case(listed["case_id"], db_path=real_fixture_app_db)
     cases.update_case(
         stale.case_id, state=CaseState.ESCALATED, escalation_reason=EscalationReason.HUMAN_REQUESTED,
@@ -457,7 +439,7 @@ def test_an_abandoned_turn_on_an_escalated_case_gets_the_escalation(session, rea
     turns.attach_case(session.customer_id, turn_id, escalated["case_id"], db_path=real_fixture_app_db)
     turns.abandon(session.customer_id, turn_id, db_path=real_fixture_app_db)
 
-    reply = _turn(session, real_fixture_app_db, "hola", escalated["case_id"], turn_id=turn_id)
+    reply = mocked_turn(session, real_fixture_app_db, "hola", escalated["case_id"], turn_id=turn_id)
 
     assert reply["state"] == CaseState.ESCALATED
     assert reply["escalation"]["case_number"] == escalated["case_id"]
@@ -466,12 +448,12 @@ def test_an_abandoned_turn_on_an_escalated_case_gets_the_escalation(session, rea
 
 @requires_real_fixture
 def test_a_replayed_escalating_turn_returns_the_same_escalation(session, real_fixture_app_db):
-    listed = _turn(session, real_fixture_app_db, "fue el 14 de junio", extraction=charge_extraction(date="2026-06-14"))
+    listed = mocked_turn(session, real_fixture_app_db, "fue el 14 de junio", extraction=charge_extraction(date="2026-06-14"))
     turn_id = uuid.uuid4().hex
     kwargs = dict(action=CustomerAction.NONE_OF_THESE, turn_id=turn_id)
 
-    first = _turn(session, real_fixture_app_db, "No está en la lista", listed["case_id"], **kwargs)
-    again = _turn(session, real_fixture_app_db, "No está en la lista", listed["case_id"], **kwargs)
+    first = mocked_turn(session, real_fixture_app_db, "No está en la lista", listed["case_id"], **kwargs)
+    again = mocked_turn(session, real_fixture_app_db, "No está en la lista", listed["case_id"], **kwargs)
 
     assert first["escalation"] is not None
     assert again["escalation"] == first["escalation"]
@@ -482,7 +464,7 @@ def test_a_legacy_escalated_case_gets_an_escalation_without_a_reason(session, re
     case = cases.create_case(session.customer_id, "es", db_path=real_fixture_app_db)
     cases.update_case(case.case_id, state=CaseState.ESCALATED, db_path=real_fixture_app_db)
 
-    reply = _turn(session, real_fixture_app_db, "hola", case.case_id)
+    reply = mocked_turn(session, real_fixture_app_db, "hola", case.case_id)
 
     assert reply["escalation"] == {
         "case_number": case.case_id, "charge": None, "reason": None,
@@ -492,16 +474,16 @@ def test_a_legacy_escalated_case_gets_an_escalation_without_a_reason(session, re
 
 @requires_real_fixture
 def test_replies_about_open_cases_carry_no_escalation(session, real_fixture_app_db):
-    reply = _turn(session, real_fixture_app_db, "Ver mis últimos cargos", action=CustomerAction.SHOW_CHARGES)
+    reply = mocked_turn(session, real_fixture_app_db, "Ver mis últimos cargos", action=CustomerAction.SHOW_CHARGES)
     assert reply["escalation"] is None
 
 
 @requires_real_fixture
 def test_the_escalating_turn_makes_no_response_model_call(session, real_fixture_app_db):
-    listed = _turn(session, real_fixture_app_db, "fue el 14 de junio", extraction=charge_extraction(date="2026-06-14"))
+    listed = mocked_turn(session, real_fixture_app_db, "fue el 14 de junio", extraction=charge_extraction(date="2026-06-14"))
     client = mock_anthropic_client(charge_extraction())
 
-    _turn(session, real_fixture_app_db, "No está en la lista", listed["case_id"], client=client,
-          action=CustomerAction.NONE_OF_THESE)
+    mocked_turn(session, real_fixture_app_db, "No está en la lista", listed["case_id"], client=client,
+                action=CustomerAction.NONE_OF_THESE)
 
     assert client.messages.create.call_count == 0

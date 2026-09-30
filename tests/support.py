@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import re
 from datetime import date
+from unittest.mock import patch
 
 import pytest
 
-from app import replies
-from app.case_model import CaseState, EscalationReason
+from app import llm, replies
+from app.case_model import CaseState, CustomerAction, EscalationReason
 from app.llm import Language
 from app.policy import (
     ESCALATION_CONTACT_BUSINESS_DAYS,
@@ -21,6 +22,7 @@ from app.policy import (
     DisputeReason,
     ExplanationAssessment,
 )
+from app.state_machine import handle_message
 from app.transactions import TransactionCandidate
 from support import (
     AUTO_RESOLVE_CHARGE,
@@ -82,6 +84,9 @@ __all__ = [
     "chat_js_language_block",
     "assert_escalation_notice",
     "CONTACT_DEADLINE",
+    "mocked_turn",
+    "reach_confirming",
+    "reach_explaining",
 ]
 
 STATIC = REPO_ROOT / "static"
@@ -126,6 +131,30 @@ def assert_escalation_notice(
     assert (("El cargo es" if language == Language.ES else "A cobrança é") in text) == charge_named
     if charge_named:
         assert escalation["charge"]["merchant"] in text
+
+
+def mocked_turn(session, app_db, text, case_id=None, *, extraction=None, language="es", client=None, **kwargs):
+    """One `handle_message` turn against `client`, or a mocked model that
+    extracts `extraction` (`mock`: its other answers), with retries unslept.
+    """
+    client = client or mock_anthropic_client(extraction or charge_extraction(), **kwargs.pop("mock", {}))
+    with patch("app.llm.anthropic.Anthropic", return_value=client), patch.object(llm.time, "sleep"):
+        return handle_message(session, case_id, text, language=language, db_path=app_db, **kwargs)
+
+
+def reach_confirming(session, app_db, language="es") -> str:
+    """A new case proposing `AUTO_RESOLVE_CHARGE`, handoff still locked."""
+    reply = mocked_turn(session, app_db, OPENING, language=language, extraction=charge_extraction(AUTO_RESOLVE_CHARGE))
+    assert reply["state"] == CaseState.CONFIRMING
+    return reply["case_id"]
+
+
+def reach_explaining(session, app_db, language="es") -> str:
+    """`reach_confirming`, then "yes": the case waits for the explanation."""
+    case_id = reach_confirming(session, app_db, language)
+    reply = mocked_turn(session, app_db, "Sí, es ese", case_id, language=language, action=CustomerAction.CONFIRM_YES)
+    assert reply["state"] == CaseState.AWAITING_EXPLANATION
+    return case_id
 
 
 def clean_txn(**overrides) -> TransactionCandidate:

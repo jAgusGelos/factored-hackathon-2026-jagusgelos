@@ -14,19 +14,20 @@ from unittest.mock import patch
 import anthropic
 import pytest
 
-from app import cases, llm, replies
+from app import cases, replies
 from app.case_model import CaseState, CustomerAction, EscalationReason
 from app.llm import Language
-from app.state_machine import handle_message
 from tests.support import (
     AUTO_RESOLVE_CHARGE,
     FRAUD_SCORE_CHARGE,
-    OPENING,
     assert_escalation_notice,
     charge_extraction,
     demo_session,
     logged_events,
     mock_anthropic_client,
+    mocked_turn,
+    reach_confirming,
+    reach_explaining,
     requires_real_fixture,
     session_for,
 )
@@ -41,20 +42,14 @@ SHORT_ASK = "Hablar con alguien"
 LONG_ASK = "Prefiero que me atienda una persona del banco, por favor"
 
 
-def _turn(session, app_db, text, case_id=None, *, extraction=None, language="es", client=None, **kwargs):
-    client = client or mock_anthropic_client(extraction or charge_extraction(), **kwargs.pop("mock", {}))
-    with patch("app.llm.anthropic.Anthropic", return_value=client), patch.object(llm.time, "sleep"):
-        return handle_message(session, case_id, text, language=language, db_path=app_db, **kwargs)
-
-
 def _ask(session, app_db, case_id, *, language="es", via="text", text=None):
     if via == "button":
         label = "Hablar con una persona" if language == "es" else "Falar com uma pessoa"
-        return _turn(session, app_db, label, case_id, language=language, action=CustomerAction.HUMAN)
+        return mocked_turn(session, app_db, label, case_id, language=language, action=CustomerAction.HUMAN)
     text = text or (ASK_ES if language == "es" else ASK_PT)
     # The mocked model reads it as a request for a person in every state
     # (`confirming` classifies typed text instead of extracting from it).
-    return _turn(
+    return mocked_turn(
         session, app_db, text, case_id, language=language, extraction=charge_extraction(wants_human=True),
         mock={"confirmation_answer": "human"},
     )
@@ -72,28 +67,15 @@ def _awaiting_report(session, app_db, language):
 
 
 def _selecting(session, app_db, language):
-    return _turn(session, app_db, "Ver mis últimos cargos", language=language,
-                 action=CustomerAction.SHOW_CHARGES)["case_id"]
-
-
-def _confirming(session, app_db, language):
-    reply = _turn(session, app_db, OPENING, language=language, extraction=charge_extraction(AUTO_RESOLVE_CHARGE))
-    assert reply["state"] == CaseState.CONFIRMING
-    return reply["case_id"]
-
-
-def _explaining(session, app_db, language):
-    case_id = _confirming(session, app_db, language)
-    reply = _turn(session, app_db, "Sí, es ese", case_id, language=language, action=CustomerAction.CONFIRM_YES)
-    assert reply["state"] == CaseState.AWAITING_EXPLANATION
-    return case_id
+    return mocked_turn(session, app_db, "Ver mis últimos cargos", language=language,
+                       action=CustomerAction.SHOW_CHARGES)["case_id"]
 
 
 _SETUPS = {
     CaseState.AWAITING_REPORT: (_awaiting_report, CaseState.SELECTING),
     CaseState.SELECTING: (_selecting, CaseState.SELECTING),
-    CaseState.CONFIRMING: (_confirming, CaseState.CONFIRMING),
-    CaseState.AWAITING_EXPLANATION: (_explaining, CaseState.AWAITING_EXPLANATION),
+    CaseState.CONFIRMING: (reach_confirming, CaseState.CONFIRMING),
+    CaseState.AWAITING_EXPLANATION: (reach_explaining, CaseState.AWAITING_EXPLANATION),
 }
 
 
@@ -126,7 +108,7 @@ def test_the_first_request_defers_with_the_offer_and_the_second_escalates(real_f
 def test_the_first_request_in_clarifying_defers_with_the_offer(real_fixture_app_db):
     # A customer with no charges to list: the agent asks for a detail instead.
     session = session_for("CLI-SOMEONE-ELSE", real_fixture_app_db)
-    asked = _turn(session, real_fixture_app_db, "no sé")
+    asked = mocked_turn(session, real_fixture_app_db, "no sé")
     assert asked["state"] == CaseState.CLARIFYING
     assert asked["human_available"] is False
     rounds_before = _case(asked["case_id"], real_fixture_app_db).clarification_rounds
@@ -143,8 +125,8 @@ def test_the_first_request_in_clarifying_defers_with_the_offer(real_fixture_app_
 
 def test_a_request_with_details_tries_them_once_then_escalates(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
-    first = _turn(session, real_fixture_app_db, "quiero una persona, es un Uber de 38.500 del 14 de junio",
-                  extraction=charge_extraction(AUTO_RESOLVE_CHARGE, wants_human=True))
+    first = mocked_turn(session, real_fixture_app_db, "quiero una persona, es un Uber de 38.500 del 14 de junio",
+                        extraction=charge_extraction(AUTO_RESOLVE_CHARGE, wants_human=True))
 
     assert first["state"] == CaseState.CONFIRMING
     assert first["reply"].endswith(replies.HUMAN_OFFER["es"])
@@ -170,7 +152,7 @@ def test_the_deferral_makes_no_model_call_for_its_text(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
     client = mock_anthropic_client(charge_extraction(wants_human=True), nlg_text="Mirá, te paso con alguien")
 
-    reply = _turn(session, real_fixture_app_db, ASK_ES, client=client)
+    reply = mocked_turn(session, real_fixture_app_db, ASK_ES, client=client)
 
     # Only the extraction call: the deferral and the offer are fixed texts.
     assert client.messages.create.call_count == 1
@@ -179,7 +161,7 @@ def test_the_deferral_makes_no_model_call_for_its_text(real_fixture_app_db):
 
 def test_a_lost_race_gets_no_offer(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
-    case_id = _confirming(session, real_fixture_app_db, "es")
+    case_id = reach_confirming(session, real_fixture_app_db, "es")
     real_update = cases.update_case
 
     def another_request_escalated_first(case_id_, **kwargs):
@@ -200,7 +182,7 @@ def test_a_lost_race_gets_no_offer(real_fixture_app_db):
 
 def test_a_short_request_while_explaining_is_detected_and_not_counted_as_an_explanation(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
-    case_id = _explaining(session, real_fixture_app_db, "es")
+    case_id = reach_explaining(session, real_fixture_app_db, "es")
 
     first = _ask(session, real_fixture_app_db, case_id, text=SHORT_ASK)
 
@@ -217,11 +199,11 @@ def test_a_short_request_while_explaining_is_detected_and_not_counted_as_an_expl
 
 def test_a_long_request_while_explaining_is_detected_by_the_assessment(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
-    case_id = _explaining(session, real_fixture_app_db, "es")
+    case_id = reach_explaining(session, real_fixture_app_db, "es")
     asks = {"reason": "unclear", "specific": False, "consistent": True, "contradictions": [],
             "summary": "El cliente pide hablar con una persona.", "missing_detail": None, "wants_human": True}
 
-    first = _turn(session, real_fixture_app_db, LONG_ASK, case_id, mock={"assessment": asks})
+    first = mocked_turn(session, real_fixture_app_db, LONG_ASK, case_id, mock={"assessment": asks})
 
     assert first["state"] == CaseState.AWAITING_EXPLANATION
     assert first["reply"].endswith(replies.HUMAN_OFFER["es"])
@@ -229,17 +211,17 @@ def test_a_long_request_while_explaining_is_detected_by_the_assessment(real_fixt
     assert stored.explanation_text is None and stored.explanation_attempts == 0
     assert logged_events(real_fixture_app_db, "human_request_detected") == [{"via": "assessment"}]
 
-    second = _turn(session, real_fixture_app_db, LONG_ASK, case_id, mock={"assessment": asks})
+    second = mocked_turn(session, real_fixture_app_db, LONG_ASK, case_id, mock={"assessment": asks})
     assert_escalation_notice(second, EscalationReason.HUMAN_REQUESTED, charge_named=True)
 
 
 def test_a_detection_failure_while_explaining_does_not_escalate(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
-    case_id = _explaining(session, real_fixture_app_db, "es")
+    case_id = reach_explaining(session, real_fixture_app_db, "es")
     client = mock_anthropic_client(charge_extraction())
     client.messages.create.side_effect = anthropic.APITimeoutError(request=None)
 
-    reply = _turn(session, real_fixture_app_db, SHORT_ASK, case_id, client=client)
+    reply = mocked_turn(session, real_fixture_app_db, SHORT_ASK, case_id, client=client)
 
     # Today's too-short path: one more detail is asked, nothing escalates.
     assert reply["state"] == CaseState.AWAITING_EXPLANATION
@@ -250,9 +232,9 @@ def test_a_detection_failure_while_explaining_does_not_escalate(real_fixture_app
 
 def test_a_short_explanation_that_asks_for_nobody_is_still_an_explanation(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
-    case_id = _explaining(session, real_fixture_app_db, "es")
+    case_id = reach_explaining(session, real_fixture_app_db, "es")
 
-    reply = _turn(session, real_fixture_app_db, "no fui yo", case_id)
+    reply = mocked_turn(session, real_fixture_app_db, "no fui yo", case_id)
 
     assert reply["state"] == CaseState.AWAITING_EXPLANATION
     assert _case(case_id, real_fixture_app_db).explanation_attempts == 1
@@ -264,8 +246,8 @@ def test_a_short_explanation_that_asks_for_nobody_is_still_an_explanation(real_f
 
 def test_a_first_request_with_details_that_escalate_by_policy_gets_the_policy_reason(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
-    reply = _turn(session, real_fixture_app_db, "quiero una persona, no reconozco este cargo",
-                  extraction=charge_extraction(FRAUD_SCORE_CHARGE, wants_human=True))
+    reply = mocked_turn(session, real_fixture_app_db, "quiero una persona, no reconozco este cargo",
+                        extraction=charge_extraction(FRAUD_SCORE_CHARGE, wants_human=True))
 
     assert reply["state"] == CaseState.ESCALATED
     assert _case(reply["case_id"], real_fixture_app_db).escalation_reason != EscalationReason.HUMAN_REQUESTED
@@ -276,7 +258,7 @@ def test_a_first_request_with_details_that_escalate_by_policy_gets_the_policy_re
 def test_after_a_silent_unlock_the_first_request_escalates(real_fixture_app_db):
     # The agent could not find a charge for the customer's date: unlocked.
     session = demo_session(real_fixture_app_db)
-    unmatched = _turn(session, real_fixture_app_db, "fue el 22/04/2024", extraction=charge_extraction(date="2024-04-22"))
+    unmatched = mocked_turn(session, real_fixture_app_db, "fue el 22/04/2024", extraction=charge_extraction(date="2024-04-22"))
     assert unmatched["human_available"] is True
 
     reply = _ask(session, real_fixture_app_db, unmatched["case_id"])
