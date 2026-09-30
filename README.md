@@ -118,7 +118,7 @@ uvicorn app.main:app --reload --port 8000
 # data/demo_users.json after step 2)
 
 # 5. Tests, lint, eval harness
-pytest                              # 410 tests
+pytest                              # 421 tests
 ruff check .
 python -m eval.run_eval             # -> data/eval_report.json (see "Evaluation results" below)
 ```
@@ -152,12 +152,19 @@ dataset is in USD (there is no MXN transaction at all), a data finding in its ow
 | Unsupported request | "¿Cuál es mi saldo?" | Declines and says what this channel does; no guess, no state change |
 | Human escalation (policy) | "No reconozco una compra en Tienda Online Global", or tap Boutique Moda / Tienda Don José | Fails AD-11 (fraud score 91 / ~610 USD / Pending) -> `escalated` with a structured handoff (facts, actions, evidence, open questions) |
 | Human escalation (request) | Give a detail the agent cannot match (e.g. "fue el 22/04/2024"), then "Hablar con una persona" | The agent tries first: asking for a person before that gets the charge list and a "let me try first" reply. The button only appears once the customer gave details and the agent could not resolve them (nothing matched, a rejected proposal, or a round with nothing new). Each deferral spends a clarification round, so a customer who insists without details reaches a person on the third request |
+| Second claim in the same chat | After any closed case (`resolved_auto` or `escalated`): tap "Reportar otro cargo" / "Contestar outra cobrança", or just type the next complaint (e.g. "No reconozco una compra en Tienda Online Global" after the Uber resolution) | A divider "Nuevo reclamo · caso anterior REF-... (resuelto)" marks the new claim, the case panel goes back to "Esperando reporte" and the message goes out without a `case_id`, so the server opens a new case. The closed case is never reopened or changed (state, reference, credit); its "Verificación del sistema" / "Caso derivado" card appears once, only on the turn that closed it |
 
 A turn that brings a new detail (amount, date, merchant) never spends a clarification round; after
 two rounds with nothing new, or more than 6 free-text reports in one case, the case escalates
 (greetings and button taps do not count). A greeting gets an introduction of what the agent can do.
 A transaction is credited at most once: disputing an already-credited charge again, in any case,
-goes to a person with the earlier case as evidence (checked in code and enforced by a unique index). Everything works in Spanish and Portuguese (toggle in the chat header); see
+goes to a person with the earlier case as evidence (checked in code and enforced by a unique index).
+While a turn is in flight the chat shows a typing bubble with a step-aware caption ("Buscando sus
+movimientos…", "Revisando su explicación…"), switching to "Está tardando más de lo habitual" after
+10 s, announced to screen readers through a separate `role=status` region; buttons, Enter and Send
+cannot post a second message meanwhile, and typed text is kept. A failed or timed-out (25 s) send
+shows "No se pudo obtener respuesta" with a "Reintentar" button that re-sends the same turn (same
+`turn_id`), so the server replays the turn instead of applying it twice. Everything works in Spanish and Portuguese (toggle in the chat header); see
 "Known limitations" for what the Portuguese toggle does and does not validate.
 
 ## Evaluation results
@@ -260,7 +267,7 @@ app/            FastAPI backend — auth, state machine, policy, LLM boundary, c
 etl/            Offline ETL: extraction, quality checks, fixture generation, classifier training
 eval/           Eval harness (Milestone 5)
 static/         Frontend (vanilla HTML/CSS/JS, no build step — AD-1)
-tests/          pytest suite (410 tests)
+tests/          pytest suite (421 tests)
 support.py      Shared test/eval mock helpers (no pytest dependency — used by eval/ too)
 docs/           Challenge requirements digest
 data/           Local ETL artifacts, fixture, trained model (gitignored — never commit raw data)
