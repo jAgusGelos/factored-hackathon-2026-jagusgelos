@@ -25,8 +25,10 @@ AD-11's rows, in order:
      make a charge eligible (`evaluate_explanation`). The reason it names
      picks which evidence check applies, and that check runs on the DATA,
      never on the claim:
-       - duplicate: a verifiable twin exists (same merchant, exact amount,
-         currency and type, at most DUPLICATE_WINDOW_DAYS apart) and no
+       - duplicate: a verifiable twin exists (an Approved charge at the same
+         merchant, exact amount, currency and type, at most
+         DUPLICATE_WINDOW_DAYS apart: a pending hold or a declined retry was
+         never collected, so it is not a second charge) and no
          charge of the pair was credited before -> reverse it.
        - unrecognized: card-not-present purchase (Web/App), no other charge
          of theirs at the same merchant (an existing relationship with the
@@ -286,7 +288,9 @@ def screening_failures(txn: TransactionCandidate, ctx: DisputeContext) -> tuple[
     if txn.fraud_score is None or txn.fraud_score >= AUTO_RESOLVE_MAX_FRAUD_SCORE:
         reasons.append(f"fraud_score={txn.fraud_score} at/above the {AUTO_RESOLVE_MAX_FRAUD_SCORE} threshold")
     age_days = (ctx.as_of - _day(txn.transaction_date)).days
-    if age_days > MAX_TRANSACTION_AGE_DAYS:
+    if age_days < 0:
+        reasons.append(f"charge is dated {-age_days} day(s) after the data as-of date {ctx.as_of}")
+    elif age_days > MAX_TRANSACTION_AGE_DAYS:
         reasons.append(f"charge is {age_days} days old, over the {MAX_TRANSACTION_AGE_DAYS}-day window")
     if ctx.customer_status != AUTO_RESOLVE_REQUIRED_CUSTOMER_STATUS:
         reasons.append(f"customer_status={ctx.customer_status!r}, not Active")

@@ -10,7 +10,6 @@ client mocked. Skipped gracefully if the ETL fixture hasn't been generated.
 from __future__ import annotations
 
 import json
-import sqlite3
 from unittest.mock import patch
 
 from app import cases, db
@@ -18,14 +17,19 @@ from app.policy import MAX_CASE_TURNS
 from app.state_machine import CaseState, handle_message
 from tests.support import (
     AUTO_RESOLVE_CHARGE,
+    CARD_PRESENT_CHARGE,
     CONVINCING_ASSESSMENT,
+    DUPLICATE_ASSESSMENT,
     DUPLICATE_CHARGES,
     EXPLANATION,
     FRAUD_SCORE_CHARGE,
+    NOT_RECEIVED_ASSESSMENT,
     OVER_LIMIT_CHARGE,
+    SECOND_ONLINE_CHARGE,
     charge_extraction,
     charge_report,
     demo_session,
+    logged_events,
     mock_anthropic_client,
     requires_real_fixture,
     session_for,
@@ -60,19 +64,6 @@ def _pick_and_explain(session, app_db, transaction_id, assessment=None):
     return _explain(session, app_db, picked["case_id"], assessment)
 
 
-DUPLICATE_ASSESSMENT = {**CONVINCING_ASSESSMENT, "reason": "duplicate",
-                        "summary": "El cliente dice que le cobraron dos veces el mismo viaje."}
-
-
-def _events(app_db, event_type):
-    con = sqlite3.connect(str(app_db))
-    try:
-        rows = con.execute("SELECT payload_json FROM events WHERE event_type = ?", [event_type]).fetchall()
-    finally:
-        con.close()
-    return [json.loads(r[0]) for r in rows]
-
-
 # -- The 3 required scenarios -------------------------------------------------
 
 
@@ -86,7 +77,7 @@ def test_normal_case_clean_auto_resolve(real_fixture_app_db):
     confirmed = _say(session, real_fixture_app_db, extraction, "Sí, es ese", case_id=first["case_id"])
     # Milestone 9: before any credit the customer explains what happened.
     assert confirmed["state"] == CaseState.AWAITING_EXPLANATION
-    assert _events(real_fixture_app_db, "simulated_credit") == []
+    assert logged_events(real_fixture_app_db, "simulated_credit") == []
     reply = _explain(session, real_fixture_app_db, first["case_id"])
 
     assert reply["state"] == CaseState.RESOLVED_AUTO
@@ -94,7 +85,7 @@ def test_normal_case_clean_auto_resolve(real_fixture_app_db):
     assert case.matched_transaction_id == AUTO_RESOLVE_CHARGE
     assert case.resolution_reference.startswith("REF-")
     # AD-11 Row 6: a SIMULATED credit, logged as such — never a real payment call.
-    credits = _events(real_fixture_app_db, "simulated_credit")
+    credits = logged_events(real_fixture_app_db, "simulated_credit")
     assert len(credits) == 1 and credits[0]["simulated"] is True
 
 
@@ -110,7 +101,7 @@ def test_ambiguous_report_shows_the_customers_charges_instead_of_repeating_a_que
     dates = [o["date"] for o in reply["options"]]
     assert dates == sorted(dates, reverse=True)
     assert {"transaction_id", "date", "amount", "currency", "merchant", "category"} <= set(reply["options"][0])
-    assert _events(real_fixture_app_db, "charges_offered")[0]["list_filter"] == "recent"
+    assert logged_events(real_fixture_app_db, "charges_offered")[0]["list_filter"] == "recent"
 
 
 def test_duplicate_charges_are_listed_for_the_customer_to_pick(real_fixture_app_db):
@@ -141,7 +132,7 @@ def test_an_early_human_request_gets_the_agent_to_try_first(real_fixture_app_db)
     assert reply["state"] == CaseState.SELECTING
     assert reply["options"]
     assert reply["human_available"] is False
-    assert _events(real_fixture_app_db, "human_request_deferred")
+    assert logged_events(real_fixture_app_db, "human_request_deferred")
 
 
 def test_a_human_request_is_honored_after_details_the_agent_could_not_match(real_fixture_app_db):
@@ -175,7 +166,7 @@ def test_picking_an_eligible_charge_asks_what_happened_then_resolves(real_fixtur
     assert case.matched_transaction_id == AUTO_RESOLVE_CHARGE
     # The customer never stated an amount: the case keeps only what they said.
     assert case.reported_amount is None
-    credits = _events(real_fixture_app_db, "simulated_credit")
+    credits = logged_events(real_fixture_app_db, "simulated_credit")
     assert len(credits) == 1 and credits[0]["amount"] == charge_report(AUTO_RESOLVE_CHARGE)["amount"]
 
 
@@ -193,7 +184,7 @@ def test_picking_an_ineligible_charge_escalates_with_the_policy_reasons(real_fix
     assert handoff["evidence"] == [OVER_LIMIT_CHARGE]
     assert "eligió" in handoff["actions_taken"][0]
     assert any("amount_usd" in q for q in handoff["open_questions"])
-    assert _events(real_fixture_app_db, "simulated_credit") == []
+    assert logged_events(real_fixture_app_db, "simulated_credit") == []
 
 
 def test_a_charge_that_was_not_offered_is_never_accepted(real_fixture_app_db):
@@ -208,8 +199,8 @@ def test_a_charge_that_was_not_offered_is_never_accepted(real_fixture_app_db):
     )
 
     assert reply["state"] == CaseState.SELECTING
-    assert _events(real_fixture_app_db, "selection_rejected")
-    assert _events(real_fixture_app_db, "simulated_credit") == []
+    assert logged_events(real_fixture_app_db, "selection_rejected")
+    assert logged_events(real_fixture_app_db, "simulated_credit") == []
 
 
 def test_another_customers_transaction_id_is_never_accepted(real_fixture_app_db, tmp_path, monkeypatch):
@@ -229,7 +220,7 @@ def test_another_customers_transaction_id_is_never_accepted(real_fixture_app_db,
     )
 
     assert reply["state"] == CaseState.SELECTING
-    assert _events(real_fixture_app_db, "simulated_credit") == []
+    assert logged_events(real_fixture_app_db, "simulated_credit") == []
 
 
 def test_not_in_the_list_without_any_detail_asks_for_one(real_fixture_app_db):
@@ -242,7 +233,7 @@ def test_not_in_the_list_without_any_detail_asks_for_one(real_fixture_app_db):
     )
 
     assert reply["state"] == CaseState.SELECTING
-    assert _events(real_fixture_app_db, "details_requested")
+    assert logged_events(real_fixture_app_db, "details_requested")
 
 
 def test_not_in_the_list_after_details_escalates_with_what_was_shown_as_evidence(real_fixture_app_db):
@@ -299,7 +290,7 @@ def test_a_date_only_report_lists_the_charges_around_that_date(real_fixture_app_
 
     assert reply["state"] == CaseState.SELECTING
     assert all("2026-06-07" <= o["date"] <= "2026-06-21" for o in reply["options"])
-    assert _events(real_fixture_app_db, "charges_offered")[0]["list_filter"] == "filtered"
+    assert logged_events(real_fixture_app_db, "charges_offered")[0]["list_filter"] == "filtered"
 
 
 def test_a_detail_with_no_match_falls_back_to_recent_charges_and_says_so(real_fixture_app_db):
@@ -308,7 +299,7 @@ def test_a_detail_with_no_match_falls_back_to_recent_charges_and_says_so(real_fi
 
     assert reply["state"] == CaseState.SELECTING
     assert reply["options"]
-    assert _events(real_fixture_app_db, "charges_offered")[0]["list_filter"] == "fallback_recent"
+    assert logged_events(real_fixture_app_db, "charges_offered")[0]["list_filter"] == "fallback_recent"
 
 
 def test_turns_that_bring_new_details_do_not_spend_clarification_rounds(real_fixture_app_db):
@@ -374,7 +365,7 @@ def test_a_greeting_gets_an_introduction_not_a_charge_list(real_fixture_app_db):
     assert reply["options"] == []
     case = cases.get_case(reply["case_id"], db_path=real_fixture_app_db)
     assert case.clarification_rounds == 0
-    assert _events(real_fixture_app_db, "introduction")
+    assert logged_events(real_fixture_app_db, "introduction")
 
 
 def test_an_out_of_scope_request_is_declined_without_guessing(real_fixture_app_db):
@@ -383,7 +374,7 @@ def test_an_out_of_scope_request_is_declined_without_guessing(real_fixture_app_d
 
     assert reply["state"] == CaseState.AWAITING_REPORT
     assert reply["options"] == []
-    assert _events(real_fixture_app_db, "out_of_scope_request")
+    assert logged_events(real_fixture_app_db, "out_of_scope_request")
 
 
 def test_asking_to_see_charges_shows_the_list(real_fixture_app_db):
@@ -428,7 +419,7 @@ def test_a_stale_confirming_write_cannot_reopen_a_resolved_case(real_fixture_app
 
     assert reply["state"] == CaseState.RESOLVED_AUTO
     assert cases.get_case(listed["case_id"], db_path=real_fixture_app_db).state == "resolved_auto"
-    assert len(_events(real_fixture_app_db, "simulated_credit")) == 1
+    assert len(logged_events(real_fixture_app_db, "simulated_credit")) == 1
 
 
 def test_the_same_charge_is_never_credited_twice(real_fixture_app_db):
@@ -439,7 +430,7 @@ def test_the_same_charge_is_never_credited_twice(real_fixture_app_db):
     assert reply["state"] == CaseState.ESCALATED
     handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
     assert "credited_in_case" in handoff["facts"]
-    assert len(_events(real_fixture_app_db, "simulated_credit")) == 1
+    assert len(logged_events(real_fixture_app_db, "simulated_credit")) == 1
 
 
 def test_a_typed_report_of_an_already_credited_charge_escalates_instead_of_confirming(real_fixture_app_db):
@@ -478,7 +469,7 @@ def test_a_rejected_tap_resends_the_current_list(real_fixture_app_db):
                  selected_transaction_id=AUTO_RESOLVE_CHARGE)
 
     assert [o["transaction_id"] for o in reply["options"]] == [o["transaction_id"] for o in listed["options"]]
-    assert _events(real_fixture_app_db, "selection_rejected")[0]["reason"] == "not_offered"
+    assert logged_events(real_fixture_app_db, "selection_rejected")[0]["reason"] == "not_offered"
 
 
 def test_a_merchant_with_no_charges_never_proposes_another_merchants_charge(real_fixture_app_db):
@@ -540,7 +531,7 @@ def test_a_wildcard_merchant_hint_matches_nothing(real_fixture_app_db):
     reply = _say(session, real_fixture_app_db, charge_extraction(merchant_hint="%"), "%")
 
     assert reply["state"] == CaseState.SELECTING
-    assert _events(real_fixture_app_db, "charges_offered")[0]["list_filter"] == "fallback_recent"
+    assert logged_events(real_fixture_app_db, "charges_offered")[0]["list_filter"] == "fallback_recent"
 
 
 def test_a_stale_tap_from_a_replaced_list_neither_resolves_nor_claims_escalation(real_fixture_app_db):
@@ -560,7 +551,7 @@ def test_a_stale_tap_from_a_replaced_list_neither_resolves_nor_claims_escalation
     assert reply["state"] == CaseState.SELECTING
     assert reply["reply"] == replies.CASE_MOVED_ON[llm_module.Language.ES]
     assert [o["transaction_id"] for o in reply["options"]] == [o["transaction_id"] for o in relisted["options"]]
-    assert _events(real_fixture_app_db, "simulated_credit") == []
+    assert logged_events(real_fixture_app_db, "simulated_credit") == []
 
 
 def test_a_stale_yes_cannot_credit_a_charge_the_customer_rejected(real_fixture_app_db):
@@ -572,7 +563,7 @@ def test_a_stale_yes_cannot_credit_a_charge_the_customer_rejected(real_fixture_a
     first = _say(session, real_fixture_app_db, charge_extraction(AUTO_RESOLVE_CHARGE))
     stale_case = cases.get_case(first["case_id"], db_path=real_fixture_app_db)
     _say(session, real_fixture_app_db, charge_extraction(), "No es ese", case_id=first["case_id"], action="confirm_no")
-    farmacia = charge_report("SYN-DEMO-FARMACIA")
+    farmacia = charge_report(CARD_PRESENT_CHARGE)
     now = _say(session, real_fixture_app_db, charge_extraction(**farmacia), "era la farmacia", case_id=first["case_id"])
     assert now["state"] == CaseState.CONFIRMING
 
@@ -580,8 +571,8 @@ def test_a_stale_yes_cannot_credit_a_charge_the_customer_rejected(real_fixture_a
     with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(charge_extraction())):
         state_machine._handle_confirmation(turn, "Sí", state_machine.CustomerAction.CONFIRM_YES)
 
-    assert _events(real_fixture_app_db, "simulated_credit") == []
-    assert cases.get_case(first["case_id"], db_path=real_fixture_app_db).matched_transaction_id == "SYN-DEMO-FARMACIA"
+    assert logged_events(real_fixture_app_db, "simulated_credit") == []
+    assert cases.get_case(first["case_id"], db_path=real_fixture_app_db).matched_transaction_id == CARD_PRESENT_CHARGE
 
 
 # -- Try first, but never trap the customer -----------------------------------
@@ -631,7 +622,7 @@ def test_a_human_request_with_details_tries_the_details_first(real_fixture_app_d
                  "quiero una persona, es un Uber de 38.500 del 14 de junio")
 
     assert reply["state"] == CaseState.CONFIRMING
-    assert _events(real_fixture_app_db, "human_request_deferred")[0]["reason"] == "details_to_try"
+    assert logged_events(real_fixture_app_db, "human_request_deferred")[0]["reason"] == "details_to_try"
 
 
 def test_a_customer_with_no_charges_can_reach_a_person_after_giving_a_detail(real_fixture_app_db):
@@ -655,8 +646,8 @@ def test_an_unrecognized_credit_is_provisional_and_blocks_the_card(real_fixture_
 
     assert reply["state"] == CaseState.RESOLVED_AUTO
     assert "bloque" in reply["reply"].lower()
-    assert _events(real_fixture_app_db, "simulated_card_block")
-    assert _events(real_fixture_app_db, "credit_review_queued")[0]["reversible"] is True
+    assert logged_events(real_fixture_app_db, "simulated_card_block")
+    assert logged_events(real_fixture_app_db, "credit_review_queued")[0]["reversible"] is True
     case = cases.get_case(reply["case_id"], db_path=real_fixture_app_db)
     assert case.dispute_reason == "unrecognized"
     assert case.credit_key == AUTO_RESOLVE_CHARGE
@@ -668,13 +659,13 @@ def test_a_card_present_charge_is_never_credited_on_the_customers_word(real_fixt
     explanation, it goes to a fraud investigation, not a same-minute credit.
     """
     session = demo_session(real_fixture_app_db)
-    reply = _pick_and_explain(session, real_fixture_app_db, "SYN-DEMO-FARMACIA")
+    reply = _pick_and_explain(session, real_fixture_app_db, CARD_PRESENT_CHARGE)
 
     assert reply["state"] == CaseState.ESCALATED
     handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
     assert any("card-present" in q for q in handoff["open_questions"])
     assert handoff["facts"]["explanation_specific"] == "sí"
-    assert _events(real_fixture_app_db, "simulated_credit") == []
+    assert logged_events(real_fixture_app_db, "simulated_credit") == []
 
 
 def test_an_unrecognized_claim_on_a_merchant_the_customer_uses_escalates(real_fixture_app_db):
@@ -684,7 +675,7 @@ def test_an_unrecognized_claim_on_a_merchant_the_customer_uses_escalates(real_fi
     assert reply["state"] == CaseState.ESCALATED
     handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
     assert any("other charge(s) at 'Taxi Seguro'" in q for q in handoff["open_questions"])
-    assert _events(real_fixture_app_db, "simulated_credit") == []
+    assert logged_events(real_fixture_app_db, "simulated_credit") == []
 
 
 def test_only_one_unrecognized_credit_per_window(real_fixture_app_db):
@@ -693,13 +684,13 @@ def test_only_one_unrecognized_credit_per_window(real_fixture_app_db):
     """
     session = demo_session(real_fixture_app_db)
     first = _pick_and_explain(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
-    second = _pick_and_explain(session, real_fixture_app_db, "SYN-DEMO-CINE")
+    second = _pick_and_explain(session, real_fixture_app_db, SECOND_ONLINE_CHARGE)
 
     assert first["state"] == CaseState.RESOLVED_AUTO
     assert second["state"] == CaseState.ESCALATED
     handoff = cases.get_case(second["case_id"], db_path=real_fixture_app_db).handoff
     assert any("already granted" in q for q in handoff["open_questions"])
-    assert len(_events(real_fixture_app_db, "simulated_credit")) == 1
+    assert len(logged_events(real_fixture_app_db, "simulated_credit")) == 1
 
 
 def test_a_verified_duplicate_is_reversed_without_blocking_the_card(real_fixture_app_db):
@@ -708,7 +699,7 @@ def test_a_verified_duplicate_is_reversed_without_blocking_the_card(real_fixture
 
     assert reply["state"] == CaseState.RESOLVED_AUTO
     assert "duplicado" in reply["reply"]
-    assert _events(real_fixture_app_db, "simulated_card_block") == []
+    assert logged_events(real_fixture_app_db, "simulated_card_block") == []
     case = cases.get_case(reply["case_id"], db_path=real_fixture_app_db)
     assert case.dispute_reason == "duplicate"
     assert case.credit_key == f"duplicate:{min(DUPLICATE_CHARGES)}"
@@ -723,7 +714,7 @@ def test_a_duplicate_pair_is_reversed_only_once(real_fixture_app_db):
     assert second["state"] == CaseState.ESCALATED
     handoff = cases.get_case(second["case_id"], db_path=real_fixture_app_db).handoff
     assert any("duplicate pair was already credited" in q for q in handoff["open_questions"])
-    assert len(_events(real_fixture_app_db, "simulated_credit")) == 1
+    assert len(logged_events(real_fixture_app_db, "simulated_credit")) == 1
 
 
 def test_a_duplicate_claim_without_a_twin_in_the_data_escalates(real_fixture_app_db):
@@ -737,13 +728,12 @@ def test_a_duplicate_claim_without_a_twin_in_the_data_escalates(real_fixture_app
 
 def test_not_received_goes_to_a_person_as_a_merchant_dispute(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
-    not_received = {**CONVINCING_ASSESSMENT, "reason": "not_received"}
-    reply = _pick_and_explain(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE, not_received)
+    reply = _pick_and_explain(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE, NOT_RECEIVED_ASSESSMENT)
 
     assert reply["state"] == CaseState.ESCALATED
     handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
     assert any("contracargo" in q for q in handoff["open_questions"])
-    assert _events(real_fixture_app_db, "simulated_credit") == []
+    assert logged_events(real_fixture_app_db, "simulated_credit") == []
 
 
 def test_a_vague_explanation_gets_one_follow_up_then_escalates(real_fixture_app_db):
@@ -756,7 +746,7 @@ def test_a_vague_explanation_gets_one_follow_up_then_escalates(real_fixture_app_
 
     assert follow_up["state"] == CaseState.AWAITING_EXPLANATION
     assert final["state"] == CaseState.ESCALATED
-    assert _events(real_fixture_app_db, "simulated_credit") == []
+    assert logged_events(real_fixture_app_db, "simulated_credit") == []
 
 
 def test_a_high_fraud_score_escalates_before_asking_for_an_explanation(real_fixture_app_db):
@@ -764,5 +754,138 @@ def test_a_high_fraud_score_escalates_before_asking_for_an_explanation(real_fixt
     reply = _pick(session, real_fixture_app_db, FRAUD_SCORE_CHARGE)
 
     assert reply["state"] == CaseState.ESCALATED
-    assert _events(real_fixture_app_db, "explanation_requested") == []
+    assert logged_events(real_fixture_app_db, "explanation_requested") == []
 
+
+
+# -- Review fixes (Milestone 9 review) -------------------------------------------
+
+
+def _stale_limits_read(monkeypatch):
+    """Makes every policy read see no earlier credits, as a second chat that
+    read the history before the first one committed would.
+    """
+    from dataclasses import replace
+
+    from app import state_machine
+
+    fresh = state_machine._dispute_context
+
+    def stale(*args, **kwargs):
+        return replace(
+            fresh(*args, **kwargs), duplicate_pair_credited=False, recent_unrecognized_credits=0,
+            recent_credited_usd=0.0,
+        )
+
+    monkeypatch.setattr(state_machine, "_dispute_context", stale)
+
+
+def test_a_pending_twin_is_not_a_second_charge(real_fixture_app_db, tmp_path, monkeypatch):
+    """A pending hold (or a declined retry) next to the real charge was never
+    collected: claiming a duplicate against it must not reverse the real one.
+    """
+    import duckdb
+
+    from app import config
+
+    fixture_copy = tmp_path / "fixture.duckdb"
+    fixture_copy.write_bytes(config.FIXTURE_DB_PATH.read_bytes())
+    monkeypatch.setattr(config, "FIXTURE_DB_PATH", fixture_copy)
+    con = duckdb.connect(str(fixture_copy))
+    con.execute("UPDATE transactions SET transaction_status = 'Pending' WHERE transaction_id = ?", [DUPLICATE_CHARGES[0]])
+    con.close()
+
+    session = demo_session(real_fixture_app_db)
+    reply = _pick_and_explain(session, real_fixture_app_db, DUPLICATE_CHARGES[1], DUPLICATE_ASSESSMENT)
+
+    assert reply["state"] == CaseState.ESCALATED
+    handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
+    assert any("no other charge at the same merchant" in q for q in handoff["open_questions"])
+    assert logged_events(real_fixture_app_db, "simulated_credit") == []
+
+
+def test_a_credit_granted_before_the_new_columns_counts_towards_the_limits(real_fixture_app_db):
+    """A resolved case from before this migration has no amount or reason: it
+    counts as a full-cap unrecognized credit, never as zero.
+    """
+    session = demo_session(real_fixture_app_db)
+    legacy = cases.create_case(session.customer_id, "es", db_path=real_fixture_app_db)
+    cases.update_case(legacy.case_id, state="resolved_auto", resolution_reference="REF-LEGACY", db_path=real_fixture_app_db)
+
+    history = cases.credit_history(session.customer_id, db_path=real_fixture_app_db)
+    reply = _pick_and_explain(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
+
+    assert history.unrecognized_count == 1 and history.total_usd > 0
+    assert reply["state"] == CaseState.ESCALATED
+    assert logged_events(real_fixture_app_db, "simulated_credit") == []
+
+
+def test_two_chats_cannot_both_slip_under_the_credit_limit(real_fixture_app_db, monkeypatch):
+    """The second chat's policy read is stale (it saw no credit yet); the
+    guard inside the claiming UPDATE still refuses its credit.
+    """
+    session = demo_session(real_fixture_app_db)
+    first = _pick_and_explain(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
+    _stale_limits_read(monkeypatch)
+    second = _pick_and_explain(session, real_fixture_app_db, SECOND_ONLINE_CHARGE)
+
+    assert first["state"] == CaseState.RESOLVED_AUTO
+    assert second["state"] == CaseState.ESCALATED
+    assert logged_events(real_fixture_app_db, "credit_limit_reached")
+    assert len(logged_events(real_fixture_app_db, "simulated_credit")) == 1
+    case = cases.get_case(second["case_id"], db_path=real_fixture_app_db)
+    assert case.handoff["facts"]["dispute_reason"] == "unrecognized"
+
+
+def test_two_chats_cannot_reverse_both_charges_of_a_duplicate_pair(real_fixture_app_db, monkeypatch):
+    session = demo_session(real_fixture_app_db)
+    first = _pick_and_explain(session, real_fixture_app_db, DUPLICATE_CHARGES[1], DUPLICATE_ASSESSMENT)
+    _stale_limits_read(monkeypatch)
+    second = _pick_and_explain(session, real_fixture_app_db, DUPLICATE_CHARGES[0], DUPLICATE_ASSESSMENT)
+
+    assert first["state"] == CaseState.RESOLVED_AUTO
+    assert second["state"] == CaseState.ESCALATED
+    handoff = cases.get_case(second["case_id"], db_path=real_fixture_app_db).handoff
+    assert handoff["facts"]["credited_in_case"] == first["case_id"]
+    assert len(logged_events(real_fixture_app_db, "simulated_credit")) == 1
+
+
+def test_an_unusable_assessment_is_reported_as_the_models_failure(real_fixture_app_db):
+    from app import handoffs
+
+    session = demo_session(real_fixture_app_db)
+    picked = _pick(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
+    broken = {"not": "the contract"}
+
+    retried = _explain(session, real_fixture_app_db, picked["case_id"], broken)
+    final = _explain(session, real_fixture_app_db, picked["case_id"], broken)
+
+    assert retried["state"] == CaseState.AWAITING_EXPLANATION
+    assert final["state"] == CaseState.ESCALATED
+    assert len(logged_events(real_fixture_app_db, "explanation_parse_failed")) == 2
+    handoff = cases.get_case(final["case_id"], db_path=real_fixture_app_db).handoff
+    assert handoff["open_questions"] == [handoffs.ASSESSMENT_FAILED]
+
+
+def test_a_too_short_explanation_is_not_labelled_as_a_model_summary(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    picked = _pick(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
+    _explain(session, real_fixture_app_db, picked["case_id"], text="no sé")
+    final = _explain(session, real_fixture_app_db, picked["case_id"], text="nada")
+
+    facts = cases.get_case(final["case_id"], db_path=real_fixture_app_db).handoff["facts"]
+    assert "demasiado breve" in facts["explanation_assessment"]
+    assert "explanation_summary" not in facts
+
+
+def test_explanation_turns_are_appended_not_overwritten(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    picked = _pick(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
+    for text in ("primera parte", "segunda parte"):
+        cases.update_case(
+            picked["case_id"], state="awaiting_explanation", append_explanation=text, db_path=real_fixture_app_db,
+        )
+
+    assert cases.get_case(picked["case_id"], db_path=real_fixture_app_db).explanation_text == (
+        "primera parte\nsegunda parte"
+    )

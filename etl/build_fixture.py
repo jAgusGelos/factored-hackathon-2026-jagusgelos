@@ -86,15 +86,17 @@ AUTO_RESOLVE_CHARGE_ID = "SYN-DEMO-UBER"
 FRAUD_SCORE_CHARGE_ID = "SYN-DEMO-ONLINE"
 OVER_LIMIT_CHARGE_ID = "SYN-DEMO-BOUTIQUE"
 DUPLICATE_CHARGE_IDS = ("SYN-DEMO-TAXI-1", "SYN-DEMO-TAXI-2")
+CARD_PRESENT_CHARGE_ID = "SYN-DEMO-FARMACIA"
+SECOND_ONLINE_CHARGE_ID = "SYN-DEMO-CINE"
 
 # Amounts are COP. Converted to USD at build time with the dataset's own
 # daily_exchange_rates, so AD-11's USD thresholds apply exactly as to real rows.
 SYNTHETIC_CHARGES: tuple[SyntheticCharge, ...] = (
     SyntheticCharge(AUTO_RESOLVE_CHARGE_ID, date(2026, 6, 14), "Uber", "Transport",
                     38_500.0, 6.0, "Approved", "App", "auto_resolve"),
-    SyntheticCharge("SYN-DEMO-FARMACIA", date(2026, 6, 11), "Farmacia Salud", "Health",
+    SyntheticCharge(CARD_PRESENT_CHARGE_ID, date(2026, 6, 11), "Farmacia Salud", "Health",
                     64_900.0, 4.0, "Approved", "POS", "auto_resolve"),
-    SyntheticCharge("SYN-DEMO-CINE", date(2026, 6, 9), "Cine Premium", "Entertainment",
+    SyntheticCharge(SECOND_ONLINE_CHARGE_ID, date(2026, 6, 9), "Cine Premium", "Entertainment",
                     52_000.0, 7.5, "Approved", "Web", "auto_resolve"),
     SyntheticCharge("SYN-DEMO-SUPER", date(2026, 6, 5), "Super Ahorro", "Food",
                     187_350.0, 9.0, "Approved", "POS", "auto_resolve"),

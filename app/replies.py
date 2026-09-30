@@ -157,8 +157,8 @@ _RESOLVED = {
     Language.ES: {
         DisputeReason.UNRECOGNIZED: (
             "Listo: te aplicamos un crédito provisional por ese cargo. Por seguridad bloqueamos tu "
-            "tarjeta y te vamos a enviar una nueva. El equipo revisa el caso y, si el cargo resultara "
-            "tuyo, el crédito se revierte. Tu número de referencia es {reference}."
+            "tarjeta. El equipo revisa el caso y, si el cargo resultara tuyo, el crédito se revierte. "
+            "Tu número de referencia es {reference}."
         ),
         DisputeReason.DUPLICATE: (
             "Listo: confirmamos que el cargo estaba duplicado y te devolvimos uno de los dos. Tu "
@@ -168,8 +168,8 @@ _RESOLVED = {
     Language.PT: {
         DisputeReason.UNRECOGNIZED: (
             "Pronto: aplicamos um crédito provisório por essa cobrança. Por segurança bloqueamos seu "
-            "cartão e vamos enviar um novo. A equipe analisa o caso e, se a cobrança for sua, o "
-            "crédito é revertido. Seu número de referência é {reference}."
+            "cartão. A equipe analisa o caso e, se a cobrança for sua, o crédito é revertido. Seu "
+            "número de referência é {reference}."
         ),
         DisputeReason.DUPLICATE: (
             "Pronto: confirmamos que a cobrança estava duplicada e devolvemos uma das duas. Seu "
@@ -228,6 +228,30 @@ def resolved(reference: str, reason: DisputeReason, language: Language) -> str:
     return _RESOLVED[language][reason].format(reference=reference)
 
 
+# What a resolution message must tell the customer, per reason: each entry is
+# one fact, satisfied by any of its word stems (lowercase).
+_REQUIRED_DISCLOSURES = {
+    Language.ES: {
+        DisputeReason.UNRECOGNIZED: (("provisional",), ("bloque",), ("revier", "revert")),
+        DisputeReason.DUPLICATE: (("duplicad",), ("uno de los dos", "devolvimos", "reintegr")),
+    },
+    Language.PT: {
+        DisputeReason.UNRECOGNIZED: (("provisóri", "provisori"), ("bloque",), ("revert",)),
+        DisputeReason.DUPLICATE: (("duplicad",), ("uma das duas", "devolvemos", "reembols")),
+    },
+}
+
+
+def states_required_disclosures(reply: str, reason: DisputeReason, language: Language) -> bool:
+    """Whether a model-written resolution tells the customer everything the
+    policy requires: for an unrecognized charge that the credit is provisional,
+    the card is blocked and the credit is reversed if the charge was theirs;
+    for a duplicate, that it was duplicated and one charge was returned.
+    """
+    text = reply.lower()
+    return all(any(stem in text for stem in fact) for fact in _REQUIRED_DISCLOSURES[language][reason])
+
+
 def terminal_case(state: CaseState, reference: str | None, language: Language) -> str:
     # The CURRENT request's language, not the case's: the customer may have
     # switched the ES/PT toggle after the case closed.
@@ -252,8 +276,8 @@ def confirmation_question(matched: TransactionCandidate, language: Language) -> 
 
 
 def names_the_facts(reply: str, matched: TransactionCandidate, language: Language) -> bool:
-    """Whether a model-written confirmation question shows the customer the
-    merchant, the exact amount and the date of the charge. Cents may be
+    """Whether a model-written confirmation question (or explanation request)
+    shows the customer the merchant, the exact amount and the date of the charge. Cents may be
     omitted only when they are zero ("38.500" for 38500.00), and the date may
     be written with the month name.
     """

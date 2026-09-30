@@ -141,11 +141,14 @@ def init_db(db_path: Path) -> None:
     try:
         con.executescript(SCHEMA)
         _add_missing_columns(con)
-        for index in (_ONE_CREDIT_PER_TRANSACTION, _ONE_CREDIT_PER_KEY):
+        for name, index in (
+            ("idx_cases_one_credit_per_transaction", _ONE_CREDIT_PER_TRANSACTION),
+            ("idx_cases_one_credit_per_key", _ONE_CREDIT_PER_KEY),
+        ):
             try:
                 con.execute(index)
             except sqlite3.IntegrityError:
-                logger.warning("Existing duplicate credits: unique credit index not created")
+                logger.warning("Existing duplicate credits: unique index %s not created", name)
         con.commit()
     finally:
         con.close()

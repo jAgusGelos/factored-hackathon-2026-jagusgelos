@@ -16,40 +16,18 @@ from app.policy import (
     AUTO_RESOLVE_MAX_AMOUNT_USD,
     AUTO_RESOLVE_MAX_FRAUD_SCORE,
     AUTO_RESOLVE_REQUIRED_STATUS,
-    DisputeContext,
     DisputeReason,
     ResolutionDecision,
     evaluate_resolution,
 )
-from app.transactions import TransactionCandidate
-
-
-def _clean_txn(**overrides) -> TransactionCandidate:
-    base = dict(
-        transaction_id="TRX-1", transaction_date=date(2026, 6, 9), amount=100.0, currency="USD",
-        amount_usd=100.0, fraud_score=5.0, transaction_status="Approved", merchant_name="Comercio",
-        merchant_category="Retail", channel="App", is_synthetic=False, transaction_type="Purchase",
-    )
-    base.update(overrides)
-    return TransactionCandidate(**base)
-
-
-def _clean_ctx(**overrides) -> DisputeContext:
-    base = dict(
-        reason=DisputeReason.UNRECOGNIZED, as_of=date(2026, 6, 18), customer_status="Active",
-        prior_disputes_in_window=0, classifier_priority=None, other_charges_at_merchant=0,
-        duplicate_twins=(), duplicate_pair_credited=False, recent_unrecognized_credits=0,
-        recent_credited_usd=0.0,
-    )
-    base.update(overrides)
-    return DisputeContext(**base)
+from tests.support import clean_ctx, clean_txn
 
 
 def test_adversarial_critical_prediction_forces_escalation_on_an_otherwise_clean_case():
     """The core adversarial case: every OTHER condition is satisfied (would
     auto-resolve on its own), but the classifier predicts Critical.
     """
-    evaluation = evaluate_resolution(_clean_txn(), _clean_ctx(classifier_priority="Critical"))
+    evaluation = evaluate_resolution(clean_txn(), clean_ctx(classifier_priority="Critical"))
     assert evaluation.decision == ResolutionDecision.FORCED_ESCALATION
     assert any("Critical" in r for r in evaluation.reasons)
 
@@ -62,7 +40,7 @@ def test_non_critical_or_malformed_predictions_never_block_a_clean_auto_resolve(
     intentional: an unrecognized label is treated as "not the escalation
     trigger", never guessed at.
     """
-    evaluation = evaluate_resolution(_clean_txn(), _clean_ctx(classifier_priority=classifier_priority))
+    evaluation = evaluate_resolution(clean_txn(), clean_ctx(classifier_priority=classifier_priority))
     assert evaluation.decision == ResolutionDecision.AUTO_RESOLVE
 
 
@@ -70,7 +48,7 @@ def test_classifier_can_never_flip_an_already_failing_case_back_to_auto_resolve(
     """The classifier is additive-only: even a non-Critical (or absent)
     prediction must not rescue a case that fails on its own merits.
     """
-    evaluation = evaluate_resolution(_clean_txn(fraud_score=95.0), _clean_ctx(classifier_priority="Low"))
+    evaluation = evaluate_resolution(clean_txn(fraud_score=95.0), clean_ctx(classifier_priority="Low"))
     assert evaluation.decision == ResolutionDecision.FORCED_ESCALATION
 
 
@@ -86,13 +64,13 @@ def test_evaluate_resolution_has_no_auto_resolve_code_path_reachable_from_a_crit
     for amount_ok, fraud_ok, status_ok, abuse_ok, channel_ok, history_ok, twin_ok in itertools.product(
         (True, False), repeat=7,
     ):
-        txn = _clean_txn(
+        txn = clean_txn(
             amount_usd=(AUTO_RESOLVE_MAX_AMOUNT_USD - 1) if amount_ok else (AUTO_RESOLVE_MAX_AMOUNT_USD + 1),
             fraud_score=(AUTO_RESOLVE_MAX_FRAUD_SCORE - 1) if fraud_ok else (AUTO_RESOLVE_MAX_FRAUD_SCORE + 1),
             transaction_status=AUTO_RESOLVE_REQUIRED_STATUS if status_ok else "Declined",
             channel="App" if channel_ok else "POS",
         )
-        ctx = _clean_ctx(
+        ctx = clean_ctx(
             reason=reason, classifier_priority="Critical",
             prior_disputes_in_window=0 if abuse_ok else 10,
             other_charges_at_merchant=0 if history_ok else 3,

@@ -404,8 +404,7 @@ _STATE_INSTRUCTION = {
         "resolved_auto": (
             "Si dispute_reason es 'duplicate', contale que confirmaste que el cargo estaba duplicado "
             "y que le devolviste uno de los dos. Si es 'unrecognized', contale que se aplicó un "
-            "crédito PROVISIONAL por ese cargo, que por seguridad se bloqueó su tarjeta y se le envía "
-            "una nueva, y que si la revisión muestra que el cargo fue suyo el crédito se revierte. "
+            "crédito PROVISIONAL por ese cargo, que por seguridad se bloqueó su tarjeta, y que si la revisión muestra que el cargo fue suyo el crédito se revierte. "
             "En los dos casos dale su número de referencia resolution_reference (escribilo tal cual). "
             "No inventes plazos."
         ),
@@ -476,8 +475,7 @@ _STATE_INSTRUCTION = {
         "resolved_auto": (
             "Se dispute_reason for 'duplicate', conte que você confirmou que a cobrança estava "
             "duplicada e devolveu uma das duas. Se for 'unrecognized', conte que foi aplicado um "
-            "crédito PROVISÓRIO por essa cobrança, que por segurança o cartão foi bloqueado e um novo "
-            "será enviado, e que se a análise mostrar que a cobrança foi dele o crédito é revertido. "
+            "crédito PROVISÓRIO por essa cobrança, que por segurança o cartão foi bloqueado, e que se a análise mostrar que a cobrança foi dele o crédito é revertido. "
             "Nos dois casos informe o número de referência resolution_reference (escreva exatamente "
             "como está). Não invente prazos."
         ),
@@ -561,9 +559,13 @@ _ASSESSMENT_SYSTEM_PROMPT = (
     "(how they noticed, the circumstances, what they did or did not do); a bare 'no lo reconozco' "
     "or 'devuélvanme la plata' is NOT specific. consistent = false if anything they state "
     "contradicts the charge facts (merchant, amount, date, channel); list each contradiction in "
-    "Spanish in contradictions. summary: one neutral sentence in Spanish, third person, at most "
+    "contradictions as a short neutral Spanish phrase about the charge facts, with no quotes from the "
+    "customer and no personal data. summary: one neutral sentence in Spanish, third person, at most "
     "25 words, no personal data."
 )
+
+
+MAX_CONTRADICTION_CHARS = 120
 
 
 def _parse_assessment(raw: str) -> ExplanationAssessment | None:
@@ -577,8 +579,8 @@ def _parse_assessment(raw: str) -> ExplanationAssessment | None:
             reason=DisputeReason(data["reason"]),
             specific=data["specific"],
             consistent=data["consistent"],
-            contradictions=tuple(str(c)[:200] for c in contradictions[:5]),
-            summary=str(data.get("summary", ""))[:300],
+            contradictions=tuple(str(c)[:MAX_CONTRADICTION_CHARS] for c in contradictions[:5]),
+            summary=str(data.get("summary") or "")[:300],
         )
     except (json.JSONDecodeError, KeyError, TypeError, ValueError):
         return None
@@ -586,8 +588,8 @@ def _parse_assessment(raw: str) -> ExplanationAssessment | None:
 
 def assess_explanation(explanation: str, *, charge: PromptContext) -> ExplanationAssessment | None:
     """The model's structured read of the customer's explanation, or None if
-    its answer does not fit the contract (the caller treats None as "not
-    convincing"). Raises `LLMUnavailable` on exhausted retries. `charge` must
+    its answer does not fit the contract (the caller asks again once, then
+    escalates as an assessment failure, never as the customer's fault). Raises `LLMUnavailable` on exhausted retries. `charge` must
     come from `build_prompt_context()` (AD-5), so only allowlisted facts reach
     the prompt.
     """
@@ -597,7 +599,8 @@ def assess_explanation(explanation: str, *, charge: PromptContext) -> Explanatio
     raw = call_llm(f"Charge facts:\n{facts}\n\nCustomer explanation:\n{explanation}", system=_ASSESSMENT_SYSTEM_PROMPT)
     assessment = _parse_assessment(raw)
     if assessment is None:
-        logger.warning("Explanation assessment did not match the JSON contract: %r", raw)
+        # Length only: a malformed answer tends to echo the customer's own words.
+        logger.warning("Explanation assessment did not match the JSON contract (%d chars)", len(raw))
     return assessment
 
 

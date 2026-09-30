@@ -20,44 +20,14 @@ from app.policy import (
     match_amount_tolerance,
     screening_failures,
 )
-from app.transactions import TransactionCandidate
+from tests.support import clean_ctx, clean_txn
 
 AS_OF = date(2026, 6, 18)
 
 
-def _txn(**overrides) -> TransactionCandidate:
-    base = dict(
-        transaction_id="TRX-1",
-        transaction_date=date(2026, 6, 9),
-        amount=100.0,
-        currency="USD",
-        amount_usd=100.0,
-        fraud_score=5.0,
-        transaction_status="Approved",
-        merchant_name="Comercio Demo",
-        merchant_category="Retail",
-        channel="App",
-        is_synthetic=False,
-        transaction_type="Purchase",
-    )
-    base.update(overrides)
-    return TransactionCandidate(**base)
-
-
-def _ctx(**overrides) -> DisputeContext:
-    """A context under which a clean card-not-present purchase is creditable."""
-    base = dict(
-        reason=DisputeReason.UNRECOGNIZED, as_of=AS_OF, customer_status="Active",
-        prior_disputes_in_window=0, classifier_priority=None, other_charges_at_merchant=0,
-        duplicate_twins=(), duplicate_pair_credited=False, recent_unrecognized_credits=0,
-        recent_credited_usd=0.0,
-    )
-    base.update(overrides)
-    return DisputeContext(**base)
-
 
 def _duplicate_ctx(**overrides) -> DisputeContext:
-    return _ctx(reason=DisputeReason.DUPLICATE, duplicate_twins=("TRX-0",), **overrides)
+    return clean_ctx(reason=DisputeReason.DUPLICATE, duplicate_twins=("TRX-0",), **overrides)
 
 
 def _escalates_because(evaluation, fragment: str) -> bool:
@@ -75,7 +45,7 @@ def test_match_amount_tolerance_uses_floor_for_small_amounts():
 
 
 def test_evaluate_match_confident_with_exactly_one_candidate():
-    assert evaluate_match([_txn()]) == MatchOutcome.CONFIDENT
+    assert evaluate_match([clean_txn()]) == MatchOutcome.CONFIDENT
 
 
 def test_evaluate_match_ambiguous_with_zero_candidates():
@@ -83,47 +53,47 @@ def test_evaluate_match_ambiguous_with_zero_candidates():
 
 
 def test_evaluate_match_ambiguous_with_multiple_candidates():
-    assert evaluate_match([_txn(transaction_id="TRX-1"), _txn(transaction_id="TRX-2")]) == MatchOutcome.AMBIGUOUS
+    assert evaluate_match([clean_txn(transaction_id="TRX-1"), clean_txn(transaction_id="TRX-2")]) == MatchOutcome.AMBIGUOUS
 
 
 # -- Unrecognized charge: the evidence, not the claim, decides ----------------------
 
 
 def test_clean_card_not_present_unrecognized_charge_auto_resolves():
-    evaluation = evaluate_resolution(_txn(), _ctx())
+    evaluation = evaluate_resolution(clean_txn(), clean_ctx())
     assert evaluation.decision == ResolutionDecision.AUTO_RESOLVE
     assert evaluation.reasons == ()
 
 
 @pytest.mark.parametrize("channel", ["POS", "ATM", "Branch", "Transfer", None])
 def test_card_present_or_unknown_channel_is_never_credited_as_unrecognized(channel):
-    assert _escalates_because(evaluate_resolution(_txn(channel=channel), _ctx()), "channel=")
+    assert _escalates_because(evaluate_resolution(clean_txn(channel=channel), clean_ctx()), "channel=")
 
 
 @pytest.mark.parametrize("transaction_type", ["Withdrawal", "Transfer", "Payment", None])
 def test_only_card_purchases_can_be_credited_as_unrecognized(transaction_type):
-    evaluation = evaluate_resolution(_txn(transaction_type=transaction_type), _ctx())
+    evaluation = evaluate_resolution(clean_txn(transaction_type=transaction_type), clean_ctx())
     assert _escalates_because(evaluation, "transaction_type=")
 
 
 def test_other_charges_at_the_same_merchant_contradict_an_unrecognized_claim():
-    evaluation = evaluate_resolution(_txn(), _ctx(other_charges_at_merchant=1))
+    evaluation = evaluate_resolution(clean_txn(), clean_ctx(other_charges_at_merchant=1))
     assert _escalates_because(evaluation, "other charge(s)")
 
 
 def test_a_merchant_without_a_name_cannot_be_checked_so_it_escalates():
-    evaluation = evaluate_resolution(_txn(merchant_name=None), _ctx(other_charges_at_merchant=None))
+    evaluation = evaluate_resolution(clean_txn(merchant_name=None), clean_ctx(other_charges_at_merchant=None))
     assert _escalates_because(evaluation, "merchant has no name")
 
 
 @pytest.mark.parametrize("fraud_score", [30.0, 85.0, None])
 def test_high_or_unknown_fraud_score_forces_escalation(fraud_score):
-    evaluation = evaluate_resolution(_txn(fraud_score=fraud_score), _ctx())
+    evaluation = evaluate_resolution(clean_txn(fraud_score=fraud_score), clean_ctx())
     assert _escalates_because(evaluation, "fraud_score")
 
 
 def test_a_second_unrecognized_credit_in_the_window_goes_to_a_person():
-    evaluation = evaluate_resolution(_txn(), _ctx(recent_unrecognized_credits=1))
+    evaluation = evaluate_resolution(clean_txn(), clean_ctx(recent_unrecognized_credits=1))
     assert _escalates_because(evaluation, "unrecognized-charge credit(s) already granted")
 
 
@@ -134,27 +104,27 @@ def test_duplicate_with_a_verifiable_twin_auto_resolves_even_at_a_pos():
     """A double charge is proven by the data, so the card-present and
     merchant-history rules of an unrecognized claim do not apply.
     """
-    evaluation = evaluate_resolution(_txn(channel="POS"), _duplicate_ctx(other_charges_at_merchant=1))
+    evaluation = evaluate_resolution(clean_txn(channel="POS"), _duplicate_ctx(other_charges_at_merchant=1))
     assert evaluation.decision == ResolutionDecision.AUTO_RESOLVE
 
 
 def test_duplicate_claim_without_a_twin_escalates():
-    evaluation = evaluate_resolution(_txn(), _ctx(reason=DisputeReason.DUPLICATE, duplicate_twins=()))
+    evaluation = evaluate_resolution(clean_txn(), clean_ctx(reason=DisputeReason.DUPLICATE, duplicate_twins=()))
     assert _escalates_because(evaluation, "no other charge at the same merchant")
 
 
 def test_duplicate_pair_already_credited_escalates():
-    evaluation = evaluate_resolution(_txn(), _duplicate_ctx(duplicate_pair_credited=True))
+    evaluation = evaluate_resolution(clean_txn(), _duplicate_ctx(duplicate_pair_credited=True))
     assert _escalates_because(evaluation, "already credited")
 
 
 def test_duplicate_withdrawal_is_not_reversed_automatically():
-    evaluation = evaluate_resolution(_txn(transaction_type="Withdrawal"), _duplicate_ctx())
+    evaluation = evaluate_resolution(clean_txn(transaction_type="Withdrawal"), _duplicate_ctx())
     assert _escalates_because(evaluation, "transaction_type=")
 
 
 def test_both_charges_of_a_duplicate_pair_share_one_credit_key():
-    first, second = _txn(transaction_id="TRX-A"), _txn(transaction_id="TRX-B")
+    first, second = clean_txn(transaction_id="TRX-A"), clean_txn(transaction_id="TRX-B")
     assert credit_key(first, DisputeReason.DUPLICATE, ("TRX-B",)) == credit_key(
         second, DisputeReason.DUPLICATE, ("TRX-A",)
     )
@@ -170,7 +140,7 @@ def test_both_charges_of_a_duplicate_pair_share_one_credit_key():
 )
 def test_reasons_other_than_unrecognized_or_duplicate_are_never_credited(reason):
     """Even on an otherwise perfect charge (a verifiable twin included)."""
-    evaluation = evaluate_resolution(_txn(), _ctx(reason=reason, duplicate_twins=("TRX-0",)))
+    evaluation = evaluate_resolution(clean_txn(), clean_ctx(reason=reason, duplicate_twins=("TRX-0",)))
     assert evaluation.decision == ResolutionDecision.FORCED_ESCALATION
 
 
@@ -178,8 +148,8 @@ def test_without_a_reason_only_the_screening_conditions_apply():
     """Before the customer explains, AUTO_RESOLVE only means "ask them what
     happened": a card-present charge still passes screening.
     """
-    assert evaluate_resolution(_txn(channel="POS"), _ctx(reason=None)).decision == ResolutionDecision.AUTO_RESOLVE
-    assert screening_failures(_txn(channel="POS"), _ctx(reason=None)) == ()
+    assert evaluate_resolution(clean_txn(channel="POS"), clean_ctx(reason=None)).decision == ResolutionDecision.AUTO_RESOLVE
+    assert screening_failures(clean_txn(channel="POS"), clean_ctx(reason=None)) == ()
 
 
 # -- Screening: common to every reason ----------------------------------------------
@@ -204,27 +174,27 @@ def test_without_a_reason_only_the_screening_conditions_apply():
     ],
 )
 def test_screening_failures_block_every_reason(reason, txn_overrides, ctx_overrides, fragment):
-    ctx = _duplicate_ctx(**ctx_overrides) if reason == DisputeReason.DUPLICATE else _ctx(**ctx_overrides)
-    assert _escalates_because(evaluate_resolution(_txn(**txn_overrides), ctx), fragment)
+    ctx = _duplicate_ctx(**ctx_overrides) if reason == DisputeReason.DUPLICATE else clean_ctx(**ctx_overrides)
+    assert _escalates_because(evaluate_resolution(clean_txn(**txn_overrides), ctx), fragment)
 
 
 def test_abuse_guard_allows_up_to_two_prior_disputes():
-    assert evaluate_resolution(_txn(), _ctx(prior_disputes_in_window=2)).decision == ResolutionDecision.AUTO_RESOLVE
+    assert evaluate_resolution(clean_txn(), clean_ctx(prior_disputes_in_window=2)).decision == ResolutionDecision.AUTO_RESOLVE
 
 
 def test_credit_total_cap_is_inclusive():
-    txn = _txn(amount_usd=50.0)
-    ctx = _ctx(recent_credited_usd=MAX_AUTO_CREDIT_TOTAL_USD - 50.0)
+    txn = clean_txn(amount_usd=50.0)
+    ctx = clean_ctx(recent_credited_usd=MAX_AUTO_CREDIT_TOTAL_USD - 50.0)
     assert evaluate_resolution(txn, ctx).decision == ResolutionDecision.AUTO_RESOLVE
 
 
 def test_age_window_is_inclusive():
-    txn = _txn(transaction_date=date.fromordinal(AS_OF.toordinal() - MAX_TRANSACTION_AGE_DAYS))
-    assert evaluate_resolution(txn, _ctx()).decision == ResolutionDecision.AUTO_RESOLVE
+    txn = clean_txn(transaction_date=date.fromordinal(AS_OF.toordinal() - MAX_TRANSACTION_AGE_DAYS))
+    assert evaluate_resolution(txn, clean_ctx()).decision == ResolutionDecision.AUTO_RESOLVE
 
 
 def test_reasons_accumulate_for_the_handoff():
-    evaluation = evaluate_resolution(_txn(channel="POS", amount_usd=500.0), _ctx(other_charges_at_merchant=2))
+    evaluation = evaluate_resolution(clean_txn(channel="POS", amount_usd=500.0), clean_ctx(other_charges_at_merchant=2))
     assert len(evaluation.reasons) == 3
 
 
@@ -263,25 +233,25 @@ def test_accepting_an_explanation_does_not_make_an_ineligible_charge_creditable(
     the evidence check: a card-present "unrecognized" charge escalates.
     """
     assert evaluate_explanation(_assessment(), attempts_left=True)[0] == ExplanationVerdict.ACCEPT
-    assert evaluate_resolution(_txn(channel="POS"), _ctx()).decision == ResolutionDecision.FORCED_ESCALATION
+    assert evaluate_resolution(clean_txn(channel="POS"), clean_ctx()).decision == ResolutionDecision.FORCED_ESCALATION
 
 
 # -- USD pricing ----------------------------------------------------------------------
 
 
 def test_effective_amount_usd_prefers_real_amount_usd():
-    assert effective_amount_usd(_txn(amount=1000.0, currency="MXN", amount_usd=55.0)) == 55.0
+    assert effective_amount_usd(clean_txn(amount=1000.0, currency="MXN", amount_usd=55.0)) == 55.0
 
 
 def test_effective_amount_usd_falls_back_to_amount_when_currency_is_usd_and_amount_usd_null():
     """Real data finding: `amount_usd` is NULL for ~57% of transactions —
     specifically whenever `currency == 'USD'`.
     """
-    assert effective_amount_usd(_txn(amount=150.0, currency="USD", amount_usd=None)) == 150.0
+    assert effective_amount_usd(clean_txn(amount=150.0, currency="USD", amount_usd=None)) == 150.0
 
 
 def test_effective_amount_usd_is_none_for_non_usd_currency_with_null_amount_usd():
-    assert effective_amount_usd(_txn(amount=1000.0, currency="MXN", amount_usd=None)) is None
+    assert effective_amount_usd(clean_txn(amount=1000.0, currency="MXN", amount_usd=None)) is None
 
 
 def test_context_has_no_permissive_defaults():
@@ -290,4 +260,32 @@ def test_context_has_no_permissive_defaults():
     """
     with pytest.raises(TypeError):
         DisputeContext(reason=DisputeReason.UNRECOGNIZED, as_of=AS_OF)  # type: ignore[call-arg]
-    assert replace(_ctx(), recent_credited_usd=1.0).recent_credited_usd == 1.0
+    assert replace(clean_ctx(), recent_credited_usd=1.0).recent_credited_usd == 1.0
+
+
+def test_a_charge_dated_after_the_data_as_of_date_escalates():
+    evaluation = evaluate_resolution(clean_txn(transaction_date=date(2026, 6, 25)), clean_ctx())
+    assert _escalates_because(evaluation, "after the data as-of date")
+
+
+# -- What a resolution message must disclose ------------------------------------------
+
+
+@pytest.mark.parametrize("language", ["es", "pt"])
+@pytest.mark.parametrize("reason", [DisputeReason.UNRECOGNIZED, DisputeReason.DUPLICATE])
+def test_every_resolution_template_states_the_required_disclosures(language, reason):
+    from app import replies
+    from app.llm import Language
+
+    template = replies.resolved("REF-X", reason, Language(language))
+    assert replies.states_required_disclosures(template, reason, Language(language))
+
+
+def test_an_unrecognized_reply_without_the_provisional_or_reversal_notice_is_rejected():
+    from app import replies
+    from app.llm import Language
+
+    missing_provisional = "Listo, bloqueamos tu tarjeta y si el cargo fue tuyo se revierte. REF-X"
+    missing_reversal = "Listo, crédito provisional aplicado y tarjeta bloqueada. REF-X"
+    for reply in (missing_provisional, missing_reversal):
+        assert not replies.states_required_disclosures(reply, DisputeReason.UNRECOGNIZED, Language.ES)

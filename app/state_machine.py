@@ -15,7 +15,7 @@ escalations (fraud score, amount, status...) are not affected.
 
 States (stored per case; every transition is a compare-and-set):
   awaiting_report -> confirming | selecting | escalated   (first report, AD-11)
-  selecting       -> resolved_auto | escalated  (customer picks a listed charge; policy decides)
+  selecting       -> awaiting_explanation | escalated  (customer picks a listed charge; screening decides)
   selecting       -> escalated  ("not in the list", or still ambiguous after
                                  MAX_CLARIFICATION_ROUNDS turns with nothing new)
   clarifying      -> ...        (only when the customer has no charges to list)
@@ -80,15 +80,13 @@ from app.charge_search import (
 from app.llm import Language, PromptScene
 from app.policy import (
     ABUSE_GUARD_WINDOW_DAYS,
-    CREDIT_WINDOW_DAYS,
+    AUTO_RESOLVE_REQUIRED_STATUS,
     DISPUTE_COMPLAINT_CATEGORY,
     DUPLICATE_WINDOW_DAYS,
     MATCH_DATE_TOLERANCE_DAYS,
-    MAX_AUTO_CREDIT_TOTAL_USD,
     MAX_CASE_TURNS,
     MAX_CLARIFICATION_ROUNDS,
     MAX_EXPLANATION_ATTEMPTS,
-    MAX_UNRECOGNIZED_AUTO_CREDITS,
     MIN_EXPLANATION_WORDS,
     DisputeContext,
     DisputeReason,
@@ -188,14 +186,16 @@ def _dispute_context(
             prior_complaint_count=count_prior_complaints(session, day),
         )
     )
-    twins = find_own_duplicate_twins(session, matched, window_days=DUPLICATE_WINDOW_DAYS)
+    twins = find_own_duplicate_twins(
+        session, matched, window_days=DUPLICATE_WINDOW_DAYS, required_status=AUTO_RESOLVE_REQUIRED_STATUS,
+    )
     pair_credited = bool(twins) and (
         any(cases.credited_case_for_transaction(session.customer_id, t, db_path=db_path) for t in twins)
         or cases.credited_case_for_key(
             session.customer_id, credit_key(matched, DisputeReason.DUPLICATE, twins), db_path=db_path,
         ) is not None
     )
-    credits = cases.credit_history(session.customer_id, window_days=CREDIT_WINDOW_DAYS, db_path=db_path)
+    credits = cases.credit_history(session.customer_id, db_path=db_path)
     return DisputeContext(
         reason=reason,
         as_of=date.fromisoformat(config.DATA_AS_OF),
@@ -422,12 +422,10 @@ def _simulate_provisional_credit(
 def _credit_grant(
     matched: TransactionCandidate, reason: DisputeReason, twins: tuple[str, ...],
 ) -> cases.CreditGrant:
-    return cases.CreditGrant(
-        key=credit_key(matched, reason, twins), reason=reason,
-        amount_usd=effective_amount_usd(matched), window_days=CREDIT_WINDOW_DAYS,
-        max_unrecognized=MAX_UNRECOGNIZED_AUTO_CREDITS, max_total_usd=MAX_AUTO_CREDIT_TOTAL_USD,
-        unrecognized_reason=DisputeReason.UNRECOGNIZED,
-    )
+    amount_usd = effective_amount_usd(matched)
+    if amount_usd is None:
+        raise ValueError(f"No USD amount for {matched.transaction_id}: screening must have escalated it")
+    return cases.CreditGrant(key=credit_key(matched, reason, twins), reason=reason, amount_usd=amount_usd)
 
 
 def _finish_resolved(
@@ -439,26 +437,26 @@ def _finish_resolved(
     case of the same customer running at the same time cannot slip past them.
     """
     reference = f"REF-{uuid.uuid4().hex[:10].upper()}"
+    grant = _credit_grant(matched, reason, twins)
+    report = replace(turn.report, reason=reason)
     # The transition is claimed BEFORE the credit is logged: of two concurrent
     # requests exactly one flips the case to resolved_auto and issues a credit.
     try:
         claimed = cases.update_case(
             turn.case.case_id, state=CaseState.RESOLVED_AUTO, expected_states=expected_states,
             expected_matched_transaction_id=expected_match, matched_transaction_id=matched.transaction_id,
-            resolution_reference=reference, dispute_reason=reason,
-            credit=_credit_grant(matched, reason, twins), db_path=turn.db_path,
+            resolution_reference=reference, dispute_reason=reason, credit=grant, db_path=turn.db_path,
         )
     except cases.DuplicateCreditError:
-        credited_in = cases.credited_case_for_transaction(
-            turn.session.customer_id, matched.transaction_id, db_path=turn.db_path
-        )
-        return _escalate(turn, handoffs.already_credited(turn.report, matched, credited_in or "desconocido"))
+        credited_in = _case_that_credited(turn, matched, grant)
+        turn.log_event("credit_already_granted", {"credit_key": grant.key, "credited_in_case": credited_in})
+        return _finish_escalated(turn, handoffs.already_credited(report, matched, credited_in), report)
     if not claimed:
         current = cases.get_case(turn.case.case_id, db_path=turn.db_path)
         if current.state == turn.case.state and current.matched_transaction_id == turn.case.matched_transaction_id:
             # Nothing else moved the case: the credit limits refused it.
             turn.log_event("credit_limit_reached", {"matched_transaction_id": matched.transaction_id})
-            return _escalate(turn, handoffs.credit_limit_reached(turn.report, matched))
+            return _finish_escalated(turn, handoffs.credit_limit_reached(report, matched), report)
         return _reply_for_lost_race(turn, CaseState.RESOLVED_AUTO)
     _simulate_provisional_credit(turn, matched, reference, reason)
     turn.log_event(
@@ -481,12 +479,22 @@ def _finish_resolved(
         # customer; never send one, whatever the model wrote.
         turn.log_event("resolution_reply_replaced", {"reason": "reference_missing"})
         reply = fallback
-    elif reason == DisputeReason.UNRECOGNIZED and "bloque" not in reply.lower():
-        # The customer must learn their card was blocked and the credit is
-        # provisional; a reply that skips it is replaced.
-        turn.log_event("resolution_reply_replaced", {"reason": "card_block_missing"})
+    elif not replies.states_required_disclosures(reply, reason, turn.language):
+        turn.log_event("resolution_reply_replaced", {"reason": "disclosures_missing"})
         reply = fallback
     return turn.reply(CaseState.RESOLVED_AUTO, reply)
+
+
+def _case_that_credited(turn: _Turn, matched: TransactionCandidate, grant: cases.CreditGrant) -> str:
+    """The case whose credit collided with this one: on the transaction itself,
+    or on its duplicate pair's shared credit key.
+    """
+    customer_id = turn.session.customer_id
+    return (
+        cases.credited_case_for_transaction(customer_id, matched.transaction_id, db_path=turn.db_path)
+        or cases.credited_case_for_key(customer_id, grant.key, db_path=turn.db_path)
+        or "desconocido"
+    )
 
 
 def _finish_confirming(turn: _Turn, matched: TransactionCandidate, report: ReportedCharge) -> ChatReply:
@@ -783,9 +791,31 @@ _TOO_SHORT = ExplanationAssessment(
 
 def _assess(turn: _Turn, explanation: str, matched: TransactionCandidate) -> ExplanationAssessment | None:
     """Raises `llm.LLMUnavailable`. None when the model's answer is unusable."""
-    if len(explanation.split()) < MIN_EXPLANATION_WORDS:
+    if _too_short(explanation):
         return _TOO_SHORT
-    return llm.assess_explanation(explanation, charge=_charge_context(turn, CaseState.AWAITING_EXPLANATION, matched))
+    assessment = llm.assess_explanation(
+        explanation, charge=_charge_context(turn, CaseState.AWAITING_EXPLANATION, matched),
+    )
+    if assessment is None:
+        turn.log_event("explanation_parse_failed", {"call": "assess_explanation"})
+    return assessment
+
+
+def _too_short(explanation: str) -> bool:
+    return len(explanation.split()) < MIN_EXPLANATION_WORDS
+
+
+def _explanation_verdict(
+    assessment: ExplanationAssessment | None, *, attempts_left: bool,
+) -> tuple[ExplanationVerdict, str | None]:
+    """An unusable model answer is the model's failure, not the customer's:
+    ask once more, then escalate saying so.
+    """
+    if assessment is not None:
+        return evaluate_explanation(assessment, attempts_left=attempts_left)
+    if attempts_left:
+        return ExplanationVerdict.NEEDS_DETAIL, None
+    return ExplanationVerdict.ESCALATE, handoffs.ASSESSMENT_FAILED
 
 
 def _handle_explanation(turn: _Turn, text: str) -> ChatReply:
@@ -799,6 +829,7 @@ def _handle_explanation(turn: _Turn, text: str) -> ChatReply:
     if matched is None:
         return _escalate(turn, handoffs.unidentified_charge(turn.report, case))
     explanation = f"{case.explanation_text}\n{text}" if case.explanation_text else text
+    too_short = _too_short(explanation)
     try:
         assessment = _assess(turn, explanation, matched)
     except llm.LLMUnavailable:
@@ -807,7 +838,7 @@ def _handle_explanation(turn: _Turn, text: str) -> ChatReply:
             action_taken="El servicio de NLU no respondió al evaluar la explicación del cliente.",
         )
     attempts_left = case.explanation_attempts + 1 < MAX_EXPLANATION_ATTEMPTS
-    verdict, why = evaluate_explanation(assessment or _TOO_SHORT, attempts_left=attempts_left)
+    verdict, why = _explanation_verdict(assessment, attempts_left=attempts_left)
     turn.log_event(
         "explanation_assessed",
         {"verdict": verdict, "reason": assessment.reason if assessment else None,
@@ -817,9 +848,11 @@ def _handle_explanation(turn: _Turn, text: str) -> ChatReply:
     report = replace(turn.report, reason=assessment.reason if assessment else None)
 
     if verdict == ExplanationVerdict.NEEDS_DETAIL:
-        return _ask_for_more_detail(turn, explanation)
+        return _ask_for_more_detail(turn, text)
     if verdict == ExplanationVerdict.ESCALATE:
-        return _finish_escalated(turn, handoffs.explanation_not_accepted(report, matched, why, assessment), report)
+        return _finish_escalated(
+            turn, handoffs.explanation_not_accepted(report, matched, why, assessment, too_short=too_short), report,
+        )
     # The explanation raised no red flag; the evidence check for the reason it
     # names decides (a persuasive story alone never credits anything).
     evaluation = _policy_verdict(turn, matched, report, IDENTIFIED_AND_EXPLAINED, reason=assessment.reason)
@@ -828,14 +861,18 @@ def _handle_explanation(turn: _Turn, text: str) -> ChatReply:
             turn, matched, reason=assessment.reason, twins=evaluation.duplicate_twins,
             expected_states=(CaseState.AWAITING_EXPLANATION,), expected_match=matched.transaction_id,
         )
-    handoff = replace(evaluation.handoff, facts={**evaluation.handoff.facts, **handoffs.explanation_facts(assessment)})
+    facts = {**evaluation.handoff.facts, **handoffs.explanation_facts(assessment, too_short=too_short)}
+    handoff = replace(evaluation.handoff, facts=facts)
     return _finish_escalated(turn, replace(evaluation, handoff=handoff), report)
 
 
-def _ask_for_more_detail(turn: _Turn, explanation: str) -> ChatReply:
+def _ask_for_more_detail(turn: _Turn, text: str) -> ChatReply:
+    """Appends this turn's text in SQL, so two messages sent at the same time
+    both end up in the explanation the next assessment reads.
+    """
     lost = _transition(
         turn, CaseState.AWAITING_EXPLANATION, expected_states=(CaseState.AWAITING_EXPLANATION,),
-        explanation_text=explanation, add_explanation_attempt=True,
+        append_explanation=text, add_explanation_attempt=True,
     )
     if lost:
         return lost

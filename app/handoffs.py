@@ -87,7 +87,15 @@ def already_credited(report: ReportedCharge, matched: TransactionCandidate, cred
     )
 
 
-def explanation_facts(assessment: ExplanationAssessment | None) -> dict[str, str]:
+ASSESSMENT_FAILED = (
+    "No se pudo evaluar la explicación: la respuesta del modelo no respetó el formato esperado. "
+    "Leer la explicación del cliente en los mensajes del caso."
+)
+
+
+def explanation_facts(assessment: ExplanationAssessment | None, *, too_short: bool = False) -> dict[str, str]:
+    if too_short:
+        return {"explanation_assessment": "explicación demasiado breve; no se evaluó con el modelo"}
     if assessment is None:
         return {"explanation_assessment": "no evaluable (respuesta del modelo inválida)"}
     return {
@@ -99,9 +107,13 @@ def explanation_facts(assessment: ExplanationAssessment | None) -> dict[str, str
 
 def explanation_not_accepted(
     report: ReportedCharge, matched: TransactionCandidate, why: str, assessment: ExplanationAssessment | None,
+    *, too_short: bool = False,
 ) -> CaseEvaluation:
     return _escalation(
-        _facts(report, matched_transaction_id=matched.transaction_id, **explanation_facts(assessment)),
+        _facts(
+            report, matched_transaction_id=matched.transaction_id,
+            **explanation_facts(assessment, too_short=too_short),
+        ),
         "El cliente identificó el cargo y explicó qué pasó, pero la explicación no permite "
         "resolverlo automáticamente.",
         evidence=(matched.transaction_id,), open_questions=(why,), matched=matched,

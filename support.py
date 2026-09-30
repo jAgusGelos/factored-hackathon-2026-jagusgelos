@@ -9,6 +9,7 @@ must not depend on `tests/` — this is the neutral shared location instead.
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -18,6 +19,9 @@ from app.auth import Session, create_session, get_session, verify_credentials
 from app.llm import ASSESSMENT_MARKER, CONFIRMATION_MARKER
 from etl.build_fixture import (
     AUTO_RESOLVE_CHARGE_ID as AUTO_RESOLVE_CHARGE,
+)
+from etl.build_fixture import (
+    CARD_PRESENT_CHARGE_ID as CARD_PRESENT_CHARGE,
 )
 from etl.build_fixture import (
     DEMO_USERNAME,
@@ -31,15 +35,19 @@ from etl.build_fixture import (
 from etl.build_fixture import (
     OVER_LIMIT_CHARGE_ID as OVER_LIMIT_CHARGE,
 )
+from etl.build_fixture import (
+    SECOND_ONLINE_CHARGE_ID as SECOND_ONLINE_CHARGE,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent
 REAL_FIXTURE_PATH = REPO_ROOT / "data" / "fixture.duckdb"
 REAL_DEMO_USERS_PATH = REPO_ROOT / "data" / "demo_users.json"
 
 __all__ = [
-    "AUTO_RESOLVE_CHARGE", "CONVINCING_ASSESSMENT", "DEMO_USERNAME", "EXPLANATION", "DUPLICATE_CHARGES", "FRAUD_SCORE_CHARGE", "OVER_LIMIT_CHARGE",
-    "REAL_DEMO_USERS_PATH", "REAL_FIXTURE_PATH", "REPO_ROOT", "charge_extraction", "charge_report",
-    "demo_session", "mock_anthropic_client", "session_for",
+    "AUTO_RESOLVE_CHARGE", "CARD_PRESENT_CHARGE", "CONVINCING_ASSESSMENT", "DEMO_USERNAME", "DUPLICATE_ASSESSMENT",
+    "DUPLICATE_CHARGES", "EXPLANATION", "FRAUD_SCORE_CHARGE", "NOT_RECEIVED_ASSESSMENT", "OVER_LIMIT_CHARGE",
+    "REAL_DEMO_USERS_PATH", "REAL_FIXTURE_PATH", "REPO_ROOT", "SECOND_ONLINE_CHARGE", "charge_extraction",
+    "charge_report", "demo_session", "logged_events", "mock_anthropic_client", "session_for",
 ]
 
 
@@ -88,7 +96,22 @@ CONVINCING_ASSESSMENT = {
     "reason": "unrecognized", "specific": True, "consistent": True, "contradictions": [],
     "summary": "El cliente no reconoce el comercio y tiene la tarjeta consigo.",
 }
+DUPLICATE_ASSESSMENT = {
+    **CONVINCING_ASSESSMENT, "reason": "duplicate",
+    "summary": "El cliente dice que le cobraron dos veces el mismo viaje.",
+}
+NOT_RECEIVED_ASSESSMENT = {**CONVINCING_ASSESSMENT, "reason": "not_received"}
 EXPLANATION = "No uso Uber hace meses, tengo la tarjeta conmigo y ayer vi el cargo en la app del banco"
+
+
+def logged_events(app_db: Path, event_type: str) -> list[dict]:
+    """The payloads of every audit event of this type in the app db."""
+    con = sqlite3.connect(str(app_db))
+    try:
+        rows = con.execute("SELECT payload_json FROM events WHERE event_type = ?", [event_type]).fetchall()
+    finally:
+        con.close()
+    return [json.loads(r[0]) for r in rows]
 
 
 def demo_session(app_db: Path) -> Session:

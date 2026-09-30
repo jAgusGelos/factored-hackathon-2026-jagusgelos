@@ -197,9 +197,9 @@ own app database:
 - **Unsafe outcomes: 0 / 26.**
 - Safe automated resolution rate: 0.23 (6/26; the mix is mostly escalation/adversarial by design).
 - Containment rate: 0.26 (6/23 concluded cases).
-- Pipeline latency (excludes real LLM network time): p50 0.24s, p95 0.44s.
-- Estimated cost (Haiku 4.5 list pricing, not measured billing): ~$0.0014/attempted case,
-  ~$0.0062/successful resolution.
+- Pipeline latency (excludes real LLM network time): p50 0.21s, p95 0.40s.
+- Estimated cost (Haiku 4.5 list pricing, not measured billing): ~$0.0015/attempted case,
+  ~$0.0063/successful resolution.
 
 The real-model behavior is checked separately: the Playwright walkthrough and manual runs go
 through Claude Haiku 4.5 end to end, and bugs they surfaced (fenced JSON, a currency lost between
