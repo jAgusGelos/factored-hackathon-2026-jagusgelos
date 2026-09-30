@@ -115,3 +115,29 @@ def test_customer_requesting_human_escalates_immediately(real_fixture_app_db):
         reply = handle_message(session, None, "Quiero hablar con una persona", db_path=real_fixture_app_db)
 
     assert reply["state"] == CaseState.ESCALATED
+
+
+def test_clarification_reply_without_a_currency_keeps_the_originally_reported_one(real_fixture_app_db):
+    """Seen live with Claude Haiku: cliente.ambiguo (Colombian profile) reported
+    MXN; the clarification reply omitted the currency and the case silently
+    switched to COP (inferred from the profile country), searching and replying
+    with the wrong currency.
+    """
+    session = persona_session("cliente.ambiguo", real_fixture_app_db)
+    report = persona_complaint(session.customer_id)
+    first_extraction = {**report, "currency": "MXN", "merchant_hint": None, "wants_human": False}
+    followup_extraction = {
+        "amount": None, "currency": None, "date": None, "merchant_hint": None, "wants_human": False,
+    }
+
+    with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(first_extraction)):
+        first = handle_message(session, None, "Tengo un cargo que no reconozco", db_path=real_fixture_app_db)
+    assert first["state"] == CaseState.CLARIFYING
+
+    with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(followup_extraction)):
+        handle_message(
+            session, first["case_id"], "No me acuerdo del comercio", db_path=real_fixture_app_db
+        )
+
+    case = cases.get_case(first["case_id"], db_path=real_fixture_app_db)
+    assert case.reported_currency == "MXN"

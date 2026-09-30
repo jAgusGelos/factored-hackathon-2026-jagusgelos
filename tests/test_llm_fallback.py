@@ -128,3 +128,16 @@ def test_malformed_llm_date_degrades_to_missing_instead_of_crashing():
     assert extraction.date is None
     assert extraction.amount == 10.0
     assert extraction.parse_failed is False
+
+
+def test_json_wrapped_in_a_markdown_code_fence_is_still_parsed():
+    """Real Claude Haiku output seen live: correct JSON inside a ```json fence."""
+    raw = (
+        '```json\n{\n  "amount": 1753.69,\n  "currency": "MXN",\n  "date": "2024-09-16",\n'
+        '  "merchant_hint": null,\n  "wants_human": false\n}\n```'
+    )
+    extraction = llm._parse_extraction_response(raw)
+    assert extraction.parse_failed is False
+    assert extraction.amount == 1753.69
+    assert extraction.currency == "MXN"
+    assert extraction.date == "2024-09-16"

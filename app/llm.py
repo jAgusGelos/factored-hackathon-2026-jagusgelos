@@ -219,9 +219,20 @@ def _valid_iso_date(value: object) -> str | None:
         return None
 
 
+def _strip_code_fence(raw: str) -> str:
+    # Claude often wraps a JSON answer in a ```json ... ``` markdown fence even
+    # when told to return bare JSON; the payload inside is still valid.
+    text = raw.strip()
+    if text.startswith("```") and text.endswith("```"):
+        text = text[3:-3].strip()
+        if text.lower().startswith("json"):
+            text = text[4:]
+    return text.strip()
+
+
 def _parse_extraction_response(raw: str) -> ExtractedEntities:
     try:
-        data = json.loads(raw)
+        data = json.loads(_strip_code_fence(raw))
         return ExtractedEntities(
             amount=float(data["amount"]) if data.get("amount") is not None else None,
             currency=data.get("currency"),

@@ -771,7 +771,13 @@ def handle_message(
         return _ask_for_missing_entities(turn)
 
     try:
-        currency = extraction.currency or _infer_currency(get_customer_profile(session))
+        # Same carry-over as amount/date: a clarification reply that doesn't
+        # restate the currency keeps the one reported earlier in the case.
+        currency = (
+            extraction.currency
+            or case.reported_currency
+            or _infer_currency(get_customer_profile(session))
+        )
         evaluation = _evaluate_turn(
             turn, extraction, amount=amount, reported_date=reported_date, currency=currency
         )
