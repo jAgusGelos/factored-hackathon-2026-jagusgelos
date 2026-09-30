@@ -24,6 +24,7 @@ from app.state_machine import CaseState, handle_message
 from tests.support import (
     AUTO_RESOLVE_CHARGE,
     EXPLANATION,
+    HANDOFF_KEYS,
     OPENING,
     assert_escalation_notice,
     charge_extraction,
@@ -204,7 +205,7 @@ def test_rejection_with_no_rounds_left_escalates(real_fixture_app_db):
     assert case.handoff["evidence"] == [proposed]
     assert case.matched_transaction_id is None
     assert case.handoff["customer_reported"]["customer_confirmation"] == "no"
-    assert set(case.handoff) == {"request_summary", "verified_facts", "customer_reported", "policy_reasons", "actions_taken", "evidence", "open_questions"}
+    assert set(case.handoff) == HANDOFF_KEYS
 
 
 def test_asking_for_a_human_at_the_confirmation_step_first_gets_the_agent_to_try(real_fixture_app_db):

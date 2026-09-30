@@ -13,12 +13,8 @@ import pytest
 from app import handoffs
 from app.case_model import EscalationReason, ReportedCharge
 from app.cases import Case
-from tests.support import clean_assessment, clean_txn
+from tests.support import HANDOFF_KEYS, clean_assessment, clean_txn
 
-KEYS = {
-    "request_summary", "verified_facts", "customer_reported", "policy_reasons", "actions_taken", "evidence",
-    "open_questions",
-}
 CHARGE = clean_txn(transaction_id="TRX-9", merchant_name="Uber", amount=38500.0, currency="COP", channel="App")
 SAID = ReportedCharge(amount=38500.0, date=date(2026, 6, 14), currency=None, merchant="Uber")
 POLICY_REASON = "fraud_score=91.0 at/above the 30.0 threshold"
@@ -62,7 +58,7 @@ PRODUCERS = {
 @pytest.mark.parametrize("producer", PRODUCERS)
 def test_every_producer_has_the_seven_parts(producer):
     handoff = PRODUCERS[producer]().to_dict()
-    assert set(handoff) == KEYS
+    assert set(handoff) == HANDOFF_KEYS
     assert handoff["request_summary"]
     assert handoff["actions_taken"] and handoff["open_questions"]
     assert CUSTOMER_TEXT not in str(handoff)

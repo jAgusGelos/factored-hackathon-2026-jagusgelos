@@ -91,6 +91,11 @@ __all__ = [
 
 STATIC = REPO_ROOT / "static"
 
+HANDOFF_KEYS = {
+    "request_summary", "verified_facts", "customer_reported", "policy_reasons", "actions_taken", "evidence",
+    "open_questions",
+}
+
 requires_real_fixture = pytest.mark.skipif(
     not (REAL_FIXTURE_PATH.exists() and REAL_DEMO_USERS_PATH.exists()),
     reason="Requires the ETL fixture (run `python etl/extract.py && python etl/build_fixture.py` first)",
