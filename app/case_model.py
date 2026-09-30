@@ -108,16 +108,18 @@ class ReportedCharge:
 
     amount: float | None
     date: date | None
-    currency: str
+    # Only a currency the customer named (`llm.stated_currency`); the charge
+    # search falls back to their profile's, which is never recorded here.
+    currency: str | None
     merchant: str | None = None
     reason: DisputeReason | None = None
 
     @classmethod
-    def from_case(cls, case: cases.Case, default_currency: str) -> ReportedCharge:
+    def from_case(cls, case: cases.Case) -> ReportedCharge:
         return cls(
             amount=case.reported_amount,
             date=date.fromisoformat(case.reported_date) if case.reported_date else None,
-            currency=case.reported_currency or default_currency,
+            currency=case.reported_currency,
             merchant=case.reported_merchant,
             reason=DisputeReason(case.dispute_reason) if case.dispute_reason else None,
         )

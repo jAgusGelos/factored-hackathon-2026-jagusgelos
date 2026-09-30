@@ -26,11 +26,13 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import re
 import time
+import unicodedata
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 
 import anthropic
@@ -240,6 +242,8 @@ _EXTRACTION_SYSTEM_PROMPT = {
         '"date": <"YYYY-MM-DD" o null>, "merchant_hint": <string o null>, '
         '"wants_human": <true|false>, "intent": <"report"|"show_charges"|"greeting"|"other">}. '
         "Si el cliente no menciona un monto, moneda o fecha, use null en ese campo. "
+        'currency solo si el cliente nombra la moneda (un código, "dólares", "pesos colombianos"); '
+        '"pesos" o "$" sin país no es una moneda: use null. '
         'intent: "report" si habla de un cargo o movimiento que no reconoce o quiere disputar; '
         '"show_charges" si pide ver sus cargos o movimientos; "greeting" si solo saluda o '
         'pregunta qué puede hacer el asistente; "other" si pide algo que no es una disputa de un cargo '
@@ -255,6 +259,8 @@ _EXTRACTION_SYSTEM_PROMPT = {
         '"date": <"YYYY-MM-DD" ou null>, "merchant_hint": <string ou null>, '
         '"wants_human": <true|false>, "intent": <"report"|"show_charges"|"greeting"|"other">}. '
         "Se o cliente não mencionar um valor, moeda ou uma data, use null nesse campo. "
+        'currency só se o cliente nomear a moeda (um código, "dólares", "pesos colombianos"); '
+        '"pesos" ou "$" sem país não é uma moeda: use null. '
         'intent: "report" se fala de uma cobrança que não reconhece ou quer contestar; '
         '"show_charges" se pede para ver suas cobranças ou movimentações; "greeting" se só '
         'cumprimenta ou pergunta o que você pode fazer; "other" se pede algo que não é a '
@@ -348,15 +354,48 @@ def _parse_extraction_response(raw: str) -> ExtractedEntities:
         )
 
 
+# What makes a currency "stated" in ES or PT (matched on accent-free,
+# lowercased text). A bare "pesos" or "$" names no country, so it is not here:
+# the model guesses one from the prompt language (COP in ES, MXN in PT for
+# the same message), and the charge search filters by currency.
+_CURRENCY_CUES = {
+    "COP": (r"\bcop\b", r"\bcol\$", r"\bpesos? colombianos?\b"),
+    "MXN": (r"\bmxn\b", r"\bmx\$", r"\bpesos? mexicanos?\b"),
+    "ARS": (r"\bars\b", r"\bpesos? argentinos?\b"),
+    "USD": (r"\busd\b", r"\bus\$", r"\bu\$s\b", r"\bdolar(es)?\b", r"\bdollars?\b"),
+}
+
+
+def _fold(text: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", text.casefold())
+    return "".join(c for c in decomposed if not unicodedata.combining(c))
+
+
+def stated_currency(customer_text: str, extracted: object) -> str | None:
+    """The model's currency, kept only when the customer's own words name
+    that currency; anything else is "not said" (the caller searches with the
+    customer's profile currency and never records it as reported).
+    """
+    if not isinstance(extracted, str) or extracted not in _CURRENCY_CUES:
+        return None
+    folded = _fold(customer_text)
+    return extracted if any(re.search(cue, folded) for cue in _CURRENCY_CUES[extracted]) else None
+
+
 def extract_entities(customer_text: str, *, language: Language, today: str) -> ExtractedEntities:
     """Runs the NLU entity-extraction call. Raises `LLMUnavailable` on
     exhausted retries (the caller must force-escalate); a malformed (but
     successfully-returned) response degrades to `parse_failed=True` rather
     than raising, since that is a content problem, not an availability one.
+    The currency passes `stated_currency`, the same check in both languages.
     """
     prompt = _build_extraction_prompt(customer_text, language=language, today=today)
     raw = call_llm(prompt, system=_EXTRACTION_SYSTEM_PROMPT[language])
-    return _parse_extraction_response(raw)
+    extraction = _parse_extraction_response(raw)
+    currency = stated_currency(customer_text, extraction.currency)
+    if extraction.currency is not None and currency is None:
+        logger.info("Dropped an extracted currency the customer did not state: %r", extraction.currency)
+    return replace(extraction, currency=currency)
 
 
 _INSTRUCTION_LABEL = {Language.ES: "instruccion", Language.PT: "instrucao"}

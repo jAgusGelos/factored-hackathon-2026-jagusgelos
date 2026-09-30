@@ -363,4 +363,4 @@ def test_a_stored_dispute_reason_reads_back_as_the_same_reason(tmp_path, reason)
     assert cases.update_case(case.case_id, state=CaseState.SELECTING, dispute_reason=reason, db_path=app_db)
 
     stored = cases.get_case(case.case_id, db_path=app_db)
-    assert ReportedCharge.from_case(stored, "USD").reason is reason
+    assert ReportedCharge.from_case(stored).reason is reason

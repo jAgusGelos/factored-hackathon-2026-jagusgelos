@@ -356,7 +356,10 @@ def test_clarification_reply_without_a_currency_keeps_the_originally_reported_on
     silently switched the case to the profile country's currency.
     """
     session = demo_session(real_fixture_app_db)
-    first = _say(session, real_fixture_app_db, charge_extraction(amount=12.0, currency="USD", date="2026-06-14"))
+    first = _say(
+        session, real_fixture_app_db, charge_extraction(amount=12.0, currency="USD", date="2026-06-14"),
+        "Tengo un cargo de 12 dólares del 14 de junio que no reconozco",
+    )
     _say(session, real_fixture_app_db, charge_extraction(), "No me acuerdo del comercio", case_id=first["case_id"])
 
     assert cases.get_case(first["case_id"], db_path=real_fixture_app_db).reported_currency == "USD"

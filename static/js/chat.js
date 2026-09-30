@@ -625,6 +625,8 @@ function restoreInteractiveBlocks(blocks) {
 }
 
 function formatAmount(amount, currency) {
+  // A reported amount has no currency unless the customer named one.
+  if (!currency) return new Intl.NumberFormat(t("timeLocale"), { maximumFractionDigits: 2 }).format(amount);
   try {
     return new Intl.NumberFormat(t("timeLocale"), { style: "currency", currency, maximumFractionDigits: 2 }).format(amount);
   } catch {

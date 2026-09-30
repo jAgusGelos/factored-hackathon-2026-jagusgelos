@@ -28,8 +28,6 @@ from app.llm import Language
 from app.policy import MAX_CLARIFICATION_ROUNDS
 from app.transactions import TransactionCandidate
 
-DEFAULT_CURRENCY = "USD"
-
 
 class ChatReply(TypedDict):
     # None only when a retried first message died before its case existed
@@ -62,7 +60,7 @@ class Turn:
 
     @property
     def report(self) -> ReportedCharge:
-        return ReportedCharge.from_case(self.case, DEFAULT_CURRENCY)
+        return ReportedCharge.from_case(self.case)
 
     def log_event(self, event_type: str, payload: dict) -> None:
         cases.log_event(self.correlation_id, self.case.case_id, event_type, payload, db_path=self.db_path)

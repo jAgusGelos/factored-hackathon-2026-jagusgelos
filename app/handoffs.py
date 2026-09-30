@@ -30,7 +30,8 @@ def _facts(report: ReportedCharge, **extra: str) -> dict[str, str]:
     facts: dict[str, str] = {}
     if report.amount is not None:
         facts["reported_amount"] = str(report.amount)
-    facts["currency"] = report.currency
+    if report.currency is not None:
+        facts["currency"] = report.currency
     if report.date is not None:
         facts["reported_date"] = report.date.isoformat()
     if report.merchant:

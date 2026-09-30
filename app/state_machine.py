@@ -77,7 +77,6 @@ from app.case_model import (
     ReportedCharge,
 )
 from app.case_turn import (
-    DEFAULT_CURRENCY,
     ChatReply,
     Turn,
     current_options,
@@ -136,6 +135,8 @@ __all__ = [
 ]
 
 _COUNTRY_CURRENCY = {"México": "MXN", "Colombia": "COP", "Argentina": "ARS"}
+# Search currency of a customer whose profile has no known country.
+DEFAULT_CURRENCY = "USD"
 
 IDENTIFIED_BY_REPORT = "Se localizó una transacción que coincide con el monto y la fecha reportados."
 IDENTIFIED_BY_PICK = "El cliente eligió este cargo de la lista de sus movimientos."
@@ -151,14 +152,15 @@ def evaluate_case(
     *,
     reported_amount: float,
     reported_date: date,
-    currency: str,
+    currency: str | None,
     customer_requested_human: bool = False,
     db_path: Path | None = None,
 ) -> CaseEvaluation:
     """AD-11 Rows 1-5 for a report with an amount and a date: a single
     confident match gets the screening verdict (the customer has not explained
     yet), anything else is `SELECTING` (the customer has to pick; round
-    accounting is the caller's job).
+    accounting is the caller's job). `currency` is the one the customer named,
+    if any; otherwise the search uses their profile's currency.
     """
     report = ReportedCharge(reported_amount, reported_date, currency)
     if customer_requested_human:
@@ -166,7 +168,8 @@ def evaluate_case(
     candidates = search_own_transactions(
         session, reported_amount, reported_date,
         amount_tolerance=match_amount_tolerance(reported_amount),
-        date_tolerance_days=MATCH_DATE_TOLERANCE_DAYS, currency=currency,
+        date_tolerance_days=MATCH_DATE_TOLERANCE_DAYS,
+        currency=currency or _infer_currency(get_customer_profile(session)),
     )
     if evaluate_match(candidates) == MatchOutcome.AMBIGUOUS:
         return CaseEvaluation(state=CaseState.SELECTING, candidates=tuple(candidates))
@@ -787,14 +790,14 @@ def _route(
 def _merged_report(turn: Turn, extraction: llm.ExtractedEntities) -> ReportedCharge:
     """This turn's details on top of what the case already has: a follow-up
     that does not restate the amount, date, currency or merchant keeps the
-    earlier value.
+    earlier value. A currency the customer did not name stays unknown.
     """
     case = turn.case
     reported_date = extraction.date or case.reported_date
     return ReportedCharge(
         amount=extraction.amount if extraction.amount is not None else case.reported_amount,
         date=date.fromisoformat(reported_date) if reported_date else None,
-        currency=extraction.currency or case.reported_currency or _infer_currency(get_customer_profile(turn.session)),
+        currency=extraction.currency or case.reported_currency,
         merchant=extraction.merchant_hint or case.reported_merchant,
     )
 
