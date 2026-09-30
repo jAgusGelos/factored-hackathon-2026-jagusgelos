@@ -142,7 +142,7 @@ uvicorn app.main:app --reload --port 8000
 # data/demo_users.json after step 2)
 
 # 5. Tests, lint, eval harness
-pytest                              # 574 tests
+pytest                              # 662 tests
 ruff check .
 python -m eval.run_eval             # -> data/eval_report.json (see "Evaluation results" below)
 ```
@@ -168,7 +168,7 @@ dataset is in USD (there is no MXN transaction at all), a data finding in its ow
 
 | Scenario | How to trigger it | Outcome |
 |---|---|---|
-| Automated resolution (typed) | "No reconozco un cargo de 38.500 pesos del 14 de junio", then explain ("no uso Uber hace meses, tengo la tarjeta conmigo") | Confident match (Uber) -> the agent names merchant/amount/date and asks (`confirming`, with "Sí, es ese" / "No es ese" buttons) -> "yes" -> `awaiting_explanation` -> the unrecognized-charge evidence check passes (online purchase, no other Uber charges) -> `resolved_auto`: provisional credit, card blocked (simulated), back-office review, reference |
+| Automated resolution (typed) | "No reconozco un cargo de 38.500 pesos del 14 de junio" (PT: "Não reconheço uma cobrança de 38.500 pesos do dia 14 de junho"), then explain ("no uso Uber hace meses, tengo la tarjeta conmigo") | Confident match (Uber), the same in Spanish and Portuguese: "pesos" without a country is not a stated currency, so the search uses the customer's own currency (COP) instead of the model's guess (it guessed COP in Spanish and MXN in Portuguese) -> the agent names merchant/amount/date and asks (`confirming`, with "Sí, es ese" / "No es ese" buttons) -> "yes" -> `awaiting_explanation` -> the unrecognized-charge evidence check passes (online purchase, no other Uber charges) -> `resolved_auto`: provisional credit, card blocked (simulated), back-office review, reference |
 | Automated resolution (picked) | Tap "Ver mis últimos cargos" (or type "Se me perdió un monto, mostrame mis cargos") -> tap Uber or Cine Premium, then explain | The customer's own charges as cards (`selecting`); tapping one is the customer's explicit identification (the AD-12 confirmation) -> explanation -> policy -> `resolved_auto`. A second unrecognized charge in the same 90 days goes to a person |
 | Ambiguous: duplicated charge | "Me cobraron dos veces un taxi de 27 mil" -> tap either taxi -> "tomé un solo taxi y me lo cobraron dos veces" | Two matches (AD-11 Row 3) -> only those two cards are shown -> the customer picks one -> the twin is verified in the data -> `resolved_auto`, one of the two reversed (no card block). Disputing the other one afterwards escalates |
 | Ineligible on the evidence | Tap Farmacia Salud / Super Ahorro / Gasolinera Express (POS), or say a taxi was "not recognized" | However convincing the explanation: card-present purchase, or an existing relationship with the merchant -> `escalated` with the policy reasons (their own `policy_reasons` field) and the model's neutral summary (under what the customer reported) in the handoff; the customer gets the notice naming the charge, "necesita la revisión de una persona", the case number and the 3-business-day deadline |
@@ -214,24 +214,28 @@ other gating conditions in `tests/test_policy_not_overridden.py`).
 
 **Conversation/system eval** (`eval/run_eval.py`): ⚠️ **explicitly OFFLINE/SIMULATED**, not a
 measured-production result. The harness runs scripted multi-turn conversations against a
-deterministic mocked LLM client so every run is reproducible. 27 cases: 6 required scenarios
+deterministic mocked LLM client so every run is reproducible. 29 cases: 6 required scenarios
 (typed resolution, picked resolution, duplicated charge picked, not in list after details, policy
 escalation, human request after an unmatched detail) × 2 languages, 7 adversarial/failure-mode
 fixtures (missing data, prompt injection, LLM outage, mixed-language input, a tampered tap on a
 charge that was not offered, re-disputing an already-credited charge, asking for a person before
-giving any detail) and 8 `policy_abuse` cases (AD-13: card-present "unrecognized" charge, a
+giving any detail), a currency-parity case in Spanish and Portuguese ("38.500 pesos" with the
+extraction mocked as COP in Spanish and MXN in Portuguese: both must reach `confirming`) and 8 `policy_abuse` cases (AD-13: card-present "unrecognized" charge, a
 merchant the customer already uses, a duplicate with no twin, a merchant dispute, an injection in
 the explanation, a second unrecognized credit in the window, the other half of an already-reversed
 duplicate pair, a charge a person already has after an explanation retried in a new case), all with the assessment model mocked as convinced. Each scenario runs against its
 own app database:
 
-- **Unsafe outcomes: 0 / 27.**
-- Safe automated resolution rate: 0.22 (6/27; the mix is mostly escalation/adversarial by design).
-- Containment rate: 0.25 (6/24 concluded cases).
-- Pipeline latency (excludes real LLM network time): p50 0.26s, p95 0.44s.
-- Real Claude Haiku 4.5 turn latency (manual runs, 2026-09-30): the explanation turn that resolves took 1.3-6.6 s (median 3.2 s over 8 ES/PT runs; 3.1-17.8 s before the resolution message became a validated template), while a first typed report, which makes two model calls, took 6-22 s. Button and menu taps ("Ver mis últimos cargos", a tapped charge, "Sí, es ese", "No es ese", "No está en la lista", "Hablar con una persona") make no model call and were answered in 0.05-0.14 s (a tapped charge ~1 s, local policy and classifier work), down from 1.2-12.2 s when each paid an NLG call (3 runs each, 2026-09-30). Escalation and first-request-for-a-person turns write their reply from a fixed template (the notice, the deferral and the offer), with no NLG call: a policy escalation from a typed report took 4.0-5.9 s (its only model call is the extraction), a typed request for a person 1.1-6.2 s (its only model call is the extraction, or the explanation check while a charge is being explained), and the same moves from a button or a tapped charge 0.1-0.9 s (manual runs, 2026-09-30). Every turn's model calls share a 20 s budget and the chat shows a typing indicator, then a retry option at 25 s.
-- Estimated cost (Haiku 4.5 list pricing, not measured billing): ~$0.0015/attempted case,
-  ~$0.0066/successful resolution.
+- **Unsafe outcomes: 0 / 29.**
+- By language (`by_language`): Spanish 22 cases, 22 safe (3 resolved, 16 escalated); Portuguese 7
+  cases, 7 safe (3 resolved, 3 escalated). The adversarial and policy-abuse cases run in Spanish only
+  (except the currency-parity case), so the Portuguese sample is smaller.
+- Safe automated resolution rate: 0.21 (6/29; the mix is mostly escalation/adversarial by design).
+- Containment rate: 0.24 (6/25 concluded cases).
+- Pipeline latency (excludes real LLM network time): p50 0.24s, p95 0.44s.
+- Real Claude Haiku 4.5 turn latency (manual runs, 2026-09-30): the explanation turn that resolves took 1.3-6.6 s (median 3.2 s over 8 ES/PT runs; 3.1-17.8 s before the resolution message became a validated template), while a first typed report, which makes two model calls, took 6-22 s (the "38.500 pesos" report, 3 runs per language: 4.1-21.2 s, median 8.9 s). Button and menu taps ("Ver mis últimos cargos", a tapped charge, "Sí, es ese", "No es ese", "No está en la lista", "Hablar con una persona") make no model call and were answered in 0.05-0.14 s (a tapped charge ~1 s, local policy and classifier work), down from 1.2-12.2 s when each paid an NLG call (3 runs each, 2026-09-30). Escalation and first-request-for-a-person turns write their reply from a fixed template (the notice, the deferral and the offer), with no NLG call: a policy escalation from a typed report took 4.0-5.9 s (its only model call is the extraction), a typed request for a person 1.1-6.2 s (its only model call is the extraction, or the explanation check while a charge is being explained), and the same moves from a button or a tapped charge 0.1-0.9 s (manual runs, 2026-09-30). Every turn's model calls share a 20 s budget and the chat shows a typing indicator, then a retry option at 25 s.
+- Estimated cost (Haiku 4.5 list pricing, not measured billing): ~$0.0012/attempted case,
+  ~$0.0060/successful resolution.
 
 The real-model behavior is checked separately: the Playwright walkthrough and manual runs go
 through Claude Haiku 4.5 end to end, and bugs they surfaced (fenced JSON, a currency lost between
@@ -269,6 +273,20 @@ turns, over-strict fact checks on natural wordings) are pinned by regression tes
   deterministic, code-generated, not LLM output) stays in Spanish regardless of the toggle, an internal
   agent-facing audit artifact, not customer-facing content; the Vista Interna labels its sections and
   fields in the chosen language.
+- **Language parity is checked on the flows we know, not proven in general.** The same report once
+  took different paths in Spanish and Portuguese because the model guessed a different currency for
+  "pesos" (COP vs MXN). Now a currency counts only when the customer names it (a deterministic check
+  on the text, `app/llm.py::stated_currency`), and a mocked test plus 3 real runs per language pin
+  the same state. Other wordings may still differ between languages; the eval reports results by
+  language, but its Portuguese sample is 7 cases against 22 in Spanish.
+- **Real-model latency varies a lot.** A first typed report makes two model calls and took 4-22 s
+  in manual runs (median 8.9 s for the "38.500 pesos" report); the slowest turns sit close to the
+  chat's 25 s retry. The model calls of a turn share a 20 s budget and a timed-out turn is replayed,
+  not applied twice.
+- **Cases stored before the currency fix keep an inferred currency.** Earlier versions saved the
+  profile's currency as if the customer had said it, and handoffs had a different shape. Those rows
+  live only in a local `data/app.db`; they are not migrated (the Vista Interna still renders the old
+  handoff shape).
 - **Single-host deployment, no load/concurrency testing.** Designed for sequential demo/judge
   traffic on one machine — stated explicitly, not silently assumed away.
 - **The rolling-aggregate classifier feature (AD-6 stretch goal) was not attempted**, per the
@@ -294,7 +312,7 @@ app/            FastAPI backend — auth, state machine, policy, LLM boundary, c
 etl/            Offline ETL: extraction, quality checks, fixture generation, classifier training
 eval/           Eval harness (Milestone 5)
 static/         Frontend (vanilla HTML/CSS/JS, no build step — AD-1)
-tests/          pytest suite (574 tests)
+tests/          pytest suite (662 tests)
 support.py      Shared test/eval mock helpers (no pytest dependency — used by eval/ too)
 docs/           Challenge requirements digest
 data/           Local ETL artifacts, fixture, trained model (gitignored — never commit raw data)

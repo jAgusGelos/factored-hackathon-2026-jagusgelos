@@ -294,7 +294,7 @@ def test_picking_an_ineligible_charge_names_it(session, real_fixture_app_db):
 
     assert_escalation_notice(reply, EscalationReason.NEEDS_REVIEW, charge_named=True)
     assert reply["escalation"]["charge"]["transaction_id"] == FRAUD_SCORE_CHARGE
-    assert "91" not in reply["reply"]
+    assert "91" not in reply["reply"].replace(reply["escalation"]["case_number"], "")
 
 
 @requires_real_fixture
