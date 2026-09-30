@@ -142,7 +142,7 @@ uvicorn app.main:app --reload --port 8000
 # data/demo_users.json after step 2)
 
 # 5. Tests, lint, eval harness
-pytest                              # 548 tests
+pytest                              # 568 tests
 ruff check .
 python -m eval.run_eval             # -> data/eval_report.json (see "Evaluation results" below)
 ```
@@ -175,7 +175,7 @@ dataset is in USD (there is no MXN transaction at all), a data finding in its ow
 | Ambiguous: not in the list | A list shown after a detail ("fue el 14 de junio") -> "No está en la lista" | `escalated` with the charges shown as evidence and an open question for the agent; the notice names no charge (none was identified) and says it could not be identified. With no detail yet, the agent asks for one instead of escalating |
 | Unsupported request | "¿Cuál es mi saldo?" | Declines and says what this channel does; no guess, no state change |
 | Human escalation (policy) | "No reconozco una compra en Tienda Online Global", or tap Boutique Moda / Tienda Don José | Fails AD-11 (fraud score 91 / ~610 USD / Pending) -> `escalated` with a structured handoff (facts, actions, evidence, open questions); the customer's notice names the charge and "necesita la revisión de una persona", never the score or the threshold |
-| Human escalation (request) | Give a detail the agent cannot match (e.g. "fue el 22/04/2024"), then "Hablar con una persona" | The agent tries first: asking for a person before that gets the charge list and a "let me try first" reply. The button only appears once the customer gave details and the agent could not resolve them (nothing matched, a rejected proposal, or a round with nothing new). Each deferral spends a clarification round, so a customer who insists without details reaches a person on the third request |
+| Human escalation (request) | "Quiero hablar con una persona", then again "Quiero hablar con una persona" (or the "Hablar con una persona" button) | The agent tries once per request: the first request keeps the case where it is (the charge list, the pending confirmation, or the question about what happened), spends no clarification round and ends the reply with "Si aun así prefiere hablar con una persona, vuelva a pedirlo o use el botón «Hablar con una persona»", and the button appears. The second request, typed or tapped, escalates with the notice (reason "usted pidió hablar con una persona"). A request that comes with details tries them first and counts as that one deferral, unless the details already send the case to a person by policy (then the policy reason, no offer). If the agent already could not match the customer's details (e.g. "fue el 22/04/2024") or used its rounds, the button is already there and the first request escalates. In the explanation step a typed request is detected (short texts by the extraction call, longer ones by the assessment) and never counted as an explanation |
 | Second claim in the same chat | After any closed case (`resolved_auto` or `escalated`): tap "Reportar otro cargo" / "Contestar outra cobrança", or just type the next complaint (e.g. "No reconozco una compra en Tienda Online Global" after the Uber resolution) | A divider "Nuevo reclamo · caso anterior REF-... (resuelto)" marks the new claim, the case panel goes back to "Esperando reporte" and the message goes out without a `case_id`, so the server opens a new case. The closed case is never reopened or changed (state, reference, credit); its "Verificación del sistema" / "Caso derivado" card appears once, only on the turn that closed it |
 
 A turn that brings a new detail (amount, date, merchant) never spends a clarification round; after
@@ -293,7 +293,7 @@ app/            FastAPI backend — auth, state machine, policy, LLM boundary, c
 etl/            Offline ETL: extraction, quality checks, fixture generation, classifier training
 eval/           Eval harness (Milestone 5)
 static/         Frontend (vanilla HTML/CSS/JS, no build step — AD-1)
-tests/          pytest suite (548 tests)
+tests/          pytest suite (568 tests)
 support.py      Shared test/eval mock helpers (no pytest dependency — used by eval/ too)
 docs/           Challenge requirements digest
 data/           Local ETL artifacts, fixture, trained model (gitignored — never commit raw data)

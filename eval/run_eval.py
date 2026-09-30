@@ -129,6 +129,9 @@ class Step:
     action: CustomerAction | None = None
     # The mocked model's read of an explanation turn (None: a convincing one).
     assessment: dict | None = None
+    # Where this turn must leave the case, as (state, human_available); None:
+    # only the last turn's state is checked.
+    expected_after: tuple[CaseState, bool] | None = None
 
 
 @dataclass(frozen=True)
@@ -181,6 +184,7 @@ def _run_script(
     prompts: list[str] = []
     completions: list[str] = []
     reply: ChatReply | None = None
+    steps_as_expected = True
     for step in steps:
         if client_factory is not None:
             client = client_factory(step.extraction, prompts, completions)
@@ -197,9 +201,11 @@ def _run_script(
             )
         latency += time.perf_counter() - start
         case_id = reply["case_id"]
+        if step.expected_after is not None:
+            steps_as_expected &= (reply["state"], reply["human_available"]) == step.expected_after
     return CaseOutcome(
         case_key=case_key, group=group, expected_state=expected_state, actual_state=reply["state"],
-        safe=reply["state"] == expected_state, latency_seconds=latency,
+        safe=reply["state"] == expected_state and steps_as_expected, latency_seconds=latency,
         estimated_prompt_chars=sum(map(len, prompts)),
         estimated_completion_chars=sum(map(len, completions)), case_id=case_id, turns=len(steps),
     )
@@ -309,13 +315,18 @@ def _run_unoffered_selection(app_db_path: Path) -> CaseOutcome:
 
 
 def _run_early_human_request(app_db_path: Path) -> CaseOutcome:
-    """Asking for a person before giving any detail: the agent tries first
-    (shows the charge list) instead of handing off.
+    """Asking for a person before giving any detail: the agent tries once
+    (shows the charge list and offers the person), and the second request
+    goes to a person.
     """
+    ask = charge_extraction(wants_human=True)
     return _run_script(
         GROUP_ADVERSARIAL, "early_human_request",
-        [Step(HUMAN_REQUEST[Language.ES], charge_extraction(wants_human=True))],
-        expected_state=CaseState.SELECTING, app_db_path=app_db_path,
+        [
+            Step(HUMAN_REQUEST[Language.ES], ask, expected_after=(CaseState.SELECTING, True)),
+            Step(HUMAN_REQUEST[Language.ES], ask),
+        ],
+        expected_state=CaseState.ESCALATED, app_db_path=app_db_path,
     )
 
 

@@ -16,7 +16,7 @@ import anthropic
 import duckdb
 import pytest
 
-from app import cases, config, llm
+from app import cases, config, llm, replies
 from app.case_model import EscalationReason
 from app.case_turn import Turn
 from app.explanation import handle_explanation
@@ -214,9 +214,21 @@ def test_asking_for_a_human_at_the_confirmation_step_first_gets_the_agent_to_try
 
     reply = _confirm(session, real_fixture_app_db, first["case_id"], client, text="quiero un agente")
 
+    # One "let me try first" (plan.md AD-8): the proposal stays, the handoff
+    # unlocks, no round is spent, and the reply ends with the offer.
     assert reply["state"] == CaseState.CONFIRMING
-    assert reply["human_available"] is False
-    assert logged_events(real_fixture_app_db, "human_request_deferred")
+    assert reply["human_available"] is True
+    assert reply["reply"].endswith(replies.HUMAN_OFFER["es"])
+    assert cases.get_case(first["case_id"], db_path=real_fixture_app_db).clarification_rounds == 0
+    assert [e["offer"] for e in logged_events(real_fixture_app_db, "human_request_deferred")] == [True]
+
+    second = _confirm(session, real_fixture_app_db, first["case_id"], client, text="quiero un agente")
+
+    assert second["state"] == CaseState.ESCALATED
+    case = cases.get_case(first["case_id"], db_path=real_fixture_app_db)
+    assert case.escalation_reason == "human_requested"
+    # The proposal was never confirmed, so the notice names no charge (AD-5).
+    assert second["escalation"]["charge"] is None
 
 
 def test_asking_for_a_human_at_the_confirmation_step_escalates_once_unlocked(real_fixture_app_db):
@@ -323,13 +335,13 @@ def test_two_concurrent_yes_replies_move_the_case_once(real_fixture_app_db):
 
     from app import state_machine
 
-    replies = []
+    results = []
     with patch("app.llm.anthropic.Anthropic", return_value=client):
         for _ in range(2):
             turn = Turn(session, stale_case, llm.Language.ES, "corr", real_fixture_app_db)
-            replies.append(state_machine._handle_confirmation(turn, "Sí, es ese"))
+            results.append(state_machine._handle_confirmation(turn, "Sí, es ese"))
 
-    assert [r["state"] for r in replies] == [CaseState.AWAITING_EXPLANATION] * 2
+    assert [r["state"] for r in results] == [CaseState.AWAITING_EXPLANATION] * 2
     assert len(logged_events(real_fixture_app_db, "explanation_requested")) == 1
     assert logged_events(real_fixture_app_db, "case_transition_lost_race")
 
@@ -343,16 +355,19 @@ def test_two_concurrent_explanations_issue_exactly_one_credit(real_fixture_app_d
 
     from app import state_machine
 
-    replies = []
+    results = []
     with patch("app.llm.anthropic.Anthropic", return_value=client):
         for _ in range(2):
             turn = Turn(session, stale_case, llm.Language.ES, "corr", real_fixture_app_db)
-            replies.append(handle_explanation(turn, EXPLANATION, policy_verdict=state_machine._policy_verdict))
+            results.append(handle_explanation(
+                turn, EXPLANATION, policy_verdict=state_machine._policy_verdict,
+                on_human_request=state_machine._handle_human_request,
+            ))
 
-    assert [r["state"] for r in replies] == [CaseState.RESOLVED_AUTO, CaseState.RESOLVED_AUTO]
+    assert [r["state"] for r in results] == [CaseState.RESOLVED_AUTO, CaseState.RESOLVED_AUTO]
     assert len(logged_events(real_fixture_app_db, "simulated_credit")) == 1
     final = cases.get_case(first["case_id"], db_path=real_fixture_app_db)
-    assert final.resolution_reference in replies[0]["reply"]
+    assert final.resolution_reference in results[0]["reply"]
     assert logged_events(real_fixture_app_db, "case_transition_lost_race")
 
 

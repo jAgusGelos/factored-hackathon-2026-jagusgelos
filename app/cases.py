@@ -59,8 +59,9 @@ class Case:
     handoff: dict | None
     turn_count: int = 0
     reported_merchant: str | None = None
-    # The customer may ask for a person only after giving details the agent
-    # still could not resolve (see state_machine._unlocks_handoff).
+    # A request for a person escalates at once: set by a first request the
+    # agent deferred (plan.md AD-8), or silently after details the agent still
+    # could not resolve (see state_machine._unlocks_handoff).
     handoff_unlocked: bool = False
     dispute_reason: str | None = None
     # The customer's explanation so far (their own words, kept in the app db

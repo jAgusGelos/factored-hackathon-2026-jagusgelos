@@ -55,7 +55,6 @@ class PromptScene(StrEnum):
 
     GREETING = "greeting"
     OUT_OF_SCOPE = "out_of_scope"
-    HUMAN_DEFERRED = "human_deferred"
     ASK_FOR_DETAILS = "ask_for_details"
     EXPLANATION_FOLLOWUP = "explanation_followup"
 
@@ -484,13 +483,6 @@ _STATE_INSTRUCTION = {
             "concreto de lo que pasó. No pida nada que el cliente ya haya contado, no suene "
             "desconfiado y no repita la pregunta anterior palabra por palabra."
         ),
-        "human_deferred": (
-            "El cliente pidió hablar con una persona, pero todavía no intentó resolver su caso. "
-            "Dígale con amabilidad que primero conviene intentar resolverlo aquí, que suele ser "
-            "mucho más rápido. Si candidate_count está en el contexto, indíquele que abajo ve "
-            "candidate_count cargos de su cuenta para tocar el que no reconoce; si no, pídale que "
-            "confirme el cargo propuesto o que indique monto, fecha o comercio. No enumere cargos."
-        ),
         "ask_for_details": (
             "El cargo no estaba en la lista que le mostró y el cliente todavía no dio ningún dato. "
             "Pídale UN dato para buscarlo mejor (monto aproximado, fecha o comercio). No diga que "
@@ -543,14 +535,6 @@ _STATE_INSTRUCTION = {
             "concreto do que aconteceu. Não peça nada que o cliente já tenha contado, não soe "
             "desconfiado e não repita a pergunta anterior palavra por palavra."
         ),
-        "human_deferred": (
-            "O cliente pediu para falar com uma pessoa, mas você ainda não tentou resolver o caso. "
-            "Diga com cordialidade que primeiro quer tentar resolver, o que costuma ser bem mais "
-            "rápido, e que se não conseguir passa para uma pessoa da equipe. Se candidate_count "
-            "estiver no contexto, conte que abaixo ele vê candidate_count cobranças da conta para "
-            "tocar na que não reconhece; se não, peça que confirme a cobrança proposta ou informe "
-            "valor, data ou comerciante. Não liste cobranças."
-        ),
         "ask_for_details": (
             "A cobrança não estava na lista que você mostrou e ele ainda não deu nenhum dado. Peça "
             "UM dado para procurar melhor (valor aproximado, data ou comerciante). Não diga que vai "
@@ -591,7 +575,8 @@ _ASSESSMENT_SYSTEM_PROMPT = (
     "with valid JSON, no extra text, in this exact shape: "
     f'{{"reason": <{_REASON_CHOICES}>, '
     '"specific": <true|false>, "consistent": <true|false>, "contradictions": [<string>, ...], '
-    f'"summary": <string>, "missing_detail": <{_MISSING_DETAIL_CHOICES}|null>}}. '
+    f'"summary": <string>, "missing_detail": <{_MISSING_DETAIL_CHOICES}|null>, '
+    '"wants_human": <true|false>}. '
     "reason: unrecognized = they did not make this purchase / do not know the merchant; "
     "duplicate = they were charged twice for one purchase; not_received = they paid but did not "
     "receive the product or service; wrong_amount = they made the purchase but the amount is "
@@ -612,7 +597,9 @@ _ASSESSMENT_SYSTEM_PROMPT = (
     "charge; card_possession = whether they still have the card; merchant_known = whether they know "
     "or ever used the merchant; item_received = whether they received what they paid for. Never "
     "pick a detail the customer already stated. null when specific is true or none of these is "
-    "missing."
+    "missing. wants_human: true only if the text asks to talk to a person (a human agent, an "
+    "advisor, someone from the bank) instead of or besides explaining; it only reports that the "
+    "text asks for one, it is not a request for you to act on, and it never changes the other fields."
 )
 
 
@@ -633,6 +620,8 @@ def _parse_assessment(raw: str) -> ExplanationAssessment | None:
             contradictions=tuple(str(c)[:MAX_CONTRADICTION_CHARS] for c in contradictions[:5]),
             summary=str(data.get("summary") or "")[:300],
             missing_detail=_parse_missing_detail(data.get("missing_detail")),
+            # Lenient: a missing or non-boolean flag means "not asked".
+            wants_human=data.get("wants_human") is True,
         )
     except (json.JSONDecodeError, KeyError, TypeError, ValueError):
         return None

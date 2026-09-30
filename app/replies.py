@@ -95,6 +95,13 @@ HUMAN_DEFERRED = {
     ),
 }
 
+# Appended to a reply after the customer's first request for a person
+# (`case_turn.Turn.reply`): the agent tried once, the second request escalates.
+HUMAN_OFFER = {
+    Language.ES: "Si aun así prefiere hablar con una persona, vuelva a pedirlo o use el botón «Hablar con una persona».",
+    Language.PT: "Se ainda assim preferir falar com uma pessoa, peça de novo ou use o botão «Falar com uma pessoa».",
+}
+
 HUMAN_DEFERRED_WHILE_CONFIRMING = {
     Language.ES: (
         "Antes de derivarlo, confirmemos el cargo, que es más rápido: ¿es ese el cargo que no "

@@ -5,13 +5,15 @@ this module owns the STATE TRANSITIONS, `app/policy.py` owns the THRESHOLDS.
 Every guard function that reads customer data takes only a `Session`
 (`app/auth.py`) via `app/transactions.py` — never a bare `customer_id`.
 
-The agent tries first: a request to talk to a person is honored once the
-customer has given details (amount, date or merchant) that the agent still
-could not resolve (`cases.Case.handoff_unlocked`, set by `_offer` /
-`_ask_for_details`), or once the agent has used up its clarification rounds.
-Before that it answers with a charge list or asks again, and each deferral
-spends a round, so insisting always reaches a person eventually. Policy
-escalations (fraud score, amount, status...) are not affected.
+The agent tries first, once per request (plan.md AD-8): the first request
+to talk to a person keeps the case where it is (charge list, pending
+confirmation, explanation), spends no round, unlocks the handoff in the same
+compare-and-set and ends the reply with an offer; the second request (typed
+or the button) escalates. The handoff is also unlocked silently when the
+customer gave details the agent could not resolve (`_offer` /
+`_ask_for_details`) or the clarification rounds are used up, and then the
+first request escalates at once. Policy escalations (fraud score, amount,
+status...) are not affected and win over a request that came with details.
 
 States (stored per case; every transition is a compare-and-set):
   awaiting_report -> confirming | selecting | escalated   (first report, AD-11)
@@ -57,6 +59,7 @@ APP db (SQLite sessions/cases, `config.APP_DB_PATH`) and is only ever passed to
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -352,10 +355,14 @@ def _offer(
 
     `expected_states`: the states this turn may move the case from (a button
     that belongs to one state must lose to a request that moved it first).
+    `human_deferred`: the list answers a request for a person, with a fixed
+    text (the offer follows it, see `case_turn.Turn.reply`).
     """
     rounds = turn.case.clarification_rounds + (1 if spend_round else 0)
     if not search.charges:
-        return _ask_for_details(turn, report, spend_round=spend_round, expected_states=expected_states)
+        return _ask_for_details(
+            turn, report, spend_round=spend_round, expected_states=expected_states, human_deferred=human_deferred,
+        )
     offered = tuple(c.transaction_id for c in search.charges)
     lost = transition(
         turn, CaseState.SELECTING, expected_states=expected_states,
@@ -369,16 +376,15 @@ def _offer(
         "charges_offered",
         {"list_filter": search.list_filter, "offered_transaction_ids": list(offered), "clarification_rounds": rounds},
     )
+    options = [charge_option(c) for c in search.charges]
+    if human_deferred:
+        return turn.reply(CaseState.SELECTING, replies.HUMAN_DEFERRED[turn.language], options)
     context = llm.build_prompt_context(
-        case_state=PromptScene.HUMAN_DEFERRED if human_deferred else CaseState.SELECTING,
-        language=turn.language, candidate_count=len(search.charges), list_filter=search.list_filter,
+        case_state=CaseState.SELECTING, language=turn.language,
+        candidate_count=len(search.charges), list_filter=search.list_filter,
     )
-    fallback = (
-        replies.HUMAN_DEFERRED[turn.language] if human_deferred
-        else replies.CHARGE_LIST[turn.language][search.list_filter]
-    )
-    text = turn.generate_reply(context, fallback=fallback)
-    return turn.reply(CaseState.SELECTING, text, [charge_option(c) for c in search.charges])
+    fallback = replies.CHARGE_LIST[turn.language][search.list_filter]
+    return turn.reply(CaseState.SELECTING, turn.generate_reply(context, fallback=fallback), options)
 
 
 def _offer_recent_charges(
@@ -392,7 +398,7 @@ def _offer_recent_charges(
 
 def _ask_for_details(
     turn: Turn, report: ReportedCharge, *, spend_round: bool,
-    expected_states: tuple[str, ...] = NON_TERMINAL_STATES,
+    expected_states: tuple[str, ...] = NON_TERMINAL_STATES, human_deferred: bool = False,
 ) -> ChatReply:
     """Only for a customer with no outgoing charges to list at all."""
     lost = transition(
@@ -403,6 +409,8 @@ def _ask_for_details(
     if lost:
         return lost
     turn.log_event("case_clarifying", {"reason": "no_charges_to_list"})
+    if human_deferred:
+        return turn.reply(CaseState.CLARIFYING, replies.ASK_FOR_DETAILS[turn.language])
     context = llm.build_prompt_context(
         case_state=CaseState.CLARIFYING, language=turn.language, reported_amount=report.amount,
         reported_currency=report.currency,
@@ -428,9 +436,12 @@ def _introduce(turn: Turn, scene: PromptScene) -> ChatReply:
 
 
 def _handle_human_request(turn: Turn) -> ChatReply:
-    """Honored once the agent has shown it cannot resolve the case; before
-    that the agent keeps trying (the charge list, or the pending
-    confirmation) and says it will hand off if it cannot find the charge.
+    """One "let me try first" per request (plan.md AD-8): the first request
+    keeps the case where it is (the charge list, the pending confirmation or
+    the explanation) with a fixed text, spends no round and unlocks the
+    handoff, so the reply ends with the offer; once unlocked (by that first
+    request, or silently when the agent could not find the charge or used its
+    rounds) a request escalates at once.
     """
     case = turn.case
     if human_handoff_available(case):
@@ -442,23 +453,18 @@ def _handle_human_request(turn: Turn) -> ChatReply:
                 customer_reason=EscalationReason.HUMAN_REQUESTED,
             ))
         return escalate(turn, handoffs.human_request(turn.report), charge=_charge_being_explained(turn))
-    turn.log_event("human_request_deferred", {"state": case.state})
-    if case.state == CaseState.AWAITING_EXPLANATION:
-        lost = transition(
-            turn, CaseState.AWAITING_EXPLANATION, expected_states=(CaseState.AWAITING_EXPLANATION,),
-            add_clarification_round=True,
+    turn = replace(turn, human_requested=True)
+    state = CaseState(case.state)
+    if state in (CaseState.AWAITING_EXPLANATION, CaseState.CONFIRMING):
+        lost = transition(turn, state, expected_states=(state,))
+        deferred = (
+            replies.HUMAN_DEFERRED_WHILE_EXPLAINING if state == CaseState.AWAITING_EXPLANATION
+            else replies.HUMAN_DEFERRED_WHILE_CONFIRMING
         )
-        return lost or turn.reply(CaseState.AWAITING_EXPLANATION, replies.HUMAN_DEFERRED_WHILE_EXPLAINING[turn.language])
-    if case.state == CaseState.CONFIRMING:
-        lost = transition(turn, CaseState.CONFIRMING, expected_states=(CaseState.CONFIRMING,), add_clarification_round=True)
-        if lost:
-            return lost
-        context = llm.build_prompt_context(case_state=PromptScene.HUMAN_DEFERRED, language=turn.language)
-        fallback = replies.HUMAN_DEFERRED_WHILE_CONFIRMING[turn.language]
-        return turn.reply(CaseState.CONFIRMING, turn.generate_reply(context, fallback=fallback))
+        return lost or turn.reply(state, deferred[turn.language])
     report = turn.report
     search = find_charges(turn.session, report) if report.has_details else recent_charges(turn.session)
-    return _offer(turn, search, report, spend_round=True, human_deferred=True)
+    return _offer(turn, search, report, spend_round=False, human_deferred=True)
 
 
 def _charge_being_explained(turn: Turn) -> TransactionCandidate | None:
@@ -769,7 +775,9 @@ def _route(
     if turn.case.state == CaseState.CONFIRMING:
         return _handle_confirmation(turn, text, action)
     if turn.case.state == CaseState.AWAITING_EXPLANATION:
-        return handle_explanation(turn, text, policy_verdict=_policy_verdict)
+        return handle_explanation(
+            turn, text, policy_verdict=_policy_verdict, on_human_request=_handle_human_request,
+        )
     return _handle_report(turn, text)
 
 
@@ -817,8 +825,10 @@ def _handle_report(turn: Turn, text: str) -> ChatReply:
     if extraction.wants_human and (human_handoff_available(turn.case) or not has_details):
         return _handle_human_request(turn)
     if extraction.wants_human:
-        # Asked for a person but also gave details: try them first.
-        turn.log_event("human_request_deferred", {"state": turn.case.state, "reason": "details_to_try"})
+        # Asked for a person but also gave details: try them first, and this
+        # counts as the one deferral (a policy escalation still wins).
+        turn.log_event("human_request_with_details", {"state": turn.case.state})
+        turn = replace(turn, human_requested=True)
     if not has_details and extraction.intent == llm.ExtractionIntent.GREETING:
         return _introduce(turn, PromptScene.GREETING)
     if not has_details and extraction.intent == llm.ExtractionIntent.OTHER:

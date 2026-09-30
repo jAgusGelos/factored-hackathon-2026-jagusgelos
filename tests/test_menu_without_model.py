@@ -151,16 +151,14 @@ def test_the_human_button_is_answered_without_the_model(session, real_fixture_ap
     deferred, deferred_calls = _turn(
         session, real_fixture_app_db, "Hablar con una persona", listed["case_id"], action=CustomerAction.HUMAN,
     )
-    cases.update_case(
-        listed["case_id"], state=CaseState.SELECTING, unlock_handoff=True, db_path=real_fixture_app_db,
-    )
     escalated, escalated_calls = _turn(
         session, real_fixture_app_db, "Hablar con una persona", listed["case_id"], action=CustomerAction.HUMAN,
     )
 
     assert (deferred_calls, escalated_calls) == (0, 0)
     assert deferred["state"] == CaseState.SELECTING
-    assert deferred["reply"] == replies.HUMAN_DEFERRED["es"]
+    assert deferred["reply"] == f"{replies.HUMAN_DEFERRED['es']} {replies.HUMAN_OFFER['es']}"
+    assert deferred["human_available"] is True
     assert escalated["state"] == CaseState.ESCALATED
     assert_escalation_notice(escalated, EscalationReason.HUMAN_REQUESTED, charge_named=False)
 
@@ -174,7 +172,7 @@ def test_the_human_button_while_confirming_is_answered_without_the_model(session
 
     assert calls == 0
     assert reply["state"] == CaseState.CONFIRMING
-    assert reply["reply"] == replies.HUMAN_DEFERRED_WHILE_CONFIRMING["es"]
+    assert reply["reply"] == f"{replies.HUMAN_DEFERRED_WHILE_CONFIRMING['es']} {replies.HUMAN_OFFER['es']}"
 
 
 def test_typed_text_still_goes_through_the_model(session, real_fixture_app_db):

@@ -55,6 +55,10 @@ class Turn:
     # A menu or button turn (a tapped charge or quick-reply): its replies are
     # the validated templates, with no model call (AD-9). Typed text is not.
     from_menu: bool = False
+    # The customer asked for a person this turn and the agent tries once more
+    # (plan.md AD-8): every non-terminal move unlocks the handoff in its own
+    # compare-and-set, and the reply ends with the offer.
+    human_requested: bool = False
 
     @property
     def report(self) -> ReportedCharge:
@@ -68,10 +72,17 @@ class Turn:
         *, escalation: replies.EscalationNotice | None = None,
     ) -> ChatReply:
         """`escalation`: the escalating turn's own notice; any other reply in
-        `escalated` gets the one built from the stored reason.
+        `escalated` gets the one built from the stored reason. After a request
+        for a person that this turn deferred, the text ends with the offer,
+        only when the case really is unlocked (a lost race may have left it
+        locked).
         """
-        cases.log_message(self.case.case_id, "agent", text, db_path=self.db_path)
         current = cases.get_case(self.case.case_id, db_path=self.db_path)
+        human_available = state not in TERMINAL_STATES and current is not None and human_handoff_available(current)
+        if self.human_requested and human_available:
+            text = f"{text} {replies.HUMAN_OFFER[self.language]}"
+            self.log_event("human_request_deferred", {"state": state, "offer": True})
+        cases.log_message(self.case.case_id, "agent", text, db_path=self.db_path)
         if escalation is None and state == CaseState.ESCALATED and current is not None:
             escalation = escalation_of(current, self.language)
         return {
@@ -80,7 +91,7 @@ class Turn:
             "customer_id": self.session.customer_id,
             "reply": text,
             "options": options or [],
-            "human_available": state not in TERMINAL_STATES and current is not None and human_handoff_available(current),
+            "human_available": human_available,
             "escalation": escalation,
         }
 
@@ -147,7 +158,11 @@ def transition(
 ) -> ChatReply | None:
     """Claims the transition (compare-and-set). Returns None when it was
     claimed, or the reply to send when another request got there first.
+    A turn that deferred a request for a person unlocks the handoff in this
+    same update, so the next request escalates (plan.md AD-8).
     """
+    if turn.human_requested and state not in TERMINAL_STATES:
+        fields["unlock_handoff"] = True
     claimed = cases.update_case(
         turn.case.case_id, state=state, expected_states=expected_states, db_path=turn.db_path, **fields
     )

@@ -8,10 +8,11 @@ check for the reason it names (`policy_verdict`, supplied by
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from typing import Protocol
 
-from app import handoffs, llm, replies
+from app import config, handoffs, llm, replies
 from app.case_model import CaseEvaluation, CaseState, EscalationReason, ReportedCharge
 from app.case_turn import ChatReply, Turn, escalate, finish_escalated, force_escalation, transition
 from app.charge_search import iso_day
@@ -108,16 +109,40 @@ def _explanation_verdict(
     return ExplanationDecision.escalate(handoffs.ASSESSMENT_FAILED)
 
 
-def handle_explanation(turn: Turn, text: str, *, policy_verdict: PolicyVerdict) -> ChatReply:
+def _asks_for_a_person(turn: Turn, text: str) -> bool:
+    """A short text (it never reaches the assessment) checked for a request
+    for a person, with the extraction call; only its `wants_human` is used.
+    If the model is unavailable the text counts as not asking (logged), so a
+    detection failure never escalates by itself.
+    """
+    try:
+        extraction = llm.extract_entities(text, language=turn.language, today=config.DATA_AS_OF)
+    except llm.LLMUnavailable as exc:
+        turn.log_event("human_request_detection_failed", llm.failure_payload("extract_entities", exc))
+        return False
+    if extraction.wants_human:
+        turn.log_event("human_request_detected", {"via": "extract"})
+    return extraction.wants_human
+
+
+def handle_explanation(
+    turn: Turn, text: str, *, policy_verdict: PolicyVerdict, on_human_request: Callable[[Turn], ChatReply],
+) -> ChatReply:
     """The customer's account of what happened. The model only assesses it;
     `policy.evaluate_explanation` may ask for one more detail or escalate, and
     otherwise the charge still has to pass the evidence check for the reason
     the explanation names (AD-13) before any credit.
+
+    A text that asks for a person goes to `on_human_request` (supplied by
+    `app/state_machine.py`) and is never counted as an explanation attempt
+    (plan.md AD-8).
     """
     case = turn.case
     matched = get_own_transaction(turn.session, case.matched_transaction_id) if case.matched_transaction_id else None
     if matched is None:
         return escalate(turn, handoffs.unidentified_charge(turn.report, case))
+    if _too_short(text) and _asks_for_a_person(turn, text):
+        return on_human_request(turn)
     explanation = f"{case.explanation_text}\n{text}" if case.explanation_text else text
     too_short = _too_short(explanation)
     try:
@@ -128,6 +153,9 @@ def handle_explanation(turn: Turn, text: str, *, policy_verdict: PolicyVerdict) 
             action_taken="El servicio de NLU no respondió al evaluar la explicación del cliente.", error=exc,
             charge=matched,
         )
+    if assessment is not None and assessment.wants_human:
+        turn.log_event("human_request_detected", {"via": "assessment"})
+        return on_human_request(turn)
     attempts_left = case.explanation_attempts + 1 < MAX_EXPLANATION_ATTEMPTS
     decision = _explanation_verdict(assessment, attempts_left=attempts_left)
     turn.log_event(

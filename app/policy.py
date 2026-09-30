@@ -182,6 +182,10 @@ class ExplanationAssessment:
     contradictions: tuple[str, ...]
     summary: str
     missing_detail: MissingDetail | None = None
+    # A detection flag, not an assessment: the text asks to talk to a person
+    # (app/explanation.py routes it to the human request). `evaluate_explanation`
+    # never reads it.
+    wants_human: bool = False
 
 
 class ExplanationVerdict(StrEnum):
