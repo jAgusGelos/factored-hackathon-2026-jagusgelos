@@ -110,6 +110,7 @@ def test_the_spanish_response_prompt_asks_for_usted():
         ("¿Podes revisarlo? Dale.", ["podes", "dale"]),
         ("Entendé que preferís hablar con alguien", ["entendé", "preferís"]),
         ("Te paso sin drama, ¿vos querés?", ["sin drama", "vos", "querés"]),
+        ("Contale qué pasó y hacé el reclamo", ["contale", "hacé"]),
     ],
 )
 def test_the_runtime_check_flags_voseo_and_slang(text, expected):
@@ -123,6 +124,7 @@ def test_the_runtime_check_flags_voseo_and_slang(text, expected):
         "Le toca revisar el cargo; acá o aquí, como prefiera. Usa la tarjeta desde 2024.",
         "¿Puede contarme qué pasó? Toque el cargo que no reconoce.",
         "Después le escribimos. Podemos ayudarle a elegir el cargo.",
+        "Pedí el detalle al comercio y seguí su caso.",
     ],
 )
 def test_the_runtime_check_leaves_plain_spanish_alone(text):
