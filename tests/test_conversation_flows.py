@@ -27,6 +27,7 @@ from tests.support import (
     EXPLANATION,
     FRAUD_SCORE_CHARGE,
     NOT_RECEIVED_ASSESSMENT,
+    OPENING,
     OVER_LIMIT_CHARGE,
     SECOND_ONLINE_CHARGE,
     charge_extraction,
@@ -41,7 +42,6 @@ from tests.support import (
 
 pytestmark = requires_real_fixture
 
-OPENING = "Tengo un cargo que no reconozco"
 
 
 def _say(session, app_db, extraction, text=OPENING, case_id=None, *, assessment=None, **kwargs):

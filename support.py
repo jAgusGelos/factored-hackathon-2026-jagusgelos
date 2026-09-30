@@ -105,6 +105,7 @@ NOT_RECEIVED_ASSESSMENT = {**CONVINCING_ASSESSMENT, "reason": "not_received"}
 CONTRADICTED_ASSESSMENT = {
     **CONVINCING_ASSESSMENT, "consistent": False, "contradictions": ["El monto no coincide con el cargo."],
 }
+OPENING = "Tengo un cargo que no reconozco"
 EXPLANATION = "No uso Uber hace meses, tengo la tarjeta conmigo y ayer vi el cargo en la app del banco"
 
 

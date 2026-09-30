@@ -141,6 +141,5 @@ def test_the_client_actions_match_the_server_ones():
 
 
 def test_the_show_charges_starter_is_an_action_not_free_text():
-    # Sent as free text it would pay an extraction and an NLG call (AD-9).
     starter = re.search(r"function starterButtons\(\) \{(.*?)^\}", CHAT_JS, re.MULTILINE | re.DOTALL)
     assert starter and "ACTIONS.SHOW_CHARGES" in starter.group(1)

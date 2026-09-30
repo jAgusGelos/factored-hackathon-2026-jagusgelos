@@ -23,6 +23,7 @@ from app.state_machine import CaseState, handle_message
 from tests.support import (
     AUTO_RESOLVE_CHARGE,
     EXPLANATION,
+    OPENING,
     charge_extraction,
     charge_report,
     demo_session,
@@ -34,7 +35,6 @@ from tests.support import (
 
 pytestmark = requires_real_fixture
 
-OPENING = "Tengo un cargo que no reconozco"
 
 
 def _client(session, *, answer="yes", nlg="Respuesta generada."):
