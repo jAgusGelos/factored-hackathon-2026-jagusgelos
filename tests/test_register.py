@@ -109,7 +109,8 @@ def test_the_spanish_response_prompt_asks_for_usted():
         ("Mirá, contame qué pasó", ["mirá", "contame"]),
         ("¿Podes revisarlo? Dale.", ["podes", "dale"]),
         ("Entendé que preferís hablar con alguien", ["entendé", "preferís"]),
-        ("Te paso sin drama, ¿vos querés?", ["sin drama", "vos", "querés"]),
+        ("Te paso sin drama, ¿vos querés?", ["te", "sin drama", "vos", "querés"]),
+        ("¿Puedes confirmar tu cargo?", ["puedes", "tu"]),
         ("Contale qué pasó y hacé el reclamo", ["contale", "hacé"]),
     ],
 )
@@ -125,6 +126,7 @@ def test_the_runtime_check_flags_voseo_and_slang(text, expected):
         "¿Puede contarme qué pasó? Toque el cargo que no reconoce.",
         "Después le escribimos. Podemos ayudarle a elegir el cargo.",
         "Pedí el detalle al comercio y seguí su caso.",
+        "Ya le escribí al comercio y elegí el cargo que usted indicó.",
     ],
 )
 def test_the_runtime_check_leaves_plain_spanish_alone(text):

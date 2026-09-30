@@ -7,8 +7,7 @@ Two closed lists per language, matched as whole words and ignoring case:
 - `BROAD`: every form a deterministic text, UI string or ES prompt must never
   contain (voseo, tuteo in ES, colloquialisms). `tests/test_register.py`
   sweeps all of them with it.
-- `RUNTIME`: the voseo and colloquial forms of `BROAD` minus those that are
-  also plain words (`_ES_PLAIN_WORDS`, `_PT_PLAIN_WORDS`), checked on every
+- `RUNTIME`: the forms of `BROAD` minus those that are also plain words (`_ES_PLAIN_WORDS`, `_PT_PLAIN_WORDS`), checked on every
   model reply by `app/case_turn.py::Turn.generate_reply`. A hit replaces the
   reply with that step's template.
 
@@ -37,7 +36,7 @@ _ES_TUTEO = (
 )
 _ES_COLLOQUIAL = ("dale", "che", "bárbaro", "qué onda", "sin drama", "re bien", "un toque", "joya")
 
-_ES_PLAIN_WORDS = frozenset({"sos", "pedí", "seguí", "un toque", "joya"})
+_ES_PLAIN_WORDS = frozenset({"sos", "pedí", "seguí", "elegí", "escribí", "ti", "un toque", "joya"})
 
 _PT_COLLOQUIAL = (
     "a gente", "deixa eu", "tá bom", "beleza", "galera", "valeu", "né", "pra", "pro", "tipo assim",
@@ -49,8 +48,8 @@ BROAD: dict[Language, tuple[str, ...]] = {
     Language.PT: _PT_COLLOQUIAL,
 }
 RUNTIME: dict[Language, tuple[str, ...]] = {
-    Language.ES: tuple(form for form in _ES_VOSEO + _ES_COLLOQUIAL if form not in _ES_PLAIN_WORDS),
-    Language.PT: tuple(form for form in _PT_COLLOQUIAL if form not in _PT_PLAIN_WORDS),
+    Language.ES: tuple(form for form in BROAD[Language.ES] if form not in _ES_PLAIN_WORDS),
+    Language.PT: tuple(form for form in BROAD[Language.PT] if form not in _PT_PLAIN_WORDS),
 }
 
 
