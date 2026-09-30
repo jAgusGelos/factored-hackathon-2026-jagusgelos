@@ -53,6 +53,16 @@ ABUSE_GUARD_WINDOW_DAYS = 90
 
 MAX_CLARIFICATION_ROUNDS = 2
 
+# Milestone 8: "pick your charge" list. Showing the list is how a clarification
+# round is spent now (Row 3), instead of a free-text question. A turn that
+# brings NEW information (an amount, date or merchant the case did not have)
+# does not spend a round; MAX_CASE_TURNS is the hard stop that keeps a
+# conversation feeding "new" details forever from looping.
+DISPUTABLE_TRANSACTION_TYPES = ("Purchase", "Payment", "Withdrawal", "Transfer")
+CHARGE_LIST_MAX_ITEMS = 8
+CHARGE_LIST_DATE_WINDOW_DAYS = 7
+MAX_CASE_TURNS = 6
+
 DISPUTE_COMPLAINT_CATEGORY = "Transactions"
 
 # AD-6/AD-11 Row 5 (Milestone 3): a classifier prediction of this label is

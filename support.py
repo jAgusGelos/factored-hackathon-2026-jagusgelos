@@ -16,10 +16,31 @@ import duckdb
 
 from app.auth import Session, create_session, get_session, verify_credentials
 from app.llm import CONFIRMATION_MARKER
+from etl.build_fixture import (
+    AUTO_RESOLVE_CHARGE_ID as AUTO_RESOLVE_CHARGE,
+)
+from etl.build_fixture import (
+    DEMO_USERNAME,
+)
+from etl.build_fixture import (
+    DUPLICATE_CHARGE_IDS as DUPLICATE_CHARGES,
+)
+from etl.build_fixture import (
+    FRAUD_SCORE_CHARGE_ID as FRAUD_SCORE_CHARGE,
+)
+from etl.build_fixture import (
+    OVER_LIMIT_CHARGE_ID as OVER_LIMIT_CHARGE,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent
 REAL_FIXTURE_PATH = REPO_ROOT / "data" / "fixture.duckdb"
 REAL_DEMO_USERS_PATH = REPO_ROOT / "data" / "demo_users.json"
+
+__all__ = [
+    "AUTO_RESOLVE_CHARGE", "DEMO_USERNAME", "DUPLICATE_CHARGES", "FRAUD_SCORE_CHARGE", "OVER_LIMIT_CHARGE",
+    "REAL_DEMO_USERS_PATH", "REAL_FIXTURE_PATH", "REPO_ROOT", "charge_extraction", "charge_report",
+    "demo_session", "mock_anthropic_client", "session_for",
+]
 
 
 def mock_anthropic_client(
@@ -58,24 +79,37 @@ def mock_anthropic_client(
     return client
 
 
-def persona_session(username: str, app_db: Path) -> Session:
+def demo_session(app_db: Path) -> Session:
     demo_users = json.loads(REAL_DEMO_USERS_PATH.read_text())
-    customer_id = verify_credentials(username, demo_users[username]["password"])
+    customer_id = verify_credentials(DEMO_USERNAME, demo_users[DEMO_USERNAME]["password"])
     assert customer_id is not None
+    return session_for(customer_id, app_db)
+
+
+def session_for(customer_id: str, app_db: Path) -> Session:
     token, _ = create_session(customer_id, db_path=app_db)
     session = get_session(token, db_path=app_db)
     assert session is not None
     return session
 
 
-def persona_complaint(customer_id: str) -> dict:
+def charge_report(transaction_id: str) -> dict:
+    """What a customer disputing this exact charge would report."""
     con = duckdb.connect(str(REAL_FIXTURE_PATH), read_only=True)
     try:
         row = con.execute(
-            "SELECT claimed_amount, currency, CAST(creation_date AS DATE) "
-            "FROM complaints WHERE customer_id = ?",
-            [customer_id],
+            "SELECT CAST(amount AS DOUBLE), currency, CAST(CAST(transaction_date AS TIMESTAMP) AS DATE) "
+            "FROM transactions WHERE transaction_id = ?",
+            [transaction_id],
         ).fetchone()
     finally:
         con.close()
-    return {"amount": float(row[0]), "currency": row[1], "date": row[2].isoformat()}
+    return {"amount": row[0], "currency": row[1], "date": row[2].isoformat()}
+
+
+def charge_extraction(transaction_id: str | None = None, **overrides) -> dict:
+    """The entity-extraction payload for a report of `transaction_id` (or an
+    empty report when None), as the mocked model returns it.
+    """
+    base = charge_report(transaction_id) if transaction_id else {"amount": None, "currency": None, "date": None}
+    return {**base, "merchant_hint": None, "wants_human": False, **overrides}

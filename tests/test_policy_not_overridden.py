@@ -120,6 +120,7 @@ def fixture_con(tmp_path, monkeypatch):
         "country VARCHAR, customer_status VARCHAR)"
     )
     con.execute("INSERT INTO customers VALUES ('CLI-1', 'Plus', '700', 'México', 'Active')")
+    con.execute("ALTER TABLE transactions ADD COLUMN transaction_type VARCHAR DEFAULT 'Purchase'")
     con.close()
     monkeypatch.setattr(config, "FIXTURE_DB_PATH", db_path)
     return db_path
@@ -137,7 +138,7 @@ def test_end_to_end_evaluate_case_escalates_when_the_live_classifier_call_predic
     with patch("app.state_machine.classifier.predict_priority", return_value="Critical"):
         evaluation = evaluate_case(
             SESSION, reported_amount=100.0, reported_date=date(2024, 3, 10),
-            currency="USD", clarification_rounds=0,
+            currency="USD",
         )
 
     assert evaluation.state == CaseState.ESCALATED
@@ -156,7 +157,7 @@ def test_end_to_end_evaluate_case_still_auto_resolves_when_classifier_is_unavail
     with patch("app.state_machine.classifier.predict_priority", return_value=None):
         evaluation = evaluate_case(
             SESSION, reported_amount=100.0, reported_date=date(2024, 3, 10),
-            currency="USD", clarification_rounds=0,
+            currency="USD",
         )
 
     assert evaluation.state == CaseState.RESOLVED_AUTO

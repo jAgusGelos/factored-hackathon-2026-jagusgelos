@@ -41,6 +41,13 @@ class Language(StrEnum):
     PT = "pt"
 
 
+class PromptScene(StrEnum):
+    """NLG situations that are not a case state (the case stays where it is)."""
+
+    GREETING = "greeting"
+    OUT_OF_SCOPE = "out_of_scope"
+
+
 class PromptContext(dict[str, object]):
     """Only `build_prompt_context()` constructs this; `generate_response()`
     rejects any other mapping, so a raw dict/row can never reach a prompt
@@ -80,6 +87,7 @@ def build_prompt_context(
     candidate_merchant_name: str | None = None,
     candidate_merchant_category: str | None = None,
     candidate_count: int | None = None,
+    list_filter: str | None = None,
     clarification_rounds: int | None = None,
     resolution_reference: str | None = None,
 ) -> PromptContext:
@@ -100,6 +108,7 @@ def build_prompt_context(
         "candidate_merchant_name": candidate_merchant_name,
         "candidate_merchant_category": candidate_merchant_category,
         "candidate_count": candidate_count,
+        "list_filter": list_filter,
         "clarification_rounds": clarification_rounds,
         "resolution_reference": resolution_reference,
     }
@@ -166,8 +175,12 @@ _EXTRACTION_SYSTEM_PROMPT = {
         'válido, sin texto adicional, con este formato exacto: '
         '{"amount": <numero o null>, "currency": <"MXN"|"COP"|"ARS"|"USD"|null>, '
         '"date": <"YYYY-MM-DD" o null>, "merchant_hint": <string o null>, '
-        '"wants_human": <true|false>}. '
+        '"wants_human": <true|false>, "intent": <"report"|"show_charges"|"greeting"|"other">}. '
         "Si el cliente no menciona un monto, moneda o fecha, usá null en ese campo. "
+        'intent: "report" si habla de un cargo o movimiento que no reconoce o quiere disputar; '
+        '"show_charges" si pide ver sus cargos o movimientos; "greeting" si solo saluda o '
+        'pregunta qué podés hacer; "other" si pide algo que no es una disputa de un cargo '
+        "(saldo, préstamos, tarjetas nuevas, etc.). "
         "Si el cliente pide explícitamente hablar con una persona/agente humano, "
         'poné "wants_human": true.'
     ),
@@ -177,12 +190,23 @@ _EXTRACTION_SYSTEM_PROMPT = {
         "com um JSON válido, sem texto adicional, neste formato exato: "
         '{"amount": <numero ou null>, "currency": <"MXN"|"COP"|"ARS"|"USD"|null>, '
         '"date": <"YYYY-MM-DD" ou null>, "merchant_hint": <string ou null>, '
-        '"wants_human": <true|false>}. '
+        '"wants_human": <true|false>, "intent": <"report"|"show_charges"|"greeting"|"other">}. '
         "Se o cliente não mencionar um valor, moeda ou uma data, use null nesse campo. "
+        'intent: "report" se fala de uma cobrança que não reconhece ou quer contestar; '
+        '"show_charges" se pede para ver suas cobranças ou movimentações; "greeting" se só '
+        'cumprimenta ou pergunta o que você pode fazer; "other" se pede algo que não é a '
+        "contestação de uma cobrança (saldo, empréstimos, cartões novos etc.). "
         "Se o cliente pedir explicitamente para falar com uma pessoa/agente humano, "
         'defina "wants_human": true.'
     ),
 }
+
+
+class ExtractionIntent(StrEnum):
+    REPORT = "report"
+    SHOW_CHARGES = "show_charges"
+    GREETING = "greeting"
+    OTHER = "other"
 
 
 @dataclass(frozen=True)
@@ -190,15 +214,22 @@ class ExtractedEntities:
     amount: float | None
     currency: str | None
     date: str | None
-    # Collected but not yet consulted by app/state_machine.py: AD-11 Row 3
-    # names "merchant name" as one option for the clarifying question, but
-    # the current clarifying-question flow asks a generic question rather
-    # than narrowing candidates by this hint. Logged in the case's message
-    # history either way, so it isn't lost — wiring it into disambiguation
-    # is a documented follow-up, not silently dropped.
+    # Narrows the customer's charge list (and proposes the charge when only
+    # one of theirs matches), see app/state_machine.py::_find_charges.
     merchant_hint: str | None
     wants_human: bool
     parse_failed: bool
+    # What the message is about. Anything the model returns outside the known
+    # labels (or nothing) is treated as a report, the default that keeps the
+    # dispute flow going.
+    intent: ExtractionIntent = ExtractionIntent.REPORT
+
+
+def _parse_intent(value: object) -> ExtractionIntent:
+    try:
+        return ExtractionIntent(value)
+    except ValueError:
+        return ExtractionIntent.REPORT
 
 
 def _build_extraction_prompt(customer_text: str, *, language: Language, today: str) -> str:
@@ -240,6 +271,7 @@ def _parse_extraction_response(raw: str) -> ExtractedEntities:
             merchant_hint=data.get("merchant_hint"),
             wants_human=bool(data.get("wants_human", False)),
             parse_failed=False,
+            intent=_parse_intent(data.get("intent")),
         )
     except (json.JSONDecodeError, KeyError, TypeError, ValueError):
         logger.warning("Could not parse entity-extraction response as the expected JSON: %r", raw)
@@ -364,7 +396,30 @@ _STATE_INSTRUCTION = {
         ),
         "escalated": (
             "Contale que vas a pasar su caso a una persona del equipo que lo va a revisar y "
-            "se va a contactar con él. No prometas plazos ni resultados."
+            "se va a contactar con él. No prometas plazos ni resultados. No nombres estados "
+            "internos del sistema (como 'escalado') ni digas que 'entendés' algo que él no dijo. "
+            "No le hagas preguntas ni le pidas más datos: esta conversación termina acá."
+        ),
+        "greeting": (
+            "Presentate como el asistente de disputas de LATAM Bank (sin nombre propio) y "
+            "explicá qué podés hacer: ayudarlo con un cargo que no reconoce, mostrarle sus "
+            "últimos movimientos para que elija el cargo, revisarlo contra la política del banco "
+            "y, si corresponde, aplicarle un crédito provisional en el momento; si hace falta más "
+            "revisión, pasar el caso a una persona del equipo. Cerrá preguntando qué cargo quiere "
+            "revisar o si quiere ver sus últimos movimientos."
+        ),
+        "out_of_scope": (
+            "El cliente pidió algo que no podés hacer por este canal. Decile con amabilidad que "
+            "acá solo ayudás con cargos que no reconoce, sin inventar cómo resolver lo otro ni a "
+            "dónde ir, y ofrecele revisar un cargo o ver sus últimos movimientos."
+        ),
+        "selecting": (
+            "Justo debajo de tu mensaje el cliente ve una lista con candidate_count cargos de su "
+            "cuenta (list_filter dice cómo se eligieron: 'recent' = los más recientes, 'filtered' = "
+            "los que coinciden con lo que contó, 'fallback_recent' = no hubo coincidencias con lo "
+            "que contó y le mostrás los más recientes; si es 'fallback_recent', decíselo). Pedile "
+            "que toque el cargo que no reconoce, o 'No está en la lista' si no aparece. No "
+            "enumeres ni repitas los cargos de la lista y no pidas monto ni fecha."
         ),
         "clarifying": (
             "Todavía no pudiste identificar el cargo. Pedile UN dato más para ubicarlo (el "
@@ -385,7 +440,30 @@ _STATE_INSTRUCTION = {
         ),
         "escalated": (
             "Conte que vai passar o caso para uma pessoa da equipe, que vai revisá-lo e "
-            "entrar em contato. Não prometa prazos nem resultados."
+            "entrar em contato. Não prometa prazos nem resultados. Não cite estados internos "
+            "do sistema (como 'escalado'). Não faça perguntas nem peça mais dados: esta "
+            "conversa termina aqui."
+        ),
+        "greeting": (
+            "Apresente-se como o assistente de contestações do LATAM Bank (sem nome próprio) e "
+            "explique o que você pode fazer: ajudar com uma cobrança que ele não reconhece, "
+            "mostrar as últimas movimentações para ele escolher a cobrança, revisá-la conforme a "
+            "política do banco e, se couber, aplicar um crédito provisório na hora; se precisar "
+            "de mais análise, passar o caso para uma pessoa da equipe. Termine perguntando qual "
+            "cobrança ele quer revisar ou se quer ver as últimas movimentações."
+        ),
+        "out_of_scope": (
+            "O cliente pediu algo que você não pode fazer por este canal. Diga com gentileza que "
+            "aqui você só ajuda com cobranças que ele não reconhece, sem inventar como resolver o "
+            "resto nem para onde ir, e ofereça revisar uma cobrança ou ver as últimas movimentações."
+        ),
+        "selecting": (
+            "Logo abaixo da sua mensagem o cliente vê uma lista com candidate_count cobranças da "
+            "conta dele (list_filter diz como foram escolhidas: 'recent' = as mais recentes, "
+            "'filtered' = as que batem com o que ele contou, 'fallback_recent' = nada bateu com o "
+            "que ele contou e você mostra as mais recentes; se for 'fallback_recent', diga isso). "
+            "Peça que toque na cobrança que não reconhece, ou em 'Não está na lista' se não "
+            "aparecer. Não liste nem repita as cobranças e não peça valor nem data."
         ),
         "clarifying": (
             "Você ainda não conseguiu identificar a cobrança. Peça UM dado a mais para "

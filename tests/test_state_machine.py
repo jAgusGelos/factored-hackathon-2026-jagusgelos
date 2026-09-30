@@ -9,6 +9,8 @@ requires adding it here too, or this test's completeness assumption breaks
 silently.
 
   - app.transactions.search_own_transactions
+  - app.transactions.list_own_charges
+  - app.transactions.get_own_transaction
   - app.transactions.get_customer_profile
   - app.transactions.get_case_history
   - app.transactions.count_prior_complaints
@@ -30,11 +32,15 @@ from app.transactions import (
     count_prior_complaints,
     get_case_history,
     get_customer_profile,
+    get_own_transaction,
+    list_own_charges,
     search_own_transactions,
 )
 
 CUSTOMER_DATA_FUNCTIONS = (
     search_own_transactions,
+    list_own_charges,
+    get_own_transaction,
     get_customer_profile,
     get_case_history,
     count_prior_complaints,
@@ -77,7 +83,7 @@ FIXTURE_COLUMNS = {
     "transactions": (
         "transaction_id", "transaction_date", "customer_id", "amount", "currency",
         "amount_usd", "fraud_score", "transaction_status", "merchant_name",
-        "merchant_category", "channel", "_is_synthetic",
+        "merchant_category", "channel", "_is_synthetic", "transaction_type",
     ),
     "complaints": ("complaint_id", "customer_id", "category", "creation_date"),
     "customers": ("customer_id", "segment", "credit_score", "country", "customer_status"),
@@ -111,7 +117,7 @@ def _insert_txn(db_path, **fields):
         transaction_id="TRX-1", transaction_date="2024-03-09", customer_id="CLI-1",
         amount="100.0", currency="USD", amount_usd="100.0", fraud_score="5.0",
         transaction_status="Approved", merchant_name="Comercio", merchant_category="Retail",
-        channel="App", _is_synthetic="false",
+        channel="App", _is_synthetic="false", transaction_type="Purchase",
     )
     defaults.update(fields)
     cols = FIXTURE_COLUMNS["transactions"]
@@ -130,7 +136,7 @@ def test_confident_clean_match_resolves_auto(fixture_con):
     _insert_txn(fixture_con)
     evaluation = evaluate_case(
         SESSION, reported_amount=100.0, reported_date=date(2024, 3, 10),
-        currency="USD", clarification_rounds=0,
+        currency="USD",
     )
     assert evaluation.state == CaseState.RESOLVED_AUTO
     assert evaluation.matched_transaction.transaction_id == "TRX-1"
@@ -159,7 +165,7 @@ def test_confident_match_over_threshold_escalates_with_handoff(fixture_con):
     _insert_txn(fixture_con, amount_usd="500.0")
     evaluation = evaluate_case(
         SESSION, reported_amount=100.0, reported_date=date(2024, 3, 10),
-        currency="USD", clarification_rounds=0,
+        currency="USD",
     )
     assert evaluation.state == CaseState.ESCALATED
     assert evaluation.handoff is not None
@@ -167,24 +173,23 @@ def test_confident_match_over_threshold_escalates_with_handoff(fixture_con):
     assert any("amount_usd" in r for r in evaluation.handoff.open_questions)
 
 
-def test_zero_matches_goes_to_clarifying_within_round_budget(fixture_con):
+def test_zero_matches_asks_the_customer_to_pick(fixture_con):
     evaluation = evaluate_case(
         SESSION, reported_amount=100.0, reported_date=date(2024, 3, 10),
-        currency="USD", clarification_rounds=0,
+        currency="USD",
     )
-    assert evaluation.state == CaseState.CLARIFYING
+    assert evaluation.state == CaseState.SELECTING
+    assert evaluation.candidates == ()
 
 
-def test_zero_matches_after_max_rounds_escalates(fixture_con):
-    from app.policy import MAX_CLARIFICATION_ROUNDS
+def test_ambiguous_match_handoff_always_has_open_questions():
+    from app import handoffs
+    from app.case_model import ReportedCharge
 
-    evaluation = evaluate_case(
-        SESSION, reported_amount=100.0, reported_date=date(2024, 3, 10),
-        currency="USD", clarification_rounds=MAX_CLARIFICATION_ROUNDS,
-    )
-    assert evaluation.state == CaseState.ESCALATED
-    assert evaluation.handoff is not None
-    assert evaluation.handoff.open_questions  # never empty on escalation
+    for candidates in ((),):
+        evaluation = handoffs.ambiguous_match(ReportedCharge(100.0, date(2024, 3, 10), "USD"), candidates, 2)
+        assert evaluation.state == CaseState.ESCALATED
+        assert evaluation.handoff.open_questions
 
 
 def test_multiple_matches_goes_to_clarifying(fixture_con):
@@ -192,9 +197,9 @@ def test_multiple_matches_goes_to_clarifying(fixture_con):
     _insert_txn(fixture_con, transaction_id="TRX-2", transaction_date="2024-03-11")
     evaluation = evaluate_case(
         SESSION, reported_amount=100.0, reported_date=date(2024, 3, 10),
-        currency="USD", clarification_rounds=0,
+        currency="USD",
     )
-    assert evaluation.state == CaseState.CLARIFYING
+    assert evaluation.state == CaseState.SELECTING
     assert len(evaluation.candidates) == 2
 
 
@@ -202,7 +207,7 @@ def test_customer_requested_human_escalates_immediately_even_with_a_clean_match(
     _insert_txn(fixture_con)
     evaluation = evaluate_case(
         SESSION, reported_amount=100.0, reported_date=date(2024, 3, 10),
-        currency="USD", clarification_rounds=0, customer_requested_human=True,
+        currency="USD", customer_requested_human=True,
     )
     assert evaluation.state == CaseState.ESCALATED
     assert evaluation.handoff is not None
@@ -212,9 +217,10 @@ def test_escalated_case_never_has_empty_handoff_facts(fixture_con):
     """Plan.md's Always-rule: every escalated case produces a structured
     handoff — never a raw transcript dump.
     """
+    _insert_txn(fixture_con, amount_usd="500.0")
     evaluation = evaluate_case(
         SESSION, reported_amount=100.0, reported_date=date(2024, 3, 10),
-        currency="USD", clarification_rounds=99,
+        currency="USD",
     )
     assert evaluation.state == CaseState.ESCALATED
     assert evaluation.handoff.facts
@@ -235,9 +241,10 @@ def test_resuming_another_customers_case_raises_ownership_error(tmp_path):
 
 
 def test_customer_requested_human_without_amount_or_date_records_no_fabricated_facts():
-    from app.state_machine import _human_request_evaluation
+    from app import handoffs
+    from app.case_model import ReportedCharge
 
-    evaluation = _human_request_evaluation(reported_amount=None, reported_date=None, currency="MXN")
+    evaluation = handoffs.human_request(ReportedCharge(amount=None, date=None, currency="MXN"))
     assert evaluation.state == CaseState.ESCALATED
     assert "reported_amount" not in evaluation.handoff.facts
     assert "reported_date" not in evaluation.handoff.facts

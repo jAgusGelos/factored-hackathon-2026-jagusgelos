@@ -27,6 +27,15 @@ class CaseOwnershipError(Exception):
     pass
 
 
+class DuplicateCreditError(Exception):
+    """The transaction already has a resolved (credited) case for this customer."""
+
+
+# Columns a transition may explicitly reset to NULL (every other column is
+# only ever overwritten by a non-NULL value, see update_case).
+CLEARABLE_FIELDS = frozenset({"matched_transaction_id"})
+
+
 @dataclass
 class Case:
     case_id: str
@@ -40,6 +49,11 @@ class Case:
     clarification_rounds: int
     resolution_reference: str | None
     handoff: dict | None
+    turn_count: int = 0
+    reported_merchant: str | None = None
+    # The charges last shown to the customer to pick from; a selection is only
+    # ever accepted if it is one of these (and it is re-checked as their own).
+    offered_transaction_ids: tuple[str, ...] = ()
 
 
 def _row_to_case(row: sqlite3.Row) -> Case:
@@ -55,6 +69,9 @@ def _row_to_case(row: sqlite3.Row) -> Case:
         clarification_rounds=row["clarification_rounds"],
         resolution_reference=row["resolution_reference"],
         handoff=json.loads(row["handoff_json"]) if row["handoff_json"] else None,
+        turn_count=row["turn_count"],
+        reported_merchant=row["reported_merchant"],
+        offered_transaction_ids=tuple(json.loads(row["offered_transaction_ids"] or "[]")),
     )
 
 
@@ -103,47 +120,99 @@ def update_case(
     reported_amount: float | None = None,
     reported_currency: str | None = None,
     reported_date: str | None = None,
+    reported_merchant: str | None = None,
     matched_transaction_id: str | None = None,
-    clarification_rounds: int | None = None,
     resolution_reference: str | None = None,
     handoff: dict | None = None,
+    offered_transaction_ids: tuple[str, ...] | None = None,
+    clarification_rounds: int | None = None,
+    add_clarification_round: bool = False,
+    clear_fields: tuple[str, ...] = (),
     expected_states: tuple[str, ...] | None = None,
+    expected_offered_transaction_ids: tuple[str, ...] | None = None,
+    expected_matched_transaction_id: str | None = None,
     db_path: Path | None = None,
 ) -> bool:
-    """Returns False (and writes nothing) when `expected_states` is given and
-    the case is no longer in one of them: a compare-and-set, so two concurrent
-    requests on the same case cannot both win a transition (e.g. two "yes"
-    replies both issuing a credit, or a late "no" overwriting a resolution).
+    """A compare-and-set: returns False (and writes nothing) when the case no
+    longer matches `expected_states` / `expected_offered_transaction_ids` /
+    `expected_matched_transaction_id`, so
+    two concurrent requests on the same case cannot both win a transition.
+    None arguments leave a column as it is; `clear_fields` resets one to NULL.
+    Raises DuplicateCreditError if the write would credit an already-credited
+    transaction a second time.
     """
-    state_guard = ""
+    unknown = set(clear_fields) - CLEARABLE_FIELDS
+    if unknown:
+        raise ValueError(f"Not clearable: {sorted(unknown)}")
+    matched_sql = "NULL" if "matched_transaction_id" in clear_fields else "COALESCE(?, matched_transaction_id)"
+    matched_params = [] if "matched_transaction_id" in clear_fields else [matched_transaction_id]
+
+    guards = ""
     guard_params: list[str] = []
     if expected_states is not None:
-        state_guard = f" AND state IN ({', '.join('?' for _ in expected_states)})"
-        guard_params = list(expected_states)
-    with db.app_connection(db_path) as con:
-        cursor = con.execute(
-            f"""
-            UPDATE cases SET
-                state = ?,
-                reported_amount = COALESCE(?, reported_amount),
-                reported_currency = COALESCE(?, reported_currency),
-                reported_date = COALESCE(?, reported_date),
-                matched_transaction_id = COALESCE(?, matched_transaction_id),
-                clarification_rounds = COALESCE(?, clarification_rounds),
-                resolution_reference = COALESCE(?, resolution_reference),
-                handoff_json = COALESCE(?, handoff_json),
-                updated_at = ?
-            WHERE case_id = ?{state_guard}
-            """,
-            [
-                state, reported_amount, reported_currency, reported_date, matched_transaction_id,
-                clarification_rounds, resolution_reference,
-                json.dumps(handoff, ensure_ascii=False) if handoff is not None else None,
-                datetime.now(UTC).isoformat(), case_id, *guard_params,
-            ],
-        )
-        con.commit()
+        guards += f" AND state IN ({', '.join('?' for _ in expected_states)})"
+        guard_params += list(expected_states)
+    if expected_offered_transaction_ids is not None:
+        guards += " AND offered_transaction_ids = ?"
+        guard_params.append(json.dumps(list(expected_offered_transaction_ids)))
+    if expected_matched_transaction_id is not None:
+        guards += " AND matched_transaction_id = ?"
+        guard_params.append(expected_matched_transaction_id)
+
+    try:
+        with db.app_connection(db_path) as con:
+            cursor = con.execute(
+                f"""
+                UPDATE cases SET
+                    state = ?,
+                    reported_amount = COALESCE(?, reported_amount),
+                    reported_currency = COALESCE(?, reported_currency),
+                    reported_date = COALESCE(?, reported_date),
+                    reported_merchant = COALESCE(?, reported_merchant),
+                    matched_transaction_id = {matched_sql},
+                    resolution_reference = COALESCE(?, resolution_reference),
+                    handoff_json = COALESCE(?, handoff_json),
+                    offered_transaction_ids = COALESCE(?, offered_transaction_ids),
+                    clarification_rounds = COALESCE(?, clarification_rounds) + ?,
+                    updated_at = ?
+                WHERE case_id = ?{guards}
+                """,
+                [
+                    state, reported_amount, reported_currency, reported_date, reported_merchant,
+                    *matched_params, resolution_reference,
+                    json.dumps(handoff, ensure_ascii=False) if handoff is not None else None,
+                    json.dumps(list(offered_transaction_ids)) if offered_transaction_ids is not None else None,
+                    clarification_rounds, 1 if add_clarification_round else 0,
+                    datetime.now(UTC).isoformat(), case_id, *guard_params,
+                ],
+            )
+            con.commit()
+    except sqlite3.IntegrityError as exc:
+        raise DuplicateCreditError(f"Case {case_id}: transaction already credited") from exc
     return cursor.rowcount == 1
+
+
+def credited_case_for_transaction(
+    customer_id: str, transaction_id: str, *, db_path: Path | None = None
+) -> str | None:
+    """The case that already credited this transaction for this customer, if any."""
+    with db.app_connection(db_path) as con:
+        row = con.execute(
+            "SELECT case_id FROM cases WHERE customer_id = ? AND matched_transaction_id = ? "
+            "AND state = 'resolved_auto' LIMIT 1",
+            [customer_id, transaction_id],
+        ).fetchone()
+    return row["case_id"] if row else None
+
+
+def increment_turn_count(case_id: str, *, db_path: Path | None = None) -> int:
+    with db.app_connection(db_path) as con:
+        row = con.execute(
+            "UPDATE cases SET turn_count = turn_count + 1 WHERE case_id = ? RETURNING turn_count",
+            [case_id],
+        ).fetchone()
+        con.commit()
+    return row["turn_count"]
 
 
 def log_message(

@@ -13,12 +13,15 @@ it must survive a process restart mid-demo.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from pathlib import Path
 
 from app import config
+
+logger = logging.getLogger("app.db")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -38,6 +41,9 @@ CREATE TABLE IF NOT EXISTS cases (
     reported_date TEXT,
     matched_transaction_id TEXT,
     clarification_rounds INTEGER NOT NULL DEFAULT 0,
+    turn_count INTEGER NOT NULL DEFAULT 0,
+    offered_transaction_ids TEXT,
+    reported_merchant TEXT,
     predicted_priority TEXT,
     resolution_reference TEXT,
     handoff_json TEXT,
@@ -83,10 +89,42 @@ def get_connection(db_path: Path) -> sqlite3.Connection:
     return con
 
 
+# Columns added after a database may already exist on a persistent volume:
+# CREATE TABLE IF NOT EXISTS leaves an old table untouched, so add them here.
+_ADDED_COLUMNS = {
+    "cases": (
+        ("turn_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("offered_transaction_ids", "TEXT"),
+        ("reported_merchant", "TEXT"),
+    ),
+}
+
+# At most one simulated credit per transaction and customer. Created after the
+# column migration; skipped (the app-level check in the state machine still
+# applies) on an old database that already holds duplicate credits.
+_ONE_CREDIT_PER_TRANSACTION = (
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_cases_one_credit_per_transaction "
+    "ON cases (customer_id, matched_transaction_id) WHERE state = 'resolved_auto'"
+)
+
+
+def _add_missing_columns(con: sqlite3.Connection) -> None:
+    for table, columns in _ADDED_COLUMNS.items():
+        existing = {row["name"] for row in con.execute(f"PRAGMA table_info({table})")}
+        for name, ddl in columns:
+            if name not in existing:
+                con.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+
+
 def init_db(db_path: Path) -> None:
     con = get_connection(db_path)
     try:
         con.executescript(SCHEMA)
+        _add_missing_columns(con)
+        try:
+            con.execute(_ONE_CREDIT_PER_TRANSACTION)
+        except sqlite3.IntegrityError:
+            logger.warning("Existing duplicate credits: unique credit index not created")
         con.commit()
     finally:
         con.close()

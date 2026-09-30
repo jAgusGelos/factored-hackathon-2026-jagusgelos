@@ -5,8 +5,17 @@ const STRINGS = {
   es: {
     htmlLang: "es",
     timeLocale: "es-AR",
-    emptyTitle: "Contanos qué pasó",
-    emptyBody: "Describí el cargo que no reconocés: monto, fecha aproximada y, si te acordás, el comercio.",
+    starterShowCharges: "Ver mis últimos cargos",
+    starterShowChargesMessage: "Mostrame mis últimos cargos",
+    quickHuman: "Hablar con una persona",
+    quickNotInList: "No está en la lista",
+    quickYes: "Sí, es ese",
+    quickNo: "No es ese",
+    chargeListLabel: "Tus movimientos",
+    unknownMerchant: "Comercio sin nombre",
+    badgeSelecting: "Elegí el cargo",
+    stepTransactionSelecting: "Mostrando tus movimientos para que elijas",
+    categories: { Food: "Comida", Transport: "Transporte", Services: "Servicios", Entertainment: "Entretenimiento", Health: "Salud", Other: "Otros" },
     messageLabel: "Mensaje",
     inputPlaceholder: "Escribí tu mensaje...",
     send: "Enviar",
@@ -17,7 +26,8 @@ const STRINGS = {
     stepTransaction: "Transacción localizada",
     stepTransactionPending: "Esperando el reporte del cliente",
     stepTransactionSearching: "Buscando transacciones candidatas…",
-    stepTransactionFound: (amount, currency) => `Coincidencia confirmada (monto reportado: ${amount} ${currency})`,
+    stepTransactionNotIdentified: "No se pudo identificar el cargo; lo revisa una persona",
+    stepTransactionFound: (charge) => `Cargo identificado: ${charge}`,
     stepPolicy: "Política evaluada",
     stepPolicyPending: "Pendiente",
     stepPolicyResolved: "Resolución automática aplicada",
@@ -30,8 +40,8 @@ const STRINGS = {
     badgeEscalated: "Escalado",
     verifiedChip: (ref) => `✓ Referencia ${ref}`,
     actionCardResolvedTitle: "Verificación del sistema",
-    actionCardResolvedBody: (amount, currency, ref) =>
-      `Transacción coincidente confirmada (monto reportado: ${amount} ${currency}). Crédito provisional simulado registrado (referencia ${ref}).`,
+    actionCardResolvedBody: (amount, ref) =>
+      `Cargo confirmado (${amount}). Crédito provisional simulado registrado (referencia ${ref}).`,
     actionCardEscalatedTitle: "Caso derivado",
     actionCardEscalatedBody: "El caso fue derivado a un agente humano con el resumen estructurado del reclamo.",
     personaClient: "Vista Cliente",
@@ -48,8 +58,17 @@ const STRINGS = {
   pt: {
     htmlLang: "pt-BR",
     timeLocale: "pt-BR",
-    emptyTitle: "Conte o que aconteceu",
-    emptyBody: "Descreva a cobrança que você não reconhece: valor, data aproximada e, se lembrar, o comerciante.",
+    starterShowCharges: "Ver minhas últimas cobranças",
+    starterShowChargesMessage: "Mostre minhas últimas cobranças",
+    quickHuman: "Falar com uma pessoa",
+    quickNotInList: "Não está na lista",
+    quickYes: "Sim, é essa",
+    quickNo: "Não é essa",
+    chargeListLabel: "Suas movimentações",
+    unknownMerchant: "Comerciante sem nome",
+    badgeSelecting: "Escolha a cobrança",
+    stepTransactionSelecting: "Mostrando suas movimentações para você escolher",
+    categories: { Food: "Alimentação", Transport: "Transporte", Services: "Serviços", Entertainment: "Entretenimento", Health: "Saúde", Other: "Outros" },
     messageLabel: "Mensagem",
     inputPlaceholder: "Escreva sua mensagem...",
     send: "Enviar",
@@ -60,7 +79,8 @@ const STRINGS = {
     stepTransaction: "Transação localizada",
     stepTransactionPending: "Aguardando o relato do cliente",
     stepTransactionSearching: "Buscando transações candidatas…",
-    stepTransactionFound: (amount, currency) => `Correspondência confirmada (valor relatado: ${amount} ${currency})`,
+    stepTransactionNotIdentified: "Não foi possível identificar a cobrança; uma pessoa vai revisar",
+    stepTransactionFound: (charge) => `Cobrança identificada: ${charge}`,
     stepPolicy: "Política avaliada",
     stepPolicyPending: "Pendente",
     stepPolicyResolved: "Resolução automática aplicada",
@@ -73,8 +93,8 @@ const STRINGS = {
     badgeEscalated: "Escalado",
     verifiedChip: (ref) => `✓ Referência ${ref}`,
     actionCardResolvedTitle: "Verificação do sistema",
-    actionCardResolvedBody: (amount, currency, ref) =>
-      `Transação correspondente confirmada (valor relatado: ${amount} ${currency}). Crédito provisório simulado registrado (referência ${ref}).`,
+    actionCardResolvedBody: (amount, ref) =>
+      `Cobrança confirmada (${amount}). Crédito provisório simulado registrado (referência ${ref}).`,
     actionCardEscalatedTitle: "Caso encaminhado",
     actionCardEscalatedBody: "O caso foi encaminhado a um agente humano com o resumo estruturado da reclamação.",
     personaClient: "Vista Cliente",
@@ -90,15 +110,24 @@ const STRINGS = {
   },
 };
 
+// Must match app/case_model.py::CustomerAction.
+const ACTIONS = Object.freeze({
+  HUMAN: "human",
+  NONE_OF_THESE: "none_of_these",
+  CONFIRM_YES: "confirm_yes",
+  CONFIRM_NO: "confirm_no",
+});
+
 const state = {
+  welcome: null, // {es, pt}, from /api/me
   language: "es",
   caseId: null,
   caseStatus: null,
   personaView: "client", // "client" | "internal"
+  busy: false,
 };
 
 const chatLog = document.getElementById("chat-log");
-const emptyState = document.getElementById("empty-state");
 const chatForm = document.getElementById("chat-form");
 const messageInput = document.getElementById("message-input");
 const messageLabel = document.getElementById("message-label");
@@ -113,15 +142,44 @@ function t(key, ...args) {
   return typeof value === "function" ? value(...args) : value;
 }
 
+function actionButton(labelKey, action) {
+  return quickButton(t(labelKey), () => sendToAgent({ message: t(labelKey), action }));
+}
+
+function humanButton() {
+  return actionButton("quickHuman", ACTIONS.HUMAN);
+}
+
+function starterButtons() {
+  return [
+    quickButton(t("starterShowCharges"), () => sendToAgent({ message: t("starterShowChargesMessage") })),
+    humanButton(),
+  ];
+}
+
+// The conversation opens with the agent introducing itself and what it can
+// do, followed by the two starter options. Re-rendered on a language switch
+// until the customer sends their first message.
+function renderWelcome() {
+  if (!state.welcome || state.caseId || state.busy || chatLog.querySelector(".msg-bubble--customer")) return;
+  chatLog.querySelectorAll(".welcome").forEach((el) => el.remove());
+  const bubble = document.createElement("div");
+  bubble.className = "msg-bubble msg-bubble--agent welcome";
+  bubble.textContent = state.welcome[state.language];
+  const starters = document.createElement("div");
+  starters.className = "quick-replies interactive welcome";
+  starters.append(...starterButtons());
+  chatLog.prepend(bubble, starters);
+}
+
 function applyStaticStrings() {
   document.documentElement.lang = t("htmlLang");
   panelTitle.textContent = t("panelTitle");
-  document.getElementById("empty-state-title").textContent = t("emptyTitle");
-  document.getElementById("empty-state-body").textContent = t("emptyBody");
   messageLabel.textContent = t("messageLabel");
   messageInput.placeholder = t("inputPlaceholder");
   sendBtn.textContent = t("send");
   logoutBtn.textContent = t("logout");
+  renderWelcome();
 }
 
 async function init() {
@@ -138,6 +196,7 @@ async function init() {
   }
   const me = await meRes.json();
   customerNameEl.textContent = me.customer_id;
+  state.welcome = me.welcome;
 
   document.querySelectorAll(".lang-toggle button").forEach((btn) => {
     btn.addEventListener("click", () => setLanguage(btn.dataset.lang));
@@ -172,7 +231,6 @@ async function logout() {
 }
 
 function appendBubble(role, text) {
-  emptyState.style.display = "none";
   const el = document.createElement("div");
   el.className = `msg-bubble msg-bubble--${role}`;
   el.textContent = text;
@@ -202,21 +260,37 @@ function listItemsHtml(items) {
   return (items || []).map((item) => `<li>${escapeHtml(String(item))}</li>`).join("");
 }
 
-async function onSubmit(event) {
+function onSubmit(event) {
   event.preventDefault();
   const message = messageInput.value.trim();
   if (!message) return;
-
   messageInput.value = "";
+  sendToAgent({ message });
+}
+
+// Everything the customer sends goes through here: typed text, a tapped
+// charge (selected_transaction_id) or a quick-reply button (action). The
+// bubble always shows what the customer "said" (the button label for a tap).
+async function sendToAgent({ message, selectedTransactionId = null, action = null }) {
+  if (state.busy) return;
+  state.busy = true;
   sendBtn.disabled = true;
+  const retired = retireInteractiveBlocks();
   appendBubble("customer", message);
+  let delivered = false;
 
   try {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify({ case_id: state.caseId, message, language: state.language }),
+      body: JSON.stringify({
+        case_id: state.caseId,
+        message,
+        language: state.language,
+        selected_transaction_id: selectedTransactionId,
+        action,
+      }),
     });
 
     if (!res.ok) {
@@ -225,27 +299,141 @@ async function onSubmit(event) {
     }
 
     const reply = await res.json();
+    delivered = true;
     state.caseId = reply.case_id;
     appendBubble("agent", reply.reply);
+    if (reply.options && reply.options.length) appendChargeList(reply.options);
+    appendQuickReplies(reply.state);
 
     if (await refreshCaseStatus()) {
       renderTurnActionCard(reply.state);
     }
     renderPanel();
   } catch (err) {
-    appendActionCard(t("sendError"), String(err), { isError: true });
+    if (!delivered) appendActionCard(t("sendError"), String(err), { isError: true });
   } finally {
+    if (!delivered) restoreInteractiveBlocks(retired);
+    state.busy = false;
     sendBtn.disabled = false;
     messageInput.focus();
   }
 }
 
+function quickButton(label, onClick) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "quick-reply";
+  btn.textContent = label;
+  btn.addEventListener("click", onClick);
+  return btn;
+}
+
+// Old lists/buttons stay visible as history but can no longer be used. If the
+// message never reached the server they are given back (restoreInteractiveBlocks).
+function retireInteractiveBlocks() {
+  const blocks = [...chatLog.querySelectorAll(".interactive:not(.retired)")];
+  blocks.forEach((block) => {
+    block.classList.add("retired");
+    block.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+  });
+  return blocks;
+}
+
+function restoreInteractiveBlocks(blocks) {
+  blocks.forEach((block) => {
+    block.classList.remove("retired");
+    block.querySelectorAll("button").forEach((b) => {
+      b.disabled = false;
+      b.classList.remove("chosen");
+    });
+  });
+}
+
+function formatAmount(amount, currency) {
+  try {
+    return new Intl.NumberFormat(t("timeLocale"), { style: "currency", currency, maximumFractionDigits: 2 }).format(amount);
+  } catch {
+    return `${amount} ${currency}`;
+  }
+}
+
+function formatDay(isoDay) {
+  // Noon avoids the date shifting a day in timezones west of UTC.
+  return new Date(`${isoDay}T12:00:00`).toLocaleDateString(t("timeLocale"), { day: "numeric", month: "short", year: "numeric" });
+}
+
+function chargeLabel(opt) {
+  return `${opt.merchant || t("unknownMerchant")} · ${formatAmount(opt.amount, opt.currency)} · ${formatDay(opt.date)}`;
+}
+
+function chargeMeta(opt) {
+  const category = opt.category ? t("categories")[opt.category] || opt.category : null;
+  return category ? `${formatDay(opt.date)} · ${category}` : formatDay(opt.date);
+}
+
+function pickCharge(btn, opt) {
+  btn.classList.add("chosen");
+  sendToAgent({ message: chargeLabel(opt), selectedTransactionId: opt.transaction_id });
+}
+
+function appendChargeList(options) {
+  const block = document.createElement("div");
+  block.className = "charge-list interactive";
+  block.setAttribute("role", "group");
+  block.setAttribute("aria-label", t("chargeListLabel"));
+  options.forEach((opt) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "charge-option";
+    btn.innerHTML = `
+      <span class="charge-option__merchant">${escapeHtml(opt.merchant || t("unknownMerchant"))}</span>
+      <span class="charge-option__amount">${escapeHtml(formatAmount(opt.amount, opt.currency))}</span>
+      <span class="charge-option__meta">${escapeHtml(chargeMeta(opt))}</span>
+    `;
+    btn.addEventListener("click", () => pickCharge(btn, opt));
+    block.appendChild(btn);
+  });
+  chatLog.appendChild(block);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+function appendQuickReplies(caseState) {
+  const buttons = [];
+  if (caseState === "selecting") {
+    buttons.push(actionButton("quickNotInList", ACTIONS.NONE_OF_THESE));
+  } else if (caseState === "confirming") {
+    buttons.push(actionButton("quickYes", ACTIONS.CONFIRM_YES), actionButton("quickNo", ACTIONS.CONFIRM_NO));
+  }
+  if (caseState === "awaiting_report") {
+    buttons.push(...starterButtons());
+  } else if (["selecting", "confirming", "clarifying"].includes(caseState)) {
+    buttons.push(humanButton());
+  }
+  if (!buttons.length) return;
+  const block = document.createElement("div");
+  block.className = "quick-replies interactive";
+  block.append(...buttons);
+  chatLog.appendChild(block);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
 async function refreshCaseStatus() {
   if (!state.caseId) return false;
-  const res = await fetch(`/api/case/${encodeURIComponent(state.caseId)}`, { credentials: "same-origin" });
-  if (!res.ok) return false;
-  state.caseStatus = await res.json();
-  return true;
+  try {
+    const res = await fetch(`/api/case/${encodeURIComponent(state.caseId)}`, { credentials: "same-origin" });
+    if (!res.ok) return false;
+    state.caseStatus = await res.json();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// The charge the case is about: the identified one when there is one,
+// otherwise what the customer reported.
+function caseChargeLabel(status) {
+  if (status.matched_charge) return chargeLabel(status.matched_charge);
+  return formatAmount(status.reported_amount, status.reported_currency);
 }
 
 function renderTurnActionCard(newState) {
@@ -253,7 +441,7 @@ function renderTurnActionCard(newState) {
   if (newState === "resolved_auto") {
     appendActionCard(
       t("actionCardResolvedTitle"),
-      t("actionCardResolvedBody", status.reported_amount, status.reported_currency, status.resolution_reference),
+      t("actionCardResolvedBody", caseChargeLabel(status), status.resolution_reference),
     );
   } else if (newState === "escalated") {
     appendActionCard(t("actionCardEscalatedTitle"), t("actionCardEscalatedBody"));
@@ -277,7 +465,7 @@ function badgeHtml(variant, label) {
 function renderPanel() {
   const status = state.caseStatus;
   const caseState = status ? status.state : null;
-  const transactionFound = () => t("stepTransactionFound", status.reported_amount, status.reported_currency);
+  const transactionFound = () => t("stepTransactionFound", caseChargeLabel(status));
 
   let badge;
   let step2Variant = "pending", step2Dot = "2", step2Detail = t("stepTransactionPending");
@@ -287,6 +475,10 @@ function renderPanel() {
     badge = badgeHtml("warning", t("badgeClarifying"));
     step2Variant = "warning"; step2Dot = "?";
     step2Detail = t("stepTransactionSearching");
+  } else if (caseState === "selecting") {
+    badge = badgeHtml("warning", t("badgeSelecting"));
+    step2Variant = "warning"; step2Dot = "?";
+    step2Detail = t("stepTransactionSelecting");
   } else if (caseState === "confirming") {
     badge = badgeHtml("warning", t("badgeConfirming"));
     step2Variant = "warning"; step2Dot = "?";
@@ -303,8 +495,8 @@ function renderPanel() {
       step2Variant = "done"; step2Dot = "✓";
       step2Detail = transactionFound();
     } else {
-      step2Variant = "warning"; step2Dot = "?";
-      step2Detail = t("stepTransactionSearching");
+      step2Variant = "error"; step2Dot = "✕";
+      step2Detail = t("stepTransactionNotIdentified");
     }
     step3Variant = "info"; step3Dot = "→";
     step3Detail = t("stepPolicyEscalated");

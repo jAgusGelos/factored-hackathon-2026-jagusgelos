@@ -49,6 +49,7 @@ def app_db(tmp_path, monkeypatch):
         "country VARCHAR, customer_status VARCHAR)"
     )
     con.execute("INSERT INTO customers VALUES ('CLI-1', 'Plus', '700', 'México', 'Active')")
+    con.execute("ALTER TABLE transactions ADD COLUMN transaction_type VARCHAR DEFAULT 'Purchase'")
     con.close()
 
     monkeypatch.setattr(config, "FIXTURE_DB_PATH", fixture_path)

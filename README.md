@@ -2,8 +2,8 @@
 
 AI-first banking customer service system for LATAM Bank: a customer reports an unrecognized
 transaction in a chat, the system verifies it against their own transaction history, resolves
-eligible cases automatically under an explicit policy, asks clarifying questions or abstains on
-ambiguous cases, and hands off complex/high-risk cases to a human agent with a structured,
+eligible cases automatically under an explicit policy, shows the customer their own charges to pick
+from when the report is ambiguous, declines requests outside its scope, and hands off complex/high-risk cases to a human agent with a structured,
 verified case file. Built for the [Factored AI & Data Hackathon 2026](docs/challenge/challenge-brief.md).
 
 Full planning record (architecture decisions, research, design rationale): `.workspace/features/dispute-agent/`
@@ -33,8 +33,12 @@ app/state_machine.py::evaluate_case() <- deterministic guard function
       |               can only ADD an escalation reason, never auto-resolve or override)
       |
       v
-confirming (AD-12) | clarifying | escalated
-      |   (confirming -> resolved_auto only on an explicit "yes" + policy re-check)
+confirming (AD-12) | selecting | escalated
+      |   confirming -> resolved_auto only on an explicit "yes" + policy re-check
+      |   selecting  -> the customer's OWN charges shown as cards (app/transactions.py::
+      |                 list_own_charges); a tap is accepted only if that id was offered AND is
+      |                 theirs, then AD-11 decides resolve vs escalate; "No está en la lista"
+      |                 escalates with the list shown as evidence
       |
       v
 app/llm.py::generate_response()       <- LLM, NLG only, grounded in build_prompt_context()'s
@@ -67,8 +71,9 @@ cp .env.example .env
 python -m etl.extract
 python -m etl.quality_checks       # data-quality + lineage report -> data/lineage_manifest.json
 
-# 2. Build the sanitized demo fixture (3 personas selected programmatically from real complaints
-#    data) and demo credentials — this is the ONLY data the app ever reads at runtime
+# 2. Build the demo fixture from the local warehouse (no AWS needed for this step): ONE real
+#    customer selected by documented criteria + labeled synthetic charges, and the demo
+#    credentials: this is the ONLY data the app ever reads at runtime
 python -m etl.build_fixture        # -> data/fixture.duckdb, data/demo_users.json
 
 # 3. Train + evaluate the priority classifier (decision-support signal, Milestone 3)
@@ -77,11 +82,11 @@ python -m etl.evaluate_classifier  # -> data/classifier_eval_report.json
 
 # 4. Run the app
 uvicorn app.main:app --reload --port 8000
-# Open http://127.0.0.1:8000 — log in with one of the 3 demo personas (see data/demo_users.json
-# after step 2; usernames are cliente.claro / cliente.ambiguo / cliente.escalado)
+# Open http://127.0.0.1:8000 and press "Autocompletar" (demo account cliente.demo, password in
+# data/demo_users.json after step 2)
 
 # 5. Tests, lint, eval harness
-pytest                              # 136 tests
+pytest                              # 216 tests
 ruff check .
 python -m eval.run_eval             # -> data/eval_report.json (see "Evaluation results" below)
 ```
@@ -90,22 +95,37 @@ Steps 1-3 require AWS credentials (dataset access) and are offline/one-time. Ste
 app) needs **zero** AWS credentials at runtime — verified by `tests/test_main.py::test_app_serves_with_aws_env_unset`
 and by unsetting `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` locally and confirming the app still serves.
 
-## The 3 required demo cases
+## The required scenarios, on one customer
 
-All 3 are backed by real complaints from the dataset (real `customer_id`, `claimed_amount`,
-`currency`, `creation_date`); see `etl/build_fixture.py`'s module docstring for the exact,
-documented selection criteria and a real finding from building it (complaints and transactions
-turned out to be independently generated synthetic data with no deliberate cross-linkage — a
-real amount+date match exists for fewer than 1 in 1,000 real complaints).
+The challenge asks for three *situations* inside the workflow (automated resolution, an ambiguous
+or unsupported request, a human escalation). They are not customer types, so the demo has **one**
+customer and every scenario comes from what that customer says or taps.
 
-| Persona | Case | Outcome |
+**Demo data.** `etl/build_fixture.py` picks one real customer from the warehouse by documented
+criteria (Colombia, active, COP transactions, most purchases with a named merchant, no prior
+dispute complaints): Víctor, Cartagena, 6 real purchases in the extracted window. Because ~6 real
+rows cannot cover a duplicated charge or the fraud-score gate, 8 **team-generated** charges are
+added on the same customer and product, each labeled `_is_synthetic = true` with
+`_source_file = 'synthetic'` and designed for one scenario. Colombia was chosen because it is the
+market whose transactions are in the local currency: every México-customer transaction in the
+dataset is in USD (there is no MXN transaction at all), a data finding in its own right.
+
+| Scenario | How to trigger it | Outcome |
 |---|---|---|
-| `cliente.claro` | Normal resolution | Confident match, eligible under policy -> the agent names the merchant/amount/date and asks the customer to confirm (`confirming`) -> on an explicit "yes" and a policy re-check, `resolved_auto` with a simulated provisional credit and reference number. A "no", an unclear answer, or a request for a human escalates instead |
-| `cliente.ambiguo` | Ambiguous / abstain | No real matching transaction -> up to 2 clarifying rounds -> escalates with a structured handoff |
-| `cliente.escalado` | Human escalation | Confident match, but fails eligibility (amount/fraud threshold) -> `escalated` with a structured handoff (facts/actions/evidence/open questions) |
+| Automated resolution (typed) | "No reconozco un cargo de 38.500 pesos del 14 de junio" | Confident match (Uber) -> the agent names merchant/amount/date and asks (`confirming`, with "Sí, es ese" / "No es ese" buttons) -> "yes" + policy re-check -> `resolved_auto`, simulated provisional credit + reference |
+| Automated resolution (picked) | "Se me perdió un monto, mostrame mis cargos" -> tap a small charge | The customer's own charges as cards (`selecting`); tapping one is the customer's explicit identification (the AD-12 confirmation) -> policy -> `resolved_auto` |
+| Ambiguous: duplicated charge | "Me cobraron dos veces un taxi de 27 mil" | Two matches (AD-11 Row 3) -> only those two cards are shown -> the customer picks one |
+| Ambiguous: not in the list | Any list -> "No está en la lista" | `escalated` with the charges shown as evidence and an open question for the agent |
+| Unsupported request | "¿Cuál es mi saldo?" | Declines and says what this channel does; no guess, no state change |
+| Human escalation (policy) | "No reconozco una compra en Tienda Online Global", or tap Boutique Moda / Tienda Don José | Fails AD-11 (fraud score 91 / ~610 USD / Pending) -> `escalated` with a structured handoff (facts, actions, evidence, open questions) |
+| Human escalation (request) | "Hablar con una persona" button or asking for it | `escalated` immediately |
 
-Each case works in Spanish and Portuguese (toggle in the chat header) — see "Known limitations"
-for what the Portuguese toggle does and does not validate.
+A turn that brings a new detail (amount, date, merchant) never spends a clarification round; after
+two rounds with nothing new, or more than 6 free-text reports in one case, the case escalates
+(greetings and button taps do not count). A greeting gets an introduction of what the agent can do.
+A transaction is credited at most once: disputing an already-credited charge again, in any case,
+goes to a person with the earlier case as evidence (checked in code and enforced by a unique index). Everything works in Spanish and Portuguese (toggle in the chat header); see
+"Known limitations" for what the Portuguese toggle does and does not validate.
 
 ## Evaluation results
 
@@ -128,30 +148,36 @@ reason to escalate; it structurally cannot cause an auto-resolution or override 
 condition (proven by an exhaustive 16-combination test in `tests/test_policy_not_overridden.py`).
 
 **Conversation/system eval** (`eval/run_eval.py`) — ⚠️ **explicitly OFFLINE/SIMULATED**, not a
-measured-production result (see "Known limitations" — no real `ANTHROPIC_API_KEY` was available
-in the build environment, so this harness runs against a deterministic mocked LLM client, not a
-real one). 10 cases (3 required demo cases × 2 languages + 6 adversarial/failure-mode fixtures):
+measured-production result: the harness runs scripted multi-turn conversations against a
+deterministic mocked LLM client so every run is reproducible. 18 cases: 6 required scenarios
+(typed resolution, picked resolution, duplicated charge picked, not in list, policy escalation,
+human request) × 2 languages + 6 adversarial/failure-mode fixtures (missing data, prompt injection,
+LLM outage, mixed-language input, a tampered tap on a charge that was not offered, re-disputing an
+already-credited charge). Each scenario runs against its own app database:
 
-- **Unsafe outcomes: 0 / 10.**
-- Safe automated resolution rate: 0.2 (2/10 — most cases are deliberately ambiguous/escalated/
-  adversarial by construction, so a low rate here reflects the test mix, not system quality).
-- Containment rate: 0.2222 (2/9 concluded cases).
-- Pipeline latency (excludes real LLM network time): p50 0.124s, p95 0.819s.
+- **Unsafe outcomes: 0 / 18.**
+- Safe automated resolution rate: 0.33 (6/18; the mix is mostly escalation/adversarial by design).
+- Containment rate: 0.375 (6/16 concluded cases).
+- Pipeline latency (excludes real LLM network time): p50 0.12s, p95 0.24s.
 - Estimated cost (Haiku 4.5 list pricing, not measured billing): ~$0.0008/attempted case,
-  ~$0.0040/successful resolution (re-measured after AD-12 added the confirmation turn and its
-  classifier call).
+  ~$0.0025/successful resolution.
+
+The real-model behavior is checked separately: the Playwright walkthrough and manual runs go
+through Claude Haiku 4.5 end to end, and bugs they surfaced (fenced JSON, a currency lost between
+turns, over-strict fact checks on natural wordings) are pinned by regression tests.
 
 ## Known limitations (disclosed, not hidden)
 
-- **`ANTHROPIC_API_KEY` was never provisioned in the build environment.** Every LLM call site,
-  the 3 required conversation cases, the Portuguese toggle, and the eval harness are built and
-  tested against a deterministic mocked Anthropic client (matching the model's real JSON output
-  contract) — verified correct, but not the same as a real-model quality check. **Before a real
-  demo/submission:** supply a real key in `.env`, manually sanity-check response quality (the
-  documented Task 2.3b checkpoint — currently unresolved for exactly this reason), and re-run
-  `eval/run_eval.py` for a genuinely measured report. The app already degrades gracefully without
-  a key (a missing/invalid key forces escalation with a deterministic fallback message rather
-  than crashing — verified live, not just in tests).
+- **The system eval is simulated; real-model quality is checked by hand, not measured.** The app
+  runs against Claude Haiku 4.5, and the walkthrough plus manual sessions exercise it end to end,
+  but `eval/run_eval.py` uses a mocked client for reproducibility, so its latency/cost figures
+  exclude the real model. Without a key the app still degrades gracefully: every LLM failure
+  forces escalation with a deterministic fallback message (verified live, not just in tests).
+- **The demo customer's history is partly synthetic.** 6 of the 14 charges are real dataset rows;
+  8 are team-generated to cover every scenario and are labeled as such in the fixture
+  (`_is_synthetic`, `_source_file = 'synthetic'`). The dataset window is a snapshot ending
+  2026-06-17, so relative dates ("ayer") are resolved against `DATA_AS_OF` (2026-06-18), not the
+  wall clock.
 - **Demo-credentials login is simulated, not production identity verification.** `data/demo_users.json`
   provisions test accounts distinct from any dataset field (never `document_number` or similar) —
   this satisfies the organizer's "a customer number alone does not prove identity" rule as a
@@ -163,8 +189,8 @@ real one). 10 cases (3 required demo cases × 2 languages + 6 adversarial/failur
   reachable solely through that proxy; a client can still spoof the header to rotate IP buckets,
   which the per-username limit does not depend on). A per-username lockout lets an attacker
   temporarily lock a known account out (capped at 15 min).
-  The login screen also lists the demo personas' credentials for click-to-autofill; set
-  `SHOW_DEMO_CREDENTIALS=0` to hide them on any deployment that is not a labeled demo.
+  The login screen has an "Autocompletar" button that fills in the demo account; set
+  `SHOW_DEMO_CREDENTIALS=0` to hide it on any deployment that is not a labeled demo.
 - **Portuguese support is simulated via the LLM's general multilingual capability.** The dataset
   contains zero Portuguese rows — no training or held-out evaluation claim is made for Portuguese
   specifically. The structured handoff record's `actions_taken`/`open_questions` text (deterministic,
@@ -195,7 +221,7 @@ app/            FastAPI backend — auth, state machine, policy, LLM boundary, c
 etl/            Offline ETL: extraction, quality checks, fixture generation, classifier training
 eval/           Eval harness (Milestone 5)
 static/         Frontend (vanilla HTML/CSS/JS, no build step — AD-1)
-tests/          pytest suite (136 tests)
+tests/          pytest suite (216 tests)
 support.py      Shared test/eval mock helpers (no pytest dependency — used by eval/ too)
 docs/           Challenge requirements digest
 data/           Local ETL artifacts, fixture, trained model (gitignored — never commit raw data)

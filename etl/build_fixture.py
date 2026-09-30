@@ -1,71 +1,43 @@
-"""Sanitized demo-fixture generator (Task 1.5).
+"""Demo-fixture generator (Task 1.5, reworked in Milestone 8).
 
-Reads the local warehouse (`etl/extract.py`'s output — `complaints`,
-`customers`, `products` must already be extracted), selects a small number of
-REAL personas per the documented criteria below, does a second, narrowly
-targeted transactions pull scoped to just those personas' dates (never the
-full table), and writes a small deployable DuckDB fixture
-(`data/fixture.duckdb`) plus `data/demo_users.json` (AD-4's demo-credentials
-map). The deployed app reads ONLY this fixture — never the full warehouse,
-never S3 (AD-2).
+Reads the local warehouse built by `etl/extract.py` (no S3 access, no AWS
+credentials needed at this step) and writes the small deployable DuckDB
+fixture (`data/fixture.duckdb`) plus `data/demo_users.json` (AD-4's
+demo-credentials map). The deployed app reads ONLY this fixture, never the
+full warehouse and never S3 (AD-2).
 
-Persona-selection criteria (resolves plan.md's Open Question on demo
-personas — documented here, not hand-picked):
+## One demo customer, three scenarios (Milestone 8)
 
-1. Candidate pool: `complaints` rows where `category = 'Transactions'` AND
-   `subcategory = 'Cargo no reconocido'` (the real working subset — ~90% of
-   the 13,580 "Transactions"-category complaints per findings.md), joined to
-   `customers` (must exist) and `products` (via `affected_product_id`, may be
-   null), with `claimed_amount > 0`.
-2. A reproducible random sample of `CANDIDATE_POOL_SIZE` rows is drawn via
-   DuckDB's `USING SAMPLE ... (reservoir, {SAMPLE_SEED})` — deterministic
-   given the same warehouse content, not hand-picked.
-3. Since `complaints` has no FK to `transactions` (findings.md), each
-   candidate's "matching transaction(s)" are discovered empirically: this
-   script pulls that customer's transactions within
-   `MATCH_SEARCH_WINDOW_DAYS` of the complaint's `creation_date`, then
-   applies AD-11's exact match tolerance (`abs(amount - claimed_amount) <=
-   max(claimed_amount * 0.05, 2 USD-equivalent)` AND `abs(date diff) <= 3
-   days`) to classify the candidate:
-     - 0 matches within tolerance -> "ambiguous" bucket (a clarifying
-       question has nothing to confirm against).
-     - >=2 matches within tolerance -> "ambiguous" bucket (multiple
-       candidates, needs disambiguation).
-     - exactly 1 match: eligible for auto-resolution (AD-11: amount_usd <=
-       200, fraud_score < 30, status == 'Approved', and this customer has
-       < 3 disputes in the same category in the trailing 90 days by
-       `creation_date`) -> "clean_auto_resolve" bucket; otherwise (a
-       confident match that fails one of those conditions) -> "escalation"
-       bucket.
-4. Exactly one persona is selected per bucket (clean_auto_resolve, ambiguous,
-   escalation), preferring the combination that reaches >= 2 of the 3
-   countries (MX/CO/AR) across the 3 selected personas.
+The challenge asks the system to demonstrate three SITUATIONS inside the
+dispute workflow (automated resolution, ambiguity, human escalation). They are
+not customer types: the same customer produces all three depending on what they
+report or pick. Milestones 1-7 used three accounts, each chosen to land in one
+bucket; that made the demo artificial (an "ambiguous" customer was one with no
+findable charge at all). The fixture now holds ONE real customer with a real
+transaction history, supplemented with a handful of clearly-labeled synthetic
+charges so every scenario is reachable from a single login.
 
-VERIFIED DURING DEVELOPMENT — a real, documented finding, not a hypothetical:
-`complaints` and `transactions` are independently generated synthetic data
-with NO deliberate amount+date linkage baked in. A direct check against 2,000
-real "Transactions"-category complaints found a real matching transaction
-(within AD-11's own tolerance) for fewer than 1 in 1,000 of them. This means
-the "ambiguous" bucket (0 real matches) is trivially, honestly satisfied by
-real data — it is the norm, not the exception, which is itself a finding
-worth reporting (it is *why* the state machine's clarification flow is load-
-bearing, not optional). But "clean_auto_resolve" and "escalation" each
-require a CONFIDENT match, which real data essentially never provides. For
-those two buckets, if the empirical search over the sampled pool comes up
-empty, `_synthesize_persona()` builds ONE plausible transaction row for a
-selected real complaint (real customer_id/claimed_amount/currency/
-creation_date/country — only the disputed transaction itself is
-team-generated) and marks it `_is_synthetic = true` in the fixture, so it is
-never presented as a real dataset row. This is exactly the brief's own
-allowance ("Label inputs as real/de-identified/synthetic/team-generated"),
-applied honestly rather than silently pretending an empirical match exists
-where none does.
+## Customer-selection criteria (reproducible, not hand-picked)
 
-The AD-11 threshold constants below are intentionally duplicated (not
-imported) from plan.md's policy table: `app/policy.py` (the canonical,
-importable version) is a Milestone 2 deliverable and does not exist during
-Milestone 1. Milestone 2's `tests/test_policy.py` is what keeps the two in
-sync going forward.
+1. `customers.country = 'Colombia'`, `customer_status = 'Active'`.
+   Colombia because it is the one market whose transactions are denominated in
+   the local currency AND in Spanish (verified finding: every México-customer
+   transaction in the dataset is in USD; there is no MXN transaction at all).
+2. Only COP transactions, from the warehouse's extracted window.
+3. Ranked by the number of purchases with a named merchant (so the "pick your
+   charge" list reads like a real statement), then by total transactions.
+4. Zero prior complaints in the dispute category, so the AD-11 abuse guard
+   does not pre-decide every scenario.
+5. Ties broken by `customer_id` ascending.
+
+## Synthetic supplement (disclosed, labeled `_is_synthetic = true`)
+
+The warehouse window holds ~6 real transactions per customer, not enough to
+exercise duplicated charges or the fraud-score gate. `SYNTHETIC_CHARGES` adds
+team-generated COP charges on the SAME customer and product, inside the same
+date window, each designed for one scenario (see the `scenario` field). They
+are never presented as real dataset rows: the column is set, the source file
+is `synthetic`, and the README's "Demo data" paragraph describes them.
 """
 
 from __future__ import annotations
@@ -74,16 +46,13 @@ import json
 import logging
 import secrets
 import string
-from dataclasses import asdict, dataclass
-from datetime import date, datetime, timedelta
-from enum import StrEnum
+from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
 
 import duckdb
-from dotenv import load_dotenv
 
-from etl.extract import DATA_DIR, DEFAULT_WAREHOUSE_PATH, REPO_ROOT, extract_dates_fact
-from etl.extract import connect as connect_with_s3
+from etl.extract import DATA_DIR, DEFAULT_WAREHOUSE_PATH
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("etl.build_fixture")
@@ -91,147 +60,82 @@ logger = logging.getLogger("etl.build_fixture")
 DEFAULT_FIXTURE_PATH = DATA_DIR / "fixture.duckdb"
 DEFAULT_DEMO_USERS_PATH = DATA_DIR / "demo_users.json"
 
-CANDIDATE_POOL_SIZE = 60
-SAMPLE_SEED = 42
-MATCH_SEARCH_WINDOW_DAYS = 7  # headroom around AD-11's own +/-3 day match tolerance
-SYNTHESIS_POOL_LIMIT = 500
-CANDIDATES_TABLE = "persona_transactions_candidates"
-
+DEMO_USERNAME = "cliente.demo"
+DEMO_COUNTRY = "Colombia"
+DEMO_CURRENCY = "COP"
 DISPUTE_CATEGORY = "Transactions"
-DISPUTE_SUBCATEGORY = "Cargo no reconocido"
 
-# Duplicated deliberately until app/policy.py exists (see module docstring).
-MATCH_DATE_TOLERANCE_DAYS = 3
-MATCH_AMOUNT_PCT_TOLERANCE = 0.05
-MATCH_AMOUNT_MIN_USD_TOLERANCE = 2.0
-AUTO_RESOLVE_MAX_AMOUNT_USD = 200.0
-AUTO_RESOLVE_MAX_FRAUD_SCORE = 30.0
-ABUSE_GUARD_MAX_DISPUTES = 3
-ABUSE_GUARD_WINDOW_DAYS = 90
-
-# Synthesized clean persona stays comfortably under the auto-resolve amount cap.
-SYNTHETIC_CLEAN_AMOUNT_MARGIN = 0.75
-SYNTHETIC_CLEAN_FRAUD_SCORE = 5.0
-SYNTHETIC_ESCALATION_FRAUD_SCORE = 90.0  # confident match, but fails the fraud threshold
+SYNTHETIC_SOURCE = "synthetic"
 
 
-class PersonaBucket(StrEnum):
-    CLEAN_AUTO_RESOLVE = "clean_auto_resolve"
-    AMBIGUOUS = "ambiguous"
-    ESCALATION = "escalation"
+@dataclass(frozen=True)
+class SyntheticCharge:
+    transaction_id: str
+    day: date
+    merchant_name: str
+    merchant_category: str
+    amount: float
+    fraud_score: float
+    status: str
+    channel: str
+    scenario: str
 
 
-BUCKETS = tuple(PersonaBucket)
+# Charges the tests and the eval harness drive each scenario with.
+AUTO_RESOLVE_CHARGE_ID = "SYN-DEMO-UBER"
+FRAUD_SCORE_CHARGE_ID = "SYN-DEMO-ONLINE"
+OVER_LIMIT_CHARGE_ID = "SYN-DEMO-BOUTIQUE"
+DUPLICATE_CHARGE_IDS = ("SYN-DEMO-TAXI-1", "SYN-DEMO-TAXI-2")
 
-_CANDIDATE_COLUMNS = (
-    "complaint_id", "customer_id", "claimed_amount", "currency", "creation_date",
-    "affected_product_id", "country",
+# Amounts are COP. Converted to USD at build time with the dataset's own
+# daily_exchange_rates, so AD-11's USD thresholds apply exactly as to real rows.
+SYNTHETIC_CHARGES: tuple[SyntheticCharge, ...] = (
+    SyntheticCharge(AUTO_RESOLVE_CHARGE_ID, date(2026, 6, 14), "Uber", "Transport",
+                    38_500.0, 6.0, "Approved", "App", "auto_resolve"),
+    SyntheticCharge("SYN-DEMO-FARMACIA", date(2026, 6, 11), "Farmacia Salud", "Health",
+                    64_900.0, 4.0, "Approved", "POS", "auto_resolve"),
+    SyntheticCharge("SYN-DEMO-CINE", date(2026, 6, 9), "Cine Premium", "Entertainment",
+                    52_000.0, 7.5, "Approved", "Web", "auto_resolve"),
+    SyntheticCharge("SYN-DEMO-SUPER", date(2026, 6, 5), "Super Ahorro", "Food",
+                    187_350.0, 9.0, "Approved", "POS", "auto_resolve"),
+    # Same merchant and amount a day apart: amount + date alone cannot tell them
+    # apart (AD-11 Row 3), so the customer has to pick one from the list.
+    SyntheticCharge(DUPLICATE_CHARGE_IDS[0], date(2026, 6, 15), "Taxi Seguro", "Transport",
+                    27_000.0, 5.0, "Approved", "App", "duplicate_pair"),
+    SyntheticCharge(DUPLICATE_CHARGE_IDS[1], date(2026, 6, 16), "Taxi Seguro", "Transport",
+                    27_000.0, 5.0, "Approved", "App", "duplicate_pair"),
+    SyntheticCharge(FRAUD_SCORE_CHARGE_ID, date(2026, 6, 12), "Tienda Online Global", "Other",
+                    689_000.0, 91.0, "Approved", "Web", "escalate_fraud_score"),
+    SyntheticCharge(OVER_LIMIT_CHARGE_ID, date(2026, 6, 13), "Boutique Moda", "Other",
+                    2_450_000.0, 9.0, "Approved", "POS", "escalate_amount"),
 )
-_CANDIDATE_BASE_QUERY = f"""
-    SELECT c.complaint_id, c.customer_id, c.claimed_amount, c.currency,
-           c.creation_date, c.affected_product_id, cu.country
-    FROM complaints c
-    JOIN customers cu ON cu.customer_id = c.customer_id
-    WHERE c.category = '{DISPUTE_CATEGORY}'
-      AND c.subcategory = '{DISPUTE_SUBCATEGORY}'
-      AND c.claimed_amount > 0
-"""
 
 
-@dataclass
-class Persona:
-    bucket: PersonaBucket
-    complaint_id: str
-    customer_id: str
-    country: str
-    currency: str
-    claimed_amount: float
-    creation_date: date
-    affected_product_id: str | None
-    matched_transaction_ids: list[str]
-    is_synthetic_transaction: bool = False
-
-
-def _as_date(value: date | datetime) -> date:
-    return value.date() if isinstance(value, datetime) else value
-
-
-def _rows_as_candidates(rows: list[tuple]) -> list[dict]:
-    return [dict(zip(_CANDIDATE_COLUMNS, r, strict=True)) for r in rows]
-
-
-def _load_candidates(con: duckdb.DuckDBPyConnection) -> list[dict]:
-    rows = con.execute(
-        f"{_CANDIDATE_BASE_QUERY} USING SAMPLE {CANDIDATE_POOL_SIZE} (reservoir, {SAMPLE_SEED})"
-    ).fetchall()
-    return _rows_as_candidates(rows)
-
-
-def _needed_dates(candidates: list[dict]) -> set[date]:
-    dates: set[date] = set()
-    for c in candidates:
-        creation_date = _as_date(c["creation_date"])
-        for delta in range(-MATCH_SEARCH_WINDOW_DAYS, MATCH_SEARCH_WINDOW_DAYS + 1):
-            dates.add(creation_date + timedelta(days=delta))
-    return dates
-
-
-def _classify_candidate(
-    con: duckdb.DuckDBPyConnection, candidate: dict
-) -> tuple[PersonaBucket, list[str]]:
-    creation_date = _as_date(candidate["creation_date"])
-
-    amount_tolerance = max(candidate["claimed_amount"] * MATCH_AMOUNT_PCT_TOLERANCE, MATCH_AMOUNT_MIN_USD_TOLERANCE)
-
-    matches = con.execute(
+def select_demo_customer(con: duckdb.DuckDBPyConnection) -> str:
+    row = con.execute(
         f"""
-        SELECT transaction_id, amount,
-               COALESCE(amount_usd, CASE WHEN currency = 'USD' THEN amount END) AS amount_usd_eff,
-               fraud_score, transaction_status
-        FROM {CANDIDATES_TABLE}
-        WHERE customer_id = ?
-          AND currency = ?
-          AND ABS(amount - ?) <= ?
-          AND ABS(DATE_DIFF('day', CAST(transaction_date AS DATE), CAST(? AS DATE))) <= ?
+        SELECT t.customer_id
+        FROM transactions t
+        JOIN customers cu ON cu.customer_id = t.customer_id
+        WHERE cu.country = ? AND cu.customer_status = 'Active' AND t.currency = ?
+          AND NOT EXISTS (
+              SELECT 1 FROM complaints c
+              WHERE c.customer_id = t.customer_id AND c.category = '{DISPUTE_CATEGORY}'
+          )
+        GROUP BY t.customer_id
+        ORDER BY COUNT(*) FILTER (WHERE t.transaction_type = 'Purchase' AND t.merchant_name IS NOT NULL) DESC,
+                 COUNT(*) DESC,
+                 t.customer_id
+        LIMIT 1
         """,
-        [
-            candidate["customer_id"],
-            candidate["currency"],
-            candidate["claimed_amount"],
-            amount_tolerance,
-            creation_date,
-            MATCH_DATE_TOLERANCE_DAYS,
-        ],
-    ).fetchall()
-
-    if len(matches) != 1:
-        return PersonaBucket.AMBIGUOUS, [m[0] for m in matches]
-
-    _, _, amount_usd, fraud_score, status = matches[0]
-
-    window_start = creation_date - timedelta(days=ABUSE_GUARD_WINDOW_DAYS)
-    prior_disputes = con.execute(
-        """
-        SELECT COUNT(*) FROM complaints
-        WHERE customer_id = ? AND category = ?
-          AND creation_date >= ? AND creation_date < ?
-        """,
-        [candidate["customer_id"], DISPUTE_CATEGORY, window_start, creation_date],
-    ).fetchone()[0]
-
-    eligible = (
-        (amount_usd is not None and amount_usd <= AUTO_RESOLVE_MAX_AMOUNT_USD)
-        and (fraud_score is not None and fraud_score < AUTO_RESOLVE_MAX_FRAUD_SCORE)
-        and status == "Approved"
-        and prior_disputes < ABUSE_GUARD_MAX_DISPUTES
-    )
-    bucket = PersonaBucket.CLEAN_AUTO_RESOLVE if eligible else PersonaBucket.ESCALATION
-    return bucket, [matches[0][0]]
+        [DEMO_COUNTRY, DEMO_CURRENCY],
+    ).fetchone()
+    if row is None:
+        raise RuntimeError("No customer in the warehouse meets the demo-customer criteria")
+    return row[0]
 
 
-def _lookup_usd_rate(con: duckdb.DuckDBPyConnection, currency: str, on_date: date) -> float:
-    if currency == "USD":
-        return 1.0
+def _usd_rate(con: duckdb.DuckDBPyConnection, currency: str, on_date: date) -> float:
     row = con.execute(
         """
         SELECT exchange_rate FROM daily_exchange_rates
@@ -245,163 +149,87 @@ def _lookup_usd_rate(con: duckdb.DuckDBPyConnection, currency: str, on_date: dat
     return row[0]
 
 
-def _fetch_complaint_pool(
-    con: duckdb.DuckDBPyConnection, limit: int = SYNTHESIS_POOL_LIMIT
-) -> list[dict]:
-    rows = con.execute(
-        f"{_CANDIDATE_BASE_QUERY} ORDER BY c.complaint_id LIMIT {limit}"
-    ).fetchall()
-    return _rows_as_candidates(rows)
+def _stringify(row: tuple) -> list[str | None]:
+    return [str(v) if v is not None else None for v in row]
 
 
-def _insert_synthetic_transaction(
-    con: duckdb.DuckDBPyConnection,
-    complaint: dict,
-    creation_date: date,
-    fraud_score: float,
-    status: str,
-) -> str:
-    txn_id = f"SYN-{complaint['complaint_id']}"
-    con.execute(
-        f"""
-        INSERT INTO {CANDIDATES_TABLE} (
-            transaction_id, transaction_date, product_id, customer_id,
-            transaction_type, transaction_category, amount, currency, amount_usd,
-            channel, branch_id, merchant_name, merchant_category, transaction_country,
-            transaction_city, transaction_status, response_code, is_fraud, fraud_score,
-            latitude, longitude, _source_file, _is_synthetic
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+def _copy_rows(
+    con: duckdb.DuckDBPyConnection, fcon: duckdb.DuckDBPyConnection,
+    table: str, where: str, params: list, *, extra_columns: tuple[str, ...] = (),
+) -> list[str]:
+    cursor = con.execute(f"SELECT * FROM {table} WHERE {where}", params)
+    columns = [c[0] for c in cursor.description]
+    rows = cursor.fetchall()
+    all_columns = columns + list(extra_columns)
+    fcon.execute(f"CREATE TABLE {table} ({', '.join(c + ' VARCHAR' for c in all_columns)})")
+    padding = [None] * len(extra_columns)
+    if rows:
+        fcon.executemany(
+            f"INSERT INTO {table} VALUES ({', '.join('?' for _ in all_columns)})",
+            [_stringify(r) + padding for r in rows],
+        )
+    logger.info("Copied %d %s row(s)", len(rows), table)
+    return all_columns
+
+
+def _insert_synthetic_charges(
+    con: duckdb.DuckDBPyConnection, fcon: duckdb.DuckDBPyConnection,
+    customer_id: str, columns: list[str],
+) -> None:
+    product_id, city = con.execute(
+        """
+        SELECT product_id, transaction_city FROM transactions
+        WHERE customer_id = ? AND currency = ?
+        ORDER BY transaction_city IS NULL, transaction_date DESC LIMIT 1
         """,
-        [
-            txn_id, creation_date, complaint["affected_product_id"], complaint["customer_id"],
-            "Purchase", "Team-generated (synthetic demo persona)",
-            complaint["claimed_amount"], complaint["currency"],
-            complaint["claimed_amount"] * _lookup_usd_rate(con, complaint["currency"], creation_date),
-            "App", None, "Comercio Demo", "Retail", complaint["country"],
-            None, status, "00" if status == "Approved" else "05", False, fraud_score,
-            None, None, "synthetic", True,
-        ],
-    )
-    return txn_id
-
-
-def _synthesize_persona(
-    con: duckdb.DuckDBPyConnection, bucket: PersonaBucket, exclude_complaint_ids: set[str]
-) -> Persona:
-    pool = _fetch_complaint_pool(con)
-    pool = [c for c in pool if c["complaint_id"] not in exclude_complaint_ids]
-
-    if bucket is PersonaBucket.CLEAN_AUTO_RESOLVE:
-        chosen = None
-        for c in pool:
-            usd = c["claimed_amount"] * _lookup_usd_rate(con, c["currency"], _as_date(c["creation_date"]))
-            if usd <= AUTO_RESOLVE_MAX_AMOUNT_USD * SYNTHETIC_CLEAN_AMOUNT_MARGIN:
-                chosen = c
-                break
-        if chosen is None:
-            raise RuntimeError(
-                "Could not find any real complaint with a small enough claimed_amount "
-                "to synthesize a clean_auto_resolve persona."
-            )
-        fraud_score, status = SYNTHETIC_CLEAN_FRAUD_SCORE, "Approved"
-    elif bucket is PersonaBucket.ESCALATION:
-        chosen = pool[0]
-        fraud_score, status = SYNTHETIC_ESCALATION_FRAUD_SCORE, "Approved"
-    else:
-        raise ValueError(f"Synthesis not defined for bucket {bucket!r}")
-
-    creation_date = _as_date(chosen["creation_date"])
-    txn_id = _insert_synthetic_transaction(con, chosen, creation_date, fraud_score, status)
-
-    logger.warning(
-        "No real dataset transaction empirically matched any sampled candidate for bucket "
-        "'%s' (expected — see module docstring). Synthesized one team-generated transaction "
-        "(%s) for real complaint %s to fill this persona.",
-        bucket, txn_id, chosen["complaint_id"],
-    )
-
-    return Persona(
-        bucket=bucket,
-        complaint_id=chosen["complaint_id"],
-        customer_id=chosen["customer_id"],
-        country=chosen["country"],
-        currency=chosen["currency"],
-        claimed_amount=chosen["claimed_amount"],
-        creation_date=creation_date,
-        affected_product_id=chosen["affected_product_id"],
-        matched_transaction_ids=[txn_id],
-        is_synthetic_transaction=True,
-    )
-
-
-def _select_personas(
-    con: duckdb.DuckDBPyConnection, candidates: list[dict]
-) -> dict[PersonaBucket, Persona]:
-    con.execute(
-        f"ALTER TABLE {CANDIDATES_TABLE} ADD COLUMN IF NOT EXISTS "
-        "_is_synthetic BOOLEAN DEFAULT FALSE"
-    )
-
-    by_bucket: dict[PersonaBucket, list[Persona]] = {b: [] for b in BUCKETS}
-
-    for c in candidates:
-        bucket, matched_ids = _classify_candidate(con, c)
-        persona = Persona(
-            bucket=bucket,
-            complaint_id=c["complaint_id"],
-            customer_id=c["customer_id"],
-            country=c["country"],
-            currency=c["currency"],
-            claimed_amount=c["claimed_amount"],
-            creation_date=_as_date(c["creation_date"]),
-            affected_product_id=c["affected_product_id"],
-            matched_transaction_ids=matched_ids,
+        [customer_id, DEMO_CURRENCY],
+    ).fetchone()
+    for charge in SYNTHETIC_CHARGES:
+        values = {
+            "transaction_id": charge.transaction_id,
+            "transaction_date": datetime.combine(charge.day, datetime.min.time()).replace(hour=12),
+            "product_id": product_id,
+            "customer_id": customer_id,
+            "transaction_type": "Purchase",
+            "transaction_category": f"Team-generated (synthetic demo charge: {charge.scenario})",
+            "amount": charge.amount,
+            "currency": DEMO_CURRENCY,
+            "amount_usd": round(charge.amount * _usd_rate(con, DEMO_CURRENCY, charge.day), 2),
+            "channel": charge.channel,
+            "merchant_name": charge.merchant_name,
+            "merchant_category": charge.merchant_category,
+            "transaction_country": DEMO_COUNTRY,
+            "transaction_city": city,
+            "transaction_status": charge.status,
+            "response_code": "00" if charge.status == "Approved" else "05",
+            "is_fraud": False,
+            "fraud_score": charge.fraud_score,
+            "_source_file": SYNTHETIC_SOURCE,
+            "_is_synthetic": True,
+        }
+        row = [values.get(c) for c in columns]
+        fcon.execute(
+            f"INSERT INTO transactions VALUES ({', '.join('?' for _ in columns)})", _stringify(tuple(row))
         )
-        by_bucket[bucket].append(persona)
+    logger.info("Inserted %d synthetic demo charge(s)", len(SYNTHETIC_CHARGES))
 
-    for bucket in BUCKETS:
-        logger.info("Bucket '%s': %d empirically-real candidate(s)", bucket, len(by_bucket[bucket]))
 
-    if not by_bucket[PersonaBucket.AMBIGUOUS]:
-        raise RuntimeError(
-            "No candidate fell into the 'ambiguous' (0 or 2+ real matches) bucket out of "
-            f"{len(candidates)} sampled complaints — this should be the norm per the module "
-            "docstring; increase CANDIDATE_POOL_SIZE and re-run."
+def build_fixture_db(con: duckdb.DuckDBPyConnection, fixture_path: Path, customer_id: str) -> None:
+    fixture_path.unlink(missing_ok=True)
+    fcon = duckdb.connect(str(fixture_path))
+    try:
+        _copy_rows(con, fcon, "customers", "customer_id = ?", [customer_id])
+        _copy_rows(con, fcon, "products", "customer_id = ?", [customer_id])
+        _copy_rows(con, fcon, "complaints", "customer_id = ?", [customer_id])
+        columns = _copy_rows(
+            con, fcon, "transactions", "customer_id = ? AND currency = ?",
+            [customer_id, DEMO_CURRENCY], extra_columns=("_is_synthetic",),
         )
-
-    used_complaint_ids = {c["complaint_id"] for c in candidates}
-    for bucket in (PersonaBucket.CLEAN_AUTO_RESOLVE, PersonaBucket.ESCALATION):
-        if not by_bucket[bucket]:
-            synthesized = _synthesize_persona(con, bucket, used_complaint_ids)
-            used_complaint_ids.add(synthesized.complaint_id)
-            by_bucket[bucket].append(synthesized)
-
-    selected: dict[PersonaBucket, Persona] = {}
-    used_countries: set[str] = set()
-    for bucket in BUCKETS:
-        options = by_bucket[bucket]
-        preferred = [p for p in options if p.country not in used_countries]
-        chosen = preferred[0] if preferred else options[0]
-        selected[bucket] = chosen
-        used_countries.add(chosen.country)
-
-    countries = {p.country for p in selected.values()}
-    if len(countries) < 2:
-        logger.warning(
-            "Selected personas span only %d country/countries (%s) — dataset sample didn't "
-            "allow >=2 without an emptier bucket; documented as-is, not a bug.",
-            len(countries),
-            countries,
-        )
-
-    return selected
-
-
-DEMO_USERNAMES = {
-    PersonaBucket.CLEAN_AUTO_RESOLVE: "cliente.claro",
-    PersonaBucket.AMBIGUOUS: "cliente.ambiguo",
-    PersonaBucket.ESCALATION: "cliente.escalado",
-}
+        fcon.execute("UPDATE transactions SET _is_synthetic = 'False' WHERE _is_synthetic IS NULL")
+        _insert_synthetic_charges(con, fcon, customer_id, columns)
+    finally:
+        fcon.close()
+    logger.info("Fixture written to %s", fixture_path)
 
 
 def _generate_password() -> str:
@@ -409,78 +237,11 @@ def _generate_password() -> str:
     return "demo-" + "".join(secrets.choice(alphabet) for _ in range(8))
 
 
-def _stringify_row(row: tuple) -> list[str | None]:
-    return [str(v) if v is not None else None for v in row]
-
-
-def _copy_rows_to_fixture(
-    con: duckdb.DuckDBPyConnection,
-    fcon: duckdb.DuckDBPyConnection,
-    source_table: str,
-    fixture_table: str,
-    key_column: str,
-    keys: list[str],
-) -> int:
-    cursor = con.execute(f"SELECT * FROM {source_table} WHERE {key_column} IN ?", [keys])
-    columns = [c[0] for c in cursor.description]
-    rows = cursor.fetchall()
-    fcon.execute(f"CREATE TABLE {fixture_table} ({', '.join(c + ' VARCHAR' for c in columns)})")
-    fcon.executemany(
-        f"INSERT INTO {fixture_table} VALUES ({', '.join('?' for _ in columns)})",
-        [_stringify_row(row) for row in rows],
-    )
-    return len(rows)
-
-
-def _build_fixture_db(
-    con: duckdb.DuckDBPyConnection, fixture_path: Path, personas: dict[PersonaBucket, Persona]
-) -> None:
-    fixture_path.unlink(missing_ok=True)
-    fcon = duckdb.connect(str(fixture_path))
-
-    customer_ids = [p.customer_id for p in personas.values()]
-    product_ids = [p.affected_product_id for p in personas.values() if p.affected_product_id]
-    complaint_ids = [p.complaint_id for p in personas.values()]
-
-    try:
-        customer_count = _copy_rows_to_fixture(
-            con, fcon, "customers", "customers", "customer_id", customer_ids
-        )
-        product_count = (
-            _copy_rows_to_fixture(con, fcon, "products", "products", "product_id", product_ids)
-            if product_ids
-            else 0
-        )
-        complaint_count = _copy_rows_to_fixture(
-            con, fcon, "complaints", "complaints", "complaint_id", complaint_ids
-        )
-        # Every candidate in each persona's search window (not just the matched one): the
-        # ambiguous persona's multiple candidates must be queryable live by the app's
-        # fuzzy-match code during the demo, not just referenced by ID here.
-        txn_count = _copy_rows_to_fixture(
-            con, fcon, CANDIDATES_TABLE, "transactions", "customer_id", customer_ids
-        )
-    finally:
-        fcon.close()
-
-    logger.info(
-        "Fixture written to %s: %d customers, %d products, %d complaints, %d transactions",
-        fixture_path, customer_count, product_count, complaint_count, txn_count,
-    )
-
-
-def _write_demo_users(personas: dict[PersonaBucket, Persona], path: Path) -> dict:
-    demo_users = {}
-    for bucket, persona in personas.items():
-        username = DEMO_USERNAMES[bucket]
-        demo_users[username] = {
-            "password": _generate_password(),
-            "customer_id": persona.customer_id,
-            "persona_bucket": bucket,
-        }
+def write_demo_users(customer_id: str, path: Path) -> dict:
+    demo_users = {DEMO_USERNAME: {"password": _generate_password(), "customer_id": customer_id}}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(demo_users, indent=2, ensure_ascii=False))
-    logger.info("Wrote demo credentials to %s (%d personas)", path, len(demo_users))
+    logger.info("Wrote demo credentials to %s", path)
     return demo_users
 
 
@@ -489,36 +250,15 @@ def run(
     fixture_path: Path = DEFAULT_FIXTURE_PATH,
     demo_users_path: Path = DEFAULT_DEMO_USERS_PATH,
 ) -> dict:
-    load_dotenv(REPO_ROOT / ".env")
-
-    con, s3_bucket = connect_with_s3(warehouse_path)
+    con = duckdb.connect(str(warehouse_path), read_only=True)
     try:
-        candidates = _load_candidates(con)
-        logger.info("Loaded %d candidate complaints", len(candidates))
-
-        needed_dates = _needed_dates(candidates)
-        logger.info(
-            "Pulling transactions for %d specific dates (persona search windows)", len(needed_dates)
-        )
-        extract_dates_fact(
-            con, s3_bucket, "transactions", needed_dates, local_table=CANDIDATES_TABLE
-        )
-
-        personas = _select_personas(con, candidates)
-        for bucket, p in personas.items():
-            logger.info(
-                "Selected persona[%s]: complaint=%s customer=%s country=%s amount=%s %s matches=%s",
-                bucket, p.complaint_id, p.customer_id, p.country, p.claimed_amount, p.currency,
-                p.matched_transaction_ids,
-            )
-
-        _build_fixture_db(con, fixture_path, personas)
-        demo_users = _write_demo_users(personas, demo_users_path)
+        customer_id = select_demo_customer(con)
+        logger.info("Selected demo customer %s", customer_id)
+        build_fixture_db(con, fixture_path, customer_id)
     finally:
-        con.execute(f"DROP TABLE IF EXISTS {CANDIDATES_TABLE}")
         con.close()
-
-    return {"personas": {k: asdict(v) for k, v in personas.items()}, "demo_users": list(demo_users)}
+    write_demo_users(customer_id, demo_users_path)
+    return {"customer_id": customer_id, "synthetic_charges": len(SYNTHETIC_CHARGES)}
 
 
 def main() -> int:

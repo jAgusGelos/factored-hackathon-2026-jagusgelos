@@ -145,6 +145,7 @@ def _build_sentinel_fixture(db_path):
     con.execute(
         "CREATE TABLE complaints (complaint_id VARCHAR, customer_id VARCHAR, category VARCHAR, creation_date VARCHAR)"
     )
+    con.execute("ALTER TABLE transactions ADD COLUMN transaction_type VARCHAR DEFAULT 'Purchase'")
     con.close()
 
 

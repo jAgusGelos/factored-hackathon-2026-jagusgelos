@@ -52,6 +52,7 @@ def _build_fixture(fixture_path, *, credit_score="700", txn_amount_usd="100.0", 
         "INSERT INTO customers VALUES ('CLI-1', 'Plus', ?, 'México', 'Active')", [credit_score]
     )
     con.execute("INSERT INTO customers VALUES ('CLI-OTHER', 'Basic', '650', 'Colombia', 'Active')")
+    con.execute("ALTER TABLE transactions ADD COLUMN transaction_type VARCHAR DEFAULT 'Purchase'")
     con.close()
 
 
@@ -219,7 +220,8 @@ def test_mixed_language_input_processed_gracefully_never_a_hard_failure(app_db):
 
 def test_mixed_language_extraction_parse_failure_asks_a_clarifying_question(app_db):
     """If the LLM's response to ambiguous mixed-language input isn't valid
-    JSON, the system must ask a clarifying question — never crash or guess.
+    JSON, the system must ask (by showing the customer's own charges to pick
+    from) — never crash or guess.
     """
     from unittest.mock import MagicMock
 
@@ -231,5 +233,6 @@ def test_mixed_language_extraction_parse_failure_asks_a_clarifying_question(app_
     with patch("app.llm.anthropic.Anthropic", return_value=mock_client):
         reply = handle_message(SESSION, None, "cargo raro mezclado", db_path=app_db)
 
-    assert reply["state"] == CaseState.CLARIFYING
+    assert reply["state"] == CaseState.SELECTING
+    assert [o["transaction_id"] for o in reply["options"]] == ["TRX-1"]
     assert reply["reply"]

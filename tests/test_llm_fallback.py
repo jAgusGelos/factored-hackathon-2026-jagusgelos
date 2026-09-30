@@ -141,3 +141,10 @@ def test_json_wrapped_in_a_markdown_code_fence_is_still_parsed():
     assert extraction.amount == 1753.69
     assert extraction.currency == "MXN"
     assert extraction.date == "2024-09-16"
+
+
+def test_unknown_or_missing_intent_defaults_to_report():
+    base = '{"amount": null, "currency": null, "date": null, "merchant_hint": null, "wants_human": false'
+    assert llm._parse_extraction_response(base + "}").intent == llm.ExtractionIntent.REPORT
+    assert llm._parse_extraction_response(base + ', "intent": "approve_refund"}').intent == llm.ExtractionIntent.REPORT
+    assert llm._parse_extraction_response(base + ', "intent": "greeting"}').intent == llm.ExtractionIntent.GREETING

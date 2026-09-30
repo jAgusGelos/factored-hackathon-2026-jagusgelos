@@ -39,47 +39,28 @@ form.addEventListener("submit", async (event) => {
   window.location.href = "/chat.html";
 });
 
-// Demo personas: what each provisioned test account demonstrates.
-const PERSONA_INFO = {
-  "cliente.claro": ["Caso simple", "Un cargo claro: el agente lo confirma con vos y se resuelve solo."],
-  "cliente.ambiguo": ["Caso ambiguo", "No hay un cargo claro: el agente pregunta y, si sigue sin cerrar, deriva."],
-  "cliente.escalado": ["Requiere escalación", "Cargo de riesgo alto: el agente lo deriva a una persona."],
-};
-
-async function loadDemoPersonas() {
-  let personas;
+// Demo-only: one button that fills in the provisioned test account.
+async function setupAutofill() {
+  let accounts;
   try {
     const res = await fetch("/auth/demo-personas", { credentials: "same-origin" });
     if (!res.ok) return;
-    personas = await res.json();
+    accounts = await res.json();
   } catch {
     return;
   }
-  if (!Array.isArray(personas) || personas.length === 0) return;
+  if (!Array.isArray(accounts) || accounts.length === 0) return;
 
-  const list = document.getElementById("demo-personas-list");
-  personas.forEach(({ username, password }) => {
-    const [name, description] = PERSONA_INFO[username] || ["Perfil de demostración", ""];
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "demo-persona";
-    const title = document.createElement("span");
-    title.className = "persona-name";
-    title.textContent = `${name} · ${username}`;
-    const desc = document.createElement("span");
-    desc.className = "persona-desc";
-    desc.textContent = description;
-    btn.append(title, desc);
-    btn.addEventListener("click", () => {
-      document.getElementById("username").value = username;
-      document.getElementById("password").value = password;
-      list.querySelectorAll(".demo-persona").forEach((b) => b.classList.remove("selected"));
-      btn.classList.add("selected");
-      submitBtn.focus();
-    });
-    list.appendChild(btn);
-  });
-  document.getElementById("demo-personas").hidden = false;
+  const [{ username, password }] = accounts;
+  const btn = document.getElementById("autofill-btn");
+  btn.addEventListener("click", () => fillDemoCredentials(username, password));
+  btn.hidden = false;
 }
 
-loadDemoPersonas();
+function fillDemoCredentials(username, password) {
+  document.getElementById("username").value = username;
+  document.getElementById("password").value = password;
+  submitBtn.focus();
+}
+
+setupAutofill();

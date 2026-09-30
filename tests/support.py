@@ -10,21 +10,35 @@ from __future__ import annotations
 import pytest
 
 from support import (
+    AUTO_RESOLVE_CHARGE,
+    DEMO_USERNAME,
+    DUPLICATE_CHARGES,
+    FRAUD_SCORE_CHARGE,
+    OVER_LIMIT_CHARGE,
     REAL_DEMO_USERS_PATH,
     REAL_FIXTURE_PATH,
     REPO_ROOT,
+    charge_extraction,
+    charge_report,
+    demo_session,
     mock_anthropic_client,
-    persona_complaint,
-    persona_session,
+    session_for,
 )
 
 __all__ = [
     "REAL_DEMO_USERS_PATH",
     "REAL_FIXTURE_PATH",
     "REPO_ROOT",
+    "AUTO_RESOLVE_CHARGE",
+    "DEMO_USERNAME",
+    "DUPLICATE_CHARGES",
+    "FRAUD_SCORE_CHARGE",
+    "OVER_LIMIT_CHARGE",
+    "charge_extraction",
+    "charge_report",
+    "demo_session",
     "mock_anthropic_client",
-    "persona_complaint",
-    "persona_session",
+    "session_for",
     "requires_real_fixture",
 ]
 

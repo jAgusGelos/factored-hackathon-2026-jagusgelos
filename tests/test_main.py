@@ -26,6 +26,7 @@ def _build_fixture_db(db_path):
         "merchant_category VARCHAR, channel VARCHAR, _is_synthetic VARCHAR)"
     )
     con.execute("CREATE TABLE complaints (complaint_id VARCHAR, customer_id VARCHAR, category VARCHAR, creation_date VARCHAR)")
+    con.execute("ALTER TABLE transactions ADD COLUMN transaction_type VARCHAR DEFAULT 'Purchase'")
     con.close()
 
 
@@ -147,3 +148,42 @@ def test_get_case_belonging_to_another_customer_returns_403(client):
     res = client.get(f"/api/case/{other_case.case_id}")
 
     assert res.status_code == 403
+
+
+def _login(client):
+    client.post("/auth/login", json={"username": "maria.gonzalez", "password": "demo-pass-1"})
+
+
+def test_me_serves_the_welcome_message_in_both_languages(client):
+    _login(client)
+    welcome = client.get("/api/me").json()["welcome"]
+    assert set(welcome) == {"es", "pt"}
+    assert "LATAM Bank" in welcome["es"] and "LATAM Bank" in welcome["pt"]
+
+
+def test_customer_data_is_never_cached_but_static_files_revalidate(client):
+    _login(client)
+    assert client.get("/api/me").headers["cache-control"] == "no-store"
+    assert client.get("/js/chat.js").headers["cache-control"] == "no-cache"
+
+
+def test_get_case_describes_the_matched_charge(client):
+    from app import cases
+
+    _login(client)
+    case_id = client.post("/api/chat", json={"message": "hola"}).json()["case_id"]
+    con = duckdb.connect(str(config.FIXTURE_DB_PATH))
+    con.execute(
+        "INSERT INTO transactions (transaction_id, transaction_date, customer_id, amount, currency, "
+        "amount_usd, fraud_score, transaction_status, merchant_name, merchant_category, channel, _is_synthetic) "
+        "VALUES ('TRX-9', '2026-06-01', ?, '50.0', 'USD', '50.0', '5', 'Approved', 'Cine', 'Entertainment', 'App', 'false')",
+        [TEST_CUSTOMER_ID],
+    )
+    con.close()
+    cases.update_case(case_id, state="confirming", matched_transaction_id="TRX-9")
+
+    charge = client.get(f"/api/case/{case_id}").json()["matched_charge"]
+    assert charge == {
+        "transaction_id": "TRX-9", "date": "2026-06-01", "amount": 50.0, "currency": "USD",
+        "merchant": "Cine", "category": "Entertainment",
+    }

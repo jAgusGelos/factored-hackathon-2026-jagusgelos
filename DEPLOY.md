@@ -49,7 +49,7 @@ Before writing the platform steps below, the Dockerfile itself was validated loc
   sidesteps it for local verification only — not how Fly.io/Render run it in production).
 - Confirmed `docker exec ... env | grep -i AWS` returns nothing — zero AWS env vars ever
   reach the container.
-- Logged in as `cliente.claro`, hit `/api/me` → 200.
+- Logged in as the demo account (`cliente.claro` at the time; Milestone 8 replaced the three accounts with `cliente.demo`), hit `/api/me` → 200.
 - With a real Docker **named volume** mounted at `/app/data` (the same mechanism
   `fly.toml`'s `[[mounts]]` and `render.yaml`'s `disk:` use): sent one chat message
   (created `case_id=CASE-3C8EEC3C2DCF`, escalated via the documented LLM-fallback path
@@ -109,11 +109,11 @@ curl -sI https://<your-app-name>.fly.dev/   # expect HTTP 200
 ### Task 6.1's restart-persistence test (run once, log the result here or in the final session report)
 
 ```bash
-# a. Log in as a demo persona and send one chat message via the deployed URL, to create
+# a. Log in with the demo account ("Autocompletar") and send one chat message via the deployed URL, to create
 #    a case row in data/app.db on the volume.
 # b. Restart the machine (NOT a redeploy — this must exercise the volume, not a fresh image):
 fly machine restart <machine-id>   # `fly machine list` to get the id
-# c. Log in again with the same persona and confirm GET /api/case/{case_id} still
+# c. Log in again with the same account and confirm GET /api/case/{case_id} still
 #    returns the case created in step (a) — proves data/app.db on the mounted volume
 #    survived the restart (AD-4's persistence claim), not just that the app boots.
 ```

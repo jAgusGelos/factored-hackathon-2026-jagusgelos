@@ -37,12 +37,17 @@ LLM_TIMEOUT_SECONDS = 15.0
 LLM_MAX_TOKENS = 512
 LLM_RETRY_BACKOFF_SECONDS = (1.0, 2.0)
 
-# The login screen lists the demo personas with a click-to-autofill (AD-4 is a
+# The login screen offers an "Autocompletar" button for the demo account (AD-4 is a
 # SIMULATED identity service over synthetic data). Set to 0 to hide the
 # credentials, e.g. for anything that is not a labeled demo deployment.
 SHOW_DEMO_CREDENTIALS = os.environ.get("SHOW_DEMO_CREDENTIALS", "1") == "1"
 
 MAX_USERNAME_LENGTH = 128
+
+# The dataset is a snapshot that ends 2026-06-17. Relative dates a customer
+# types ("ayer", "la semana pasada") are resolved against this date, not the
+# wall clock, so they land inside the data instead of months after it.
+DATA_AS_OF = os.environ.get("DATA_AS_OF", "2026-06-18")
 
 SESSION_TTL_HOURS = int(os.environ.get("SESSION_TTL_HOURS", "4"))
 

@@ -15,21 +15,24 @@ def test_run_produces_zero_unsafe_outcomes(tmp_path):
     assert report["unsafe_outcomes"]["count"] == 0, report["unsafe_outcomes"]["cases"]
 
 
-def test_run_covers_all_3_required_cases_in_both_languages(tmp_path):
+def test_run_covers_the_required_scenarios_in_both_languages(tmp_path):
     report = run(tmp_path / "eval_app.db")
     demo_keys = {c["case_key"] for c in report["by_group"]["required_demo"]}
-    for username in ("cliente.claro", "cliente.ambiguo", "cliente.escalado"):
-        for language in ("es", "pt"):
-            assert f"{username}[{language}]" in demo_keys
+    scenarios = (
+        "auto_resolve_reported", "auto_resolve_picked", "ambiguous_duplicate_picked",
+        "ambiguous_not_in_list", "escalate_policy", "escalate_human_request",
+    )
+    assert demo_keys == {f"{name}[{language}]" for name in scenarios for language in ("es", "pt")}
 
 
-def test_run_covers_all_6_adversarial_scenarios(tmp_path):
+def test_run_covers_the_adversarial_scenarios(tmp_path):
     report = run(tmp_path / "eval_app.db")
     adversarial_keys = {c["case_key"] for c in report["by_group"]["adversarial"]}
     # Expired-session and unauthorized-access are structural (no conversational
     # outcome) and are verified in tests/test_adversarial.py, not re-run here.
     assert adversarial_keys == {
         "missing_data", "prompt_injection", "tool_failure", "multilingual_ambiguity",
+        "unoffered_selection", "repeat_credit",
     }
 
 

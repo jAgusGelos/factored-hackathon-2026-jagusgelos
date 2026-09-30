@@ -16,7 +16,17 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app import auth, cases, config, db, ratelimit, state_machine
+from app import (
+    auth,
+    cases,
+    charge_search,
+    config,
+    db,
+    ratelimit,
+    replies,
+    state_machine,
+    transactions,
+)
 from app.llm import Language
 
 SESSION_COOKIE_NAME = "session_token"
@@ -29,6 +39,17 @@ async def _lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="LATAM Bank — Dispute Agent", lifespan=_lifespan)
+
+
+@app.middleware("http")
+async def _cache_policy(request: Request, call_next):
+    # Static files: no-cache, so a browser never keeps running an older
+    # chat.js after a deploy (it looked like "the list never showed up") yet
+    # still reuses it after a cheap ETag check. Customer data: never stored.
+    response = await call_next(request)
+    is_data = request.url.path.startswith(("/api/", "/auth/"))
+    response.headers["Cache-Control"] = "no-store" if is_data else "no-cache"
+    return response
 
 SessionCookie = Annotated[str | None, Cookie(alias=SESSION_COOKIE_NAME)]
 
@@ -105,13 +126,20 @@ def logout(response: Response, session_token: SessionCookie = None):
 
 @app.get("/api/me")
 def me(session: CurrentSession):
-    return {"customer_id": session.customer_id, "expires_at": session.expires_at.isoformat()}
+    return {
+        "customer_id": session.customer_id,
+        "expires_at": session.expires_at.isoformat(),
+        "welcome": replies.WELCOME,
+    }
 
 
 class ChatRequest(BaseModel):
-    case_id: str | None = None
+    case_id: str | None = Field(default=None, max_length=64)
     message: str = Field(max_length=2000)
     language: Language = Language.ES
+    # A tap on a listed charge / a quick-reply button (see state_machine).
+    selected_transaction_id: str | None = Field(default=None, max_length=64)
+    action: state_machine.CustomerAction | None = None
 
 
 def _case_forbidden() -> JSONResponse:
@@ -122,10 +150,16 @@ def _case_forbidden() -> JSONResponse:
 def chat(payload: ChatRequest, session: CurrentSession):
     try:
         return state_machine.handle_message(
-            session, payload.case_id, payload.message, language=payload.language
+            session, payload.case_id, payload.message, language=payload.language,
+            selected_transaction_id=payload.selected_transaction_id, action=payload.action,
         )
     except cases.CaseOwnershipError:
         return _case_forbidden()
+
+
+def _matched_charge(session: auth.Session, transaction_id: str | None) -> dict | None:
+    matched = transactions.get_own_transaction(session, transaction_id) if transaction_id else None
+    return charge_search.charge_option(matched) if matched is not None else None
 
 
 @app.get("/api/case/{case_id}")
@@ -150,6 +184,7 @@ def get_case(case_id: str, session: CurrentSession):
         "reported_currency": case.reported_currency,
         "reported_date": case.reported_date,
         "matched_transaction_id": case.matched_transaction_id,
+        "matched_charge": _matched_charge(session, case.matched_transaction_id),
         "resolution_reference": case.resolution_reference,
         "clarification_rounds": case.clarification_rounds,
         "handoff": case.handoff,

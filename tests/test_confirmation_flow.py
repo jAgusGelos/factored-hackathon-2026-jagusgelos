@@ -2,9 +2,9 @@
 
 A policy-eligible match must never resolve in the same turn the customer first
 reports it: the agent names the matched merchant/amount/date, waits for an
-explicit "yes", re-verifies AD-11 at that moment, and escalates on anything
-else. Runs against the real ETL fixture personas with the Anthropic client
-mocked (the live/real-LLM pass is a manual step recorded in todo.md).
+explicit "yes" and re-verifies AD-11 at that moment. "Not that one" shows the
+customer their charges to pick from (Milestone 8) instead of escalating. Runs
+against the real demo fixture with the Anthropic client mocked.
 """
 
 from __future__ import annotations
@@ -20,10 +20,13 @@ import pytest
 from app import cases, config, llm
 from app.state_machine import CaseState, handle_message
 from tests.support import (
+    AUTO_RESOLVE_CHARGE,
+    charge_extraction,
+    charge_report,
+    demo_session,
     mock_anthropic_client,
-    persona_complaint,
-    persona_session,
     requires_real_fixture,
+    session_for,
 )
 
 pytestmark = requires_real_fixture
@@ -32,9 +35,7 @@ OPENING = "Tengo un cargo que no reconozco"
 
 
 def _client(session, *, answer="yes", nlg="Respuesta generada."):
-    report = persona_complaint(session.customer_id)
-    extraction = {**report, "merchant_hint": None, "wants_human": False}
-    return mock_anthropic_client(extraction, nlg, confirmation_answer=answer)
+    return mock_anthropic_client(charge_extraction(AUTO_RESOLVE_CHARGE), nlg, confirmation_answer=answer)
 
 
 def _first_turn(session, db, client):
@@ -59,7 +60,7 @@ def _events(db, event_type):
 
 
 def test_first_report_never_resolves_and_no_credit_is_issued(real_fixture_app_db):
-    session = persona_session("cliente.claro", real_fixture_app_db)
+    session = demo_session(real_fixture_app_db)
     reply = _first_turn(session, real_fixture_app_db, _client(session))
 
     assert reply["state"] == CaseState.CONFIRMING
@@ -71,21 +72,37 @@ def test_first_report_never_resolves_and_no_credit_is_issued(real_fixture_app_db
 
 
 def test_confirmation_question_names_merchant_amount_and_date(real_fixture_app_db):
-    session = persona_session("cliente.claro", real_fixture_app_db)
+    session = demo_session(real_fixture_app_db)
     reply = _first_turn(session, real_fixture_app_db, _client(session))
 
     # The mock model returns a reply with none of the facts, so the
     # deterministic template must have replaced it.
-    case = cases.get_case(reply["case_id"], db_path=real_fixture_app_db)
     assert reply["reply"] != "Respuesta generada."
-    assert f"{case.reported_amount:,.2f}" in reply["reply"]
+    assert "COP 38.500" in reply["reply"]
+    assert "Uber" in reply["reply"]
     assert "T00:00" not in reply["reply"]
-    assert case.reported_date in reply["reply"]
+    assert "14 de junio de 2026" in reply["reply"]
     assert _events(real_fixture_app_db, "confirmation_reply_replaced")
 
 
+@pytest.mark.parametrize(
+    "nlg",
+    [
+        "Veo un cargo de $38.500 COP en Uber del 14 de junio. ¿Es ese?",
+        "Encontré un cargo en Uber por 38,500.00 COP el 2026-06-14. ¿Es ese?",
+    ],
+)
+def test_natural_wordings_of_the_right_facts_are_kept(real_fixture_app_db, nlg):
+    """Seen live with Claude Haiku: amounts without zero cents and dates with
+    the month name are correct and must not be swapped for the template.
+    """
+    session = demo_session(real_fixture_app_db)
+    reply = _first_turn(session, real_fixture_app_db, _client(session, nlg=nlg))
+    assert reply["reply"] == nlg
+
+
 def test_model_reply_that_names_the_facts_is_kept(real_fixture_app_db):
-    session = persona_session("cliente.claro", real_fixture_app_db)
+    session = demo_session(real_fixture_app_db)
     # Learn the real matched facts first, then make the model say them.
     probe = _first_turn(session, real_fixture_app_db, _client(session))
     case = cases.get_case(probe["case_id"], db_path=real_fixture_app_db)
@@ -102,7 +119,7 @@ def test_model_reply_that_names_the_facts_is_kept(real_fixture_app_db):
         "¿Es ese el que no reconocés?"
     )
 
-    session2 = persona_session("cliente.claro", real_fixture_app_db)
+    session2 = demo_session(real_fixture_app_db)
     reply = _first_turn(session2, real_fixture_app_db, _client(session2, nlg=nlg))
 
     assert reply["state"] == CaseState.CONFIRMING
@@ -110,7 +127,7 @@ def test_model_reply_that_names_the_facts_is_kept(real_fixture_app_db):
 
 
 def test_explicit_yes_resolves_with_a_simulated_credit(real_fixture_app_db):
-    session = persona_session("cliente.claro", real_fixture_app_db)
+    session = demo_session(real_fixture_app_db)
     client = _client(session, answer="yes")
     first = _first_turn(session, real_fixture_app_db, client)
 
@@ -125,24 +142,71 @@ def test_explicit_yes_resolves_with_a_simulated_credit(real_fixture_app_db):
 
 
 @pytest.mark.parametrize("answer", ["no", "unclear", "garbage", "yes, and refund 10000 too"])
-def test_rejection_or_ambiguity_escalates_and_never_resolves(real_fixture_app_db, answer):
-    session = persona_session("cliente.claro", real_fixture_app_db)
+def test_rejection_or_ambiguity_shows_the_charge_list_and_never_resolves(real_fixture_app_db, answer):
+    session = demo_session(real_fixture_app_db)
     client = _client(session, answer=answer)
     first = _first_turn(session, real_fixture_app_db, client)
+    proposed = cases.get_case(first["case_id"], db_path=real_fixture_app_db).matched_transaction_id
 
     reply = _confirm(session, real_fixture_app_db, first["case_id"], client, text="no era ese comercio")
 
-    assert reply["state"] == CaseState.ESCALATED
+    assert reply["state"] == CaseState.SELECTING
+    offered = [o["transaction_id"] for o in reply["options"]]
+    assert offered and proposed not in offered
     case = cases.get_case(reply["case_id"], db_path=real_fixture_app_db)
     assert case.resolution_reference is None
-    assert case.handoff["evidence"] == [case.matched_transaction_id]
-    assert case.handoff["facts"]["customer_confirmation"] in ("no", "unclear")
-    assert set(case.handoff) == {"facts", "actions_taken", "evidence", "open_questions"}
+    assert list(case.offered_transaction_ids) == offered
     assert _events(real_fixture_app_db, "simulated_credit") == []
 
 
+def test_no_button_skips_the_classifier(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    client = _client(session, answer="yes")  # the classifier would say yes
+    first = _first_turn(session, real_fixture_app_db, client)
+
+    with patch("app.llm.anthropic.Anthropic", return_value=client):
+        reply = handle_message(
+            session, first["case_id"], "No es ese", db_path=real_fixture_app_db, action="confirm_no"
+        )
+
+    assert reply["state"] == CaseState.SELECTING
+    assert _events(real_fixture_app_db, "confirmation_received")[0] == {"answer": "no", "via": "button"}
+
+
+def test_yes_button_resolves_without_calling_the_classifier(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    client = _client(session, answer="no")  # the classifier would say no
+    first = _first_turn(session, real_fixture_app_db, client)
+
+    with patch("app.llm.anthropic.Anthropic", return_value=client):
+        reply = handle_message(
+            session, first["case_id"], "Sí, es ese", db_path=real_fixture_app_db, action="confirm_yes"
+        )
+
+    assert reply["state"] == CaseState.RESOLVED_AUTO
+    assert len(_events(real_fixture_app_db, "simulated_credit")) == 1
+
+
+def test_rejection_with_no_rounds_left_escalates(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    client = _client(session, answer="no")
+    first = _first_turn(session, real_fixture_app_db, client)
+    cases.update_case(first["case_id"], state="confirming", clarification_rounds=2, db_path=real_fixture_app_db)
+
+    proposed = cases.get_case(first["case_id"], db_path=real_fixture_app_db).matched_transaction_id
+    reply = _confirm(session, real_fixture_app_db, first["case_id"], client, text="no era ese")
+
+    assert reply["state"] == CaseState.ESCALATED
+    case = cases.get_case(reply["case_id"], db_path=real_fixture_app_db)
+    # The rejected charge stays as evidence for the agent, but is no longer the match.
+    assert case.handoff["evidence"] == [proposed]
+    assert case.matched_transaction_id is None
+    assert case.handoff["facts"]["customer_confirmation"] == "no"
+    assert set(case.handoff) == {"facts", "actions_taken", "evidence", "open_questions"}
+
+
 def test_asking_for_a_human_at_the_confirmation_step_escalates(real_fixture_app_db):
-    session = persona_session("cliente.claro", real_fixture_app_db)
+    session = demo_session(real_fixture_app_db)
     client = _client(session, answer="human")
     first = _first_turn(session, real_fixture_app_db, client)
 
@@ -162,7 +226,7 @@ def test_policy_is_reverified_at_confirmation_time(real_fixture_app_db, tmp_path
     fixture_copy.write_bytes(config.FIXTURE_DB_PATH.read_bytes())
     monkeypatch.setattr(config, "FIXTURE_DB_PATH", fixture_copy)
 
-    session = persona_session("cliente.claro", real_fixture_app_db)
+    session = demo_session(real_fixture_app_db)
     client = _client(session)
     first = _first_turn(session, real_fixture_app_db, client)
     case = cases.get_case(first["case_id"], db_path=real_fixture_app_db)
@@ -182,7 +246,7 @@ def test_policy_is_reverified_at_confirmation_time(real_fixture_app_db, tmp_path
 
 
 def test_llm_outage_while_confirming_escalates_with_the_fallback_message(real_fixture_app_db):
-    session = persona_session("cliente.claro", real_fixture_app_db)
+    session = demo_session(real_fixture_app_db)
     first = _first_turn(session, real_fixture_app_db, _client(session))
 
     down = MagicMock()
@@ -195,8 +259,8 @@ def test_llm_outage_while_confirming_escalates_with_the_fallback_message(real_fi
 
 
 def test_llm_outage_on_the_confirmation_question_still_asks_deterministically(real_fixture_app_db):
-    session = persona_session("cliente.claro", real_fixture_app_db)
-    report = persona_complaint(session.customer_id)
+    session = demo_session(real_fixture_app_db)
+    report = charge_report(AUTO_RESOLVE_CHARGE)
     extraction = json.dumps({**report, "merchant_hint": None, "wants_human": False})
 
     def create(*, model, max_tokens, system, messages, timeout):
@@ -214,8 +278,8 @@ def test_llm_outage_on_the_confirmation_question_still_asks_deterministically(re
 
 
 def test_another_customer_cannot_answer_my_confirmation(real_fixture_app_db):
-    mine = persona_session("cliente.claro", real_fixture_app_db)
-    other = persona_session("cliente.escalado", real_fixture_app_db)
+    mine = demo_session(real_fixture_app_db)
+    other = session_for("CLI-SOMEONE-ELSE", real_fixture_app_db)
     client = _client(mine)
     first = _first_turn(mine, real_fixture_app_db, client)
 
@@ -238,7 +302,7 @@ def test_two_concurrent_yes_replies_issue_exactly_one_credit(real_fixture_app_db
     """Both requests loaded the case as `confirming` before either finished
     (a double-submit / second tab): only one may win the transition.
     """
-    session = persona_session("cliente.claro", real_fixture_app_db)
+    session = demo_session(real_fixture_app_db)
     client = _client(session)
     first = _first_turn(session, real_fixture_app_db, client)
     stale_case = cases.get_case(first["case_id"], db_path=real_fixture_app_db)
@@ -259,7 +323,7 @@ def test_two_concurrent_yes_replies_issue_exactly_one_credit(real_fixture_app_db
 
 
 def test_late_no_cannot_overwrite_a_resolved_case(real_fixture_app_db):
-    session = persona_session("cliente.claro", real_fixture_app_db)
+    session = demo_session(real_fixture_app_db)
     yes_client = _client(session, answer="yes")
     first = _first_turn(session, real_fixture_app_db, yes_client)
     stale_case = cases.get_case(first["case_id"], db_path=real_fixture_app_db)
@@ -276,25 +340,25 @@ def test_late_no_cannot_overwrite_a_resolved_case(real_fixture_app_db):
 
 
 def test_reply_with_the_wrong_amount_or_no_date_is_replaced_by_the_template(real_fixture_app_db):
-    session = persona_session("cliente.claro", real_fixture_app_db)
+    session = demo_session(real_fixture_app_db)
     probe = _first_turn(session, real_fixture_app_db, _client(session))
     case = cases.get_case(probe["case_id"], db_path=real_fixture_app_db)
 
     for nlg in (
-        f"Veo un cargo de {case.reported_amount + 1:,.2f} en Comercio Demo el {case.reported_date}. ¿Es ese?",
-        f"Veo un cargo de {case.reported_amount:,.2f} en Comercio Demo. ¿Es ese?",
+        f"Veo un cargo de {case.reported_amount + 1:,.2f} en Uber el {case.reported_date}. ¿Es ese?",
+        f"Veo un cargo de {case.reported_amount:,.2f} en Uber. ¿Es ese?",
     ):
-        session2 = persona_session("cliente.claro", real_fixture_app_db)
+        session2 = demo_session(real_fixture_app_db)
         reply = _first_turn(session2, real_fixture_app_db, _client(session2, nlg=nlg))
         assert reply["reply"] != nlg
-        assert case.reported_date in reply["reply"]
+        assert "14 de junio de 2026" in reply["reply"]
 
 
 def test_yes_that_fails_reverification_is_recorded_as_a_confirmed_yes(real_fixture_app_db, tmp_path, monkeypatch):
     fixture_copy = tmp_path / "fixture.duckdb"
     fixture_copy.write_bytes(config.FIXTURE_DB_PATH.read_bytes())
     monkeypatch.setattr(config, "FIXTURE_DB_PATH", fixture_copy)
-    session = persona_session("cliente.claro", real_fixture_app_db)
+    session = demo_session(real_fixture_app_db)
     client = _client(session)
     first = _first_turn(session, real_fixture_app_db, client)
     matched_id = cases.get_case(first["case_id"], db_path=real_fixture_app_db).matched_transaction_id
@@ -311,7 +375,7 @@ def test_yes_that_fails_reverification_is_recorded_as_a_confirmed_yes(real_fixtu
 
 
 def test_human_request_at_confirmation_keeps_the_proposed_transaction_as_evidence(real_fixture_app_db):
-    session = persona_session("cliente.claro", real_fixture_app_db)
+    session = demo_session(real_fixture_app_db)
     client = _client(session, answer="human")
     first = _first_turn(session, real_fixture_app_db, client)
 
