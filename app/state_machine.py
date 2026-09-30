@@ -166,7 +166,7 @@ def evaluate_case(
     if evaluate_match(candidates) == MatchOutcome.AMBIGUOUS:
         return CaseEvaluation(state=CaseState.SELECTING, candidates=tuple(candidates))
     return evaluate_transaction(
-        session, candidates[0], report=report, how_identified=handoffs.IDENTIFIED_BY_REPORT, db_path=db_path,
+        session, candidates[0], report=report, how_identified=handoffs.ChargeIdentification.REPORT, db_path=db_path,
     )
 
 
@@ -218,7 +218,8 @@ def _dispute_context(
 
 
 def evaluate_transaction(
-    session: Session, matched: TransactionCandidate, *, report: ReportedCharge, how_identified: str,
+    session: Session, matched: TransactionCandidate, *, report: ReportedCharge,
+    how_identified: handoffs.ChargeIdentification,
     reason: DisputeReason | None = None, db_path: Path | None = None,
 ) -> CaseEvaluation:
     """AD-11 Rows 4-5 for ONE identified transaction, which must already be
@@ -284,7 +285,7 @@ def _unless_already_handled(turn: Turn, evaluation: CaseEvaluation, report: Repo
 
 
 def _policy_verdict(
-    turn: Turn, matched: TransactionCandidate, report: ReportedCharge, how_identified: str,
+    turn: Turn, matched: TransactionCandidate, report: ReportedCharge, how_identified: handoffs.ChargeIdentification,
     *, reason: DisputeReason | None = None,
 ) -> CaseEvaluation:
     evaluation = evaluate_transaction(
@@ -320,7 +321,7 @@ def _finish_confirming(turn: Turn, matched: TransactionCandidate, report: Report
 
 
 def _propose_or_escalate(
-    turn: Turn, matched: TransactionCandidate, report: ReportedCharge, how_identified: str,
+    turn: Turn, matched: TransactionCandidate, report: ReportedCharge, how_identified: handoffs.ChargeIdentification,
 ) -> ChatReply:
     """An identified charge: ask the customer to confirm it if policy would
     resolve it (AD-12), otherwise hand it off.
@@ -531,7 +532,7 @@ def _confirm_proposed_charge(turn: Turn, report: ReportedCharge) -> ChatReply:
     case = turn.case
     matched = get_own_transaction(turn.session, case.matched_transaction_id) if case.matched_transaction_id else None
     evaluation = (
-        _policy_verdict(turn, matched, report, handoffs.IDENTIFIED_BY_CONFIRMATION)
+        _policy_verdict(turn, matched, report, handoffs.ChargeIdentification.CONFIRMATION)
         if matched is not None else CaseEvaluation(state=CaseState.ESCALATED)
     )
     if evaluation.state == CaseState.RESOLVED_AUTO:
@@ -580,7 +581,7 @@ def _handle_selection(turn: Turn, transaction_id: str) -> ChatReply:
         return turn.reply(CaseState(case.state), replies.SELECTION_UNAVAILABLE[turn.language], current_options(turn))
 
     turn.log_event("charge_selected", {"transaction_id": transaction_id})
-    evaluation = _policy_verdict(turn, matched, turn.report, handoffs.IDENTIFIED_BY_PICK)
+    evaluation = _policy_verdict(turn, matched, turn.report, handoffs.ChargeIdentification.PICK)
     if evaluation.state == CaseState.RESOLVED_AUTO:
         # Picking the charge is the customer's identification of it (AD-12);
         # what happened with it comes next.
@@ -885,5 +886,5 @@ def _handle_partial_report(
     if merchant_named_now and search.matched_on_merchant and len(search.charges) == 1:
         # "El de Uber": exactly one of their charges is at that merchant, so
         # propose it instead of making them pick from a list of one.
-        return _propose_or_escalate(turn, search.charges[0], report, handoffs.IDENTIFIED_BY_MERCHANT)
+        return _propose_or_escalate(turn, search.charges[0], report, handoffs.ChargeIdentification.MERCHANT)
     return _offer(turn, search, report, spend_round=spend_round)

@@ -39,7 +39,7 @@ PRODUCERS = {
     "human_request_explaining": lambda: handoffs.human_request(SAID, CHARGE).handoff,
     "ambiguous_match": lambda: handoffs.ambiguous_match(SAID, (CHARGE,), 2).handoff,
     "ineligible_match": lambda: handoffs.ineligible_match(
-        SAID, CHARGE, (POLICY_REASON,), how_identified=handoffs.IDENTIFIED_BY_PICK,
+        SAID, CHARGE, (POLICY_REASON,), how_identified=handoffs.ChargeIdentification.PICK,
     ).handoff,
     "already_credited": lambda: handoffs.already_credited(SAID, CHARGE, "CASE-0").handoff,
     "prior_escalation": lambda: handoffs.prior_escalation_same_charge(SAID, CHARGE, "CASE-0").handoff,
@@ -107,11 +107,11 @@ def test_a_proposed_charge_is_verified_but_marked_unconfirmed():
 @pytest.mark.parametrize(
     ("how_identified", "confirmed"),
     [
-        (handoffs.IDENTIFIED_BY_REPORT, "no"),
-        (handoffs.IDENTIFIED_BY_MERCHANT, "no"),
-        (handoffs.IDENTIFIED_BY_PICK, "sí"),
-        (handoffs.IDENTIFIED_BY_CONFIRMATION, "sí"),
-        (handoffs.IDENTIFIED_AND_EXPLAINED, "sí"),
+        (handoffs.ChargeIdentification.REPORT, "no"),
+        (handoffs.ChargeIdentification.MERCHANT, "no"),
+        (handoffs.ChargeIdentification.PICK, "sí"),
+        (handoffs.ChargeIdentification.CONFIRMATION, "sí"),
+        (handoffs.ChargeIdentification.EXPLANATION, "sí"),
     ],
 )
 def test_a_charge_is_confirmed_only_when_the_customer_picked_or_confirmed_it(how_identified, confirmed):

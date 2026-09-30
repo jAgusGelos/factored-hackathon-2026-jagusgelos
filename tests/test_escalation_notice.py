@@ -127,7 +127,7 @@ def _case(**overrides) -> cases.Case:
         (handoffs.not_in_list(REPORT, _case()), EscalationReason.CHARGE_NOT_IDENTIFIED),
         (handoffs.unidentified_charge(REPORT, _case()), EscalationReason.CHARGE_NOT_IDENTIFIED),
         (handoffs.turn_limit(REPORT, _case()), EscalationReason.CHARGE_NOT_IDENTIFIED),
-        (handoffs.ineligible_match(REPORT, COP_CHARGE, ("x",), how_identified="y"), EscalationReason.NEEDS_REVIEW),
+        (handoffs.ineligible_match(REPORT, COP_CHARGE, ("x",), how_identified=handoffs.ChargeIdentification.PICK), EscalationReason.NEEDS_REVIEW),
         (handoffs.credit_limit_reached(REPORT, COP_CHARGE), EscalationReason.NEEDS_REVIEW),
         (handoffs.already_credited(REPORT, COP_CHARGE, "CASE-1"), EscalationReason.ALREADY_CREDITED),
         (handoffs.prior_escalation_same_charge(REPORT, COP_CHARGE, "CASE-1"), EscalationReason.ALREADY_IN_REVIEW),
@@ -145,7 +145,7 @@ def test_every_reason_policy_sends_to_a_person_has_a_customer_reason():
 
 def test_the_builders_that_name_a_charge_carry_it_as_the_match():
     for evaluation in (
-        handoffs.ineligible_match(REPORT, COP_CHARGE, ("x",), how_identified="y"),
+        handoffs.ineligible_match(REPORT, COP_CHARGE, ("x",), how_identified=handoffs.ChargeIdentification.PICK),
         handoffs.credit_limit_reached(REPORT, COP_CHARGE),
         handoffs.already_credited(REPORT, COP_CHARGE, "CASE-1"),
         handoffs.prior_escalation_same_charge(REPORT, COP_CHARGE, "CASE-1"),

@@ -34,11 +34,10 @@ from app.transactions import TransactionCandidate, get_own_transaction
 
 class PolicyVerdict(Protocol):
     def __call__(
-        self, turn: Turn, matched: TransactionCandidate, report: ReportedCharge, how_identified: str,
+        self, turn: Turn, matched: TransactionCandidate, report: ReportedCharge,
+        how_identified: handoffs.ChargeIdentification,
         *, reason: DisputeReason | None = None,
     ) -> CaseEvaluation: ...
-
-
 
 
 def _charge_context(turn: Turn, state: str, matched: TransactionCandidate) -> llm.PromptContext:
@@ -180,7 +179,9 @@ def handle_explanation(
         )
     # The explanation raised no red flag; the evidence check for the reason it
     # names decides (a persuasive story alone never credits anything).
-    evaluation = policy_verdict(turn, matched, report, handoffs.IDENTIFIED_AND_EXPLAINED, reason=assessment.reason)
+    evaluation = policy_verdict(
+        turn, matched, report, handoffs.ChargeIdentification.EXPLANATION, reason=assessment.reason,
+    )
     if evaluation.state == CaseState.RESOLVED_AUTO:
         return finish_resolved(
             turn, matched, reason=assessment.reason, twins=evaluation.duplicate_twins,
