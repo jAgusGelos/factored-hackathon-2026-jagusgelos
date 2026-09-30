@@ -1,8 +1,10 @@
 """Builders for the structured handoff a human agent receives when a case
-escalates: facts (only what the customer actually said, plus identifiers),
-actions taken, evidence (transaction ids) and open questions. Every escalation
-path goes through one of these, so the shape is always the same and never a
-raw transcript. The text is Spanish on purpose: it is an internal artifact.
+escalates: a one-line summary of the request, the facts verified against the
+charge record, what the customer reported (unverified), the policy reasons,
+actions taken, evidence (transaction ids) and the questions still open.
+Every escalation path goes through one of these, so the shape is always the
+same and never a raw transcript. The text is Spanish on purpose: it is an
+internal artifact.
 
 Each builder also sets the reason the customer is told (`EscalationReason`,
 plan.md AD-4). The builders that cover several causes (`confirmation_outcome`,
@@ -19,26 +21,80 @@ from app.case_model import (
     HandoffRecord,
     ReportedCharge,
 )
+from app.charge_search import iso_day
 from app.policy import MATCH_DATE_TOLERANCE_DAYS, MAX_CASE_TURNS, ExplanationAssessment
+from app.replies import format_amount
 from app.transactions import TransactionCandidate
 
 CUSTOMER_MESSAGE_OMITTED = "[omitido, ver mensajes del caso]"
 
+# How the charge was identified (the first action of a policy escalation).
+IDENTIFIED_BY_REPORT = "Se localizó una transacción que coincide con el monto y la fecha reportados."
+IDENTIFIED_BY_PICK = "El cliente eligió este cargo de la lista de sus movimientos."
+IDENTIFIED_BY_MERCHANT = "El cliente nombró el comercio y es su único cargo que coincide."
+IDENTIFIED_BY_CONFIRMATION = "El cliente confirmó el cargo propuesto."
+IDENTIFIED_AND_EXPLAINED = "El cliente identificó el cargo y explicó qué pasó."
+# The system matched these; the customer never picked or confirmed the charge.
+_IDENTIFIED_WITHOUT_THE_CUSTOMER = frozenset({IDENTIFIED_BY_REPORT, IDENTIFIED_BY_MERCHANT})
+POLICY_REVIEW_QUESTION = "¿Corresponde un reintegro después de revisar los motivos de política?"
+EXPLANATION_REVIEW_QUESTION = (
+    "¿Qué pasó con este cargo? Leer la explicación del cliente en los mensajes del caso y decidir "
+    "si corresponde un reintegro."
+)
 
-def _facts(report: ReportedCharge, **extra: str) -> dict[str, str]:
-    # Unknown values are omitted, never filled with placeholders.
-    facts: dict[str, str] = {}
-    if report.amount is not None:
-        facts["reported_amount"] = str(report.amount)
-    if report.currency is not None:
-        facts["currency"] = report.currency
-    if report.date is not None:
-        facts["reported_date"] = report.date.isoformat()
-    if report.merchant:
-        facts["reported_merchant"] = report.merchant
-    if report.reason:
-        facts["dispute_reason"] = report.reason
-    return {**facts, **extra}
+_REQUEST_SUMMARY = {
+    EscalationReason.HUMAN_REQUESTED: "El cliente pidió hablar con una persona sobre un cargo que no reconoce.",
+    EscalationReason.CHARGE_NOT_IDENTIFIED: (
+        "El cliente reporta un cargo que no reconoce y no se pudo identificar entre sus movimientos."
+    ),
+    EscalationReason.NEEDS_REVIEW: (
+        "El cliente disputa un cargo que necesita la revisión de una persona antes de cualquier reintegro."
+    ),
+    EscalationReason.NOT_RECEIVED: "El cliente reconoce la compra pero dice que no recibió el producto o servicio.",
+    EscalationReason.WRONG_AMOUNT: "El cliente reconoce la compra pero discute el monto cobrado.",
+    EscalationReason.CARD_LOST_STOLEN: "El cliente reporta un cargo hecho con una tarjeta perdida o robada.",
+    EscalationReason.ALREADY_CREDITED: "El cliente vuelve a disputar un cargo que ya recibió un crédito provisional.",
+    EscalationReason.ALREADY_IN_REVIEW: "El cliente abrió otro reclamo por un cargo que ya está en revisión.",
+    EscalationReason.SERVICE_ISSUE: "No se pudo procesar el reclamo del cliente por una falla del servicio.",
+}
+
+
+def request_summary(reason: EscalationReason, charge: TransactionCandidate | None, *, confirmed: bool | None) -> str:
+    summary = _REQUEST_SUMMARY[reason]
+    if charge is None:
+        return summary
+    label = "Cargo identificado, sin confirmar por el cliente" if confirmed is False else "Cargo en disputa"
+    merchant = charge.merchant_name or "comercio sin nombre"
+    return f"{summary} {label}: {merchant}, {format_amount(charge.amount, charge.currency)}, {iso_day(charge)}."
+
+
+def _verified_charge(charge: TransactionCandidate, *, confirmed: bool | None) -> dict[str, str]:
+    record = {
+        "transaction_id": charge.transaction_id,
+        "merchant": charge.merchant_name,
+        "amount": str(charge.amount),
+        "currency": charge.currency,
+        "date": iso_day(charge),
+        "channel": charge.channel,
+        "status": charge.transaction_status,
+        "category": charge.merchant_category,
+    }
+    verified = {k: v for k, v in record.items() if v is not None}
+    if confirmed is None:
+        return verified
+    return {**verified, "charge_confirmed": "sí" if confirmed else "no"}
+
+
+def _reported(report: ReportedCharge) -> dict[str, str]:
+    # Unknown values are omitted, never filled with placeholders or defaults.
+    reported = {
+        "amount": str(report.amount) if report.amount is not None else None,
+        "currency": report.currency,
+        "date": report.date.isoformat() if report.date is not None else None,
+        "merchant": report.merchant,
+        "dispute_reason": report.reason,
+    }
+    return {k: str(v) for k, v in reported.items() if v}
 
 
 def _case_evidence(case: cases.Case) -> tuple[str, ...]:
@@ -48,21 +104,35 @@ def _case_evidence(case: cases.Case) -> tuple[str, ...]:
 
 
 def _escalation(
-    facts: dict[str, str], action: str, *, customer_reason: EscalationReason, evidence: tuple[str, ...] = (),
-    open_questions: tuple[str, ...] = (), matched: TransactionCandidate | None = None,
-    candidates: tuple[TransactionCandidate, ...] = (), reasons: tuple[str, ...] = (),
+    report: ReportedCharge, action: str, *, customer_reason: EscalationReason,
+    charge: TransactionCandidate | None = None, charge_confirmed: bool | None = True,
+    system_facts: dict[str, str] | None = None, reported_extra: dict[str, str] | None = None,
+    policy_reasons: tuple[str, ...] = (), evidence: tuple[str, ...] = (), open_questions: tuple[str, ...] = (),
+    matched: TransactionCandidate | None = None, candidates: tuple[TransactionCandidate, ...] = (),
 ) -> CaseEvaluation:
+    verified = _verified_charge(charge, confirmed=charge_confirmed) if charge is not None else {}
     return CaseEvaluation(
         state=CaseState.ESCALATED, matched_transaction=matched, candidates=candidates,
-        resolution_reasons=reasons, customer_reason=customer_reason,
-        handoff=HandoffRecord(facts=facts, actions_taken=(action,), evidence=evidence, open_questions=open_questions),
+        resolution_reasons=policy_reasons, customer_reason=customer_reason,
+        handoff=HandoffRecord(
+            request_summary=request_summary(customer_reason, charge, confirmed=charge_confirmed),
+            verified_facts={**verified, **(system_facts or {})},
+            customer_reported={**_reported(report), **(reported_extra or {})},
+            policy_reasons=policy_reasons, actions_taken=(action,), evidence=evidence,
+            open_questions=open_questions,
+        ),
     )
 
 
-def human_request(report: ReportedCharge) -> CaseEvaluation:
+def human_request(report: ReportedCharge, charge: TransactionCandidate | None = None) -> CaseEvaluation:
+    """`charge`: one the customer already confirmed or picked, if any."""
     return _escalation(
-        _facts(report), "Cliente solicitó explícitamente hablar con un agente humano.",
-        customer_reason=EscalationReason.HUMAN_REQUESTED,
+        report, "Cliente solicitó explícitamente hablar con un agente humano.",
+        customer_reason=EscalationReason.HUMAN_REQUESTED, charge=charge,
+        evidence=(charge.transaction_id,) if charge is not None else (),
+        open_questions=("¿Qué cargo quiere revisar el cliente y qué pasó con él?",) if charge is None else (
+            "¿Qué pasó con este cargo? El cliente pidió una persona antes de explicarlo.",
+        ),
     )
 
 
@@ -70,9 +140,10 @@ def ambiguous_match(
     report: ReportedCharge, candidates: tuple[TransactionCandidate, ...], clarification_rounds: int,
 ) -> CaseEvaluation:
     return _escalation(
-        _facts(report, candidate_count=str(len(candidates))),
+        report,
         f"Se buscaron transacciones del cliente en un rango de {MATCH_DATE_TOLERANCE_DAYS} días; "
         f"{len(candidates)} candidata(s) encontrada(s) tras {clarification_rounds} ronda(s) de aclaración.",
+        system_facts={"candidate_count": str(len(candidates))},
         evidence=tuple(c.transaction_id for c in candidates),
         open_questions=("¿Cuál de las transacciones candidatas corresponde al reclamo?",)
         if candidates else ("No se encontró ninguna transacción candidata para este reclamo.",),
@@ -84,17 +155,18 @@ def ineligible_match(
     report: ReportedCharge, matched: TransactionCandidate, reasons: tuple[str, ...], *, how_identified: str,
 ) -> CaseEvaluation:
     return _escalation(
-        _facts(report, matched_transaction_id=matched.transaction_id),
-        f"{how_identified} El cargo no cumple las condiciones de auto-resolución.",
-        evidence=(matched.transaction_id,), open_questions=reasons,
-        matched=matched, candidates=(matched,), reasons=reasons, customer_reason=EscalationReason.NEEDS_REVIEW,
+        report, f"{how_identified} El cargo no cumple las condiciones de auto-resolución.",
+        charge=matched, charge_confirmed=how_identified not in _IDENTIFIED_WITHOUT_THE_CUSTOMER,
+        policy_reasons=reasons, evidence=(matched.transaction_id,),
+        open_questions=(POLICY_REVIEW_QUESTION,), matched=matched, candidates=(matched,),
+        customer_reason=EscalationReason.NEEDS_REVIEW,
     )
 
 
 def already_credited(report: ReportedCharge, matched: TransactionCandidate, credited_case_id: str) -> CaseEvaluation:
     return _escalation(
-        _facts(report, matched_transaction_id=matched.transaction_id, credited_in_case=credited_case_id),
-        f"El cargo ya tuvo un crédito provisional en el caso {credited_case_id}; no se acredita dos veces.",
+        report, f"El cargo ya tuvo un crédito provisional en el caso {credited_case_id}; no se acredita dos veces.",
+        charge=matched, charge_confirmed=None, system_facts={"credited_in_case": credited_case_id},
         evidence=(matched.transaction_id,),
         open_questions=("El cliente vuelve a disputar un cargo ya acreditado: revisar el caso anterior.",),
         matched=matched, customer_reason=EscalationReason.ALREADY_CREDITED,
@@ -109,9 +181,10 @@ def prior_escalation_same_charge(
     it goes to a person too, instead of a second explanation with fresh attempts.
     """
     return _escalation(
-        _facts(report, matched_transaction_id=matched.transaction_id, prior_case=prior_case_id),
+        report,
         f"La explicación del cliente sobre este cargo ya se evaluó en el caso {prior_case_id} (derivado a "
         "una persona o todavía abierto pidiendo más detalle); no se vuelve a pedir otra explicación.",
+        charge=matched, charge_confirmed=None, system_facts={"prior_case": prior_case_id},
         evidence=(matched.transaction_id,),
         open_questions=(
             f"El cliente abrió otro reclamo por el mismo cargo: revisarlo junto con el caso {prior_case_id}.",
@@ -126,7 +199,8 @@ ASSESSMENT_FAILED = (
 )
 
 
-def explanation_facts(assessment: ExplanationAssessment | None, *, too_short: bool = False) -> dict[str, str]:
+def explanation_reported(assessment: ExplanationAssessment | None, *, too_short: bool = False) -> dict[str, str]:
+    """The model's read of the customer's explanation: never a verified fact."""
     if too_short:
         return {"explanation_assessment": "explicación demasiado breve; no se evaluó con el modelo"}
     if assessment is None:
@@ -143,23 +217,21 @@ def explanation_not_accepted(
     *, customer_reason: EscalationReason, too_short: bool = False,
 ) -> CaseEvaluation:
     return _escalation(
-        _facts(
-            report, matched_transaction_id=matched.transaction_id,
-            **explanation_facts(assessment, too_short=too_short),
-        ),
+        report,
         "El cliente identificó el cargo y explicó qué pasó, pero la explicación no permite "
         "resolverlo automáticamente.",
-        evidence=(matched.transaction_id,), open_questions=(why,), matched=matched,
-        customer_reason=customer_reason,
+        charge=matched, reported_extra=explanation_reported(assessment, too_short=too_short),
+        policy_reasons=(why,), evidence=(matched.transaction_id,), open_questions=(EXPLANATION_REVIEW_QUESTION,),
+        matched=matched, customer_reason=customer_reason,
     )
 
 
 def credit_limit_reached(report: ReportedCharge, matched: TransactionCandidate) -> CaseEvaluation:
     return _escalation(
-        _facts(report, matched_transaction_id=matched.transaction_id),
+        report,
         "El cargo cumplía la política, pero al acreditarlo se superaba el límite de créditos "
         "automáticos del cliente (otro caso se acreditó al mismo tiempo).",
-        evidence=(matched.transaction_id,),
+        charge=matched, evidence=(matched.transaction_id,),
         open_questions=("Revisar los créditos automáticos recientes del cliente antes de acreditar este.",),
         matched=matched, customer_reason=EscalationReason.NEEDS_REVIEW,
     )
@@ -167,8 +239,8 @@ def credit_limit_reached(report: ReportedCharge, matched: TransactionCandidate) 
 
 def not_in_list(report: ReportedCharge, case: cases.Case) -> CaseEvaluation:
     return _escalation(
-        _facts(report, charges_shown=str(len(case.offered_transaction_ids))),
-        "Se le mostraron al cliente sus movimientos y no encontró el cargo entre ellos.",
+        report, "Se le mostraron al cliente sus movimientos y no encontró el cargo entre ellos.",
+        system_facts={"charges_shown": str(len(case.offered_transaction_ids))},
         evidence=case.offered_transaction_ids,
         open_questions=(
             "El cargo no aparece entre los movimientos mostrados: ¿otro producto, un cargo "
@@ -180,7 +252,7 @@ def not_in_list(report: ReportedCharge, case: cases.Case) -> CaseEvaluation:
 
 def unidentified_charge(report: ReportedCharge, case: cases.Case) -> CaseEvaluation:
     return _escalation(
-        _facts(report), "No fue posible identificar el cargo con los datos que dio el cliente.",
+        report, "No fue posible identificar el cargo con los datos que dio el cliente.",
         evidence=_case_evidence(case),
         open_questions=("Requiere que un agente humano recabe los datos del reclamo.",),
         customer_reason=EscalationReason.CHARGE_NOT_IDENTIFIED,
@@ -189,7 +261,7 @@ def unidentified_charge(report: ReportedCharge, case: cases.Case) -> CaseEvaluat
 
 def turn_limit(report: ReportedCharge, case: cases.Case) -> CaseEvaluation:
     return _escalation(
-        _facts(report), f"Se alcanzó el máximo de {MAX_CASE_TURNS} mensajes sin resolver el caso.",
+        report, f"Se alcanzó el máximo de {MAX_CASE_TURNS} mensajes sin resolver el caso.",
         evidence=_case_evidence(case),
         open_questions=("Requiere que un agente humano retome la conversación.",),
         customer_reason=EscalationReason.CHARGE_NOT_IDENTIFIED,
@@ -198,22 +270,29 @@ def turn_limit(report: ReportedCharge, case: cases.Case) -> CaseEvaluation:
 
 def confirmation_outcome(
     report: ReportedCharge, case: cases.Case, *, customer_confirmation: str, action: str, open_question: str,
-    customer_reason: EscalationReason,
+    customer_reason: EscalationReason, charge: TransactionCandidate | None = None,
+    policy_reasons: tuple[str, ...] = (),
 ) -> CaseEvaluation:
-    """Escalation out of `confirming`: the answer the customer gave is a fact,
-    and the proposed transaction stays in the evidence.
+    """Escalation out of `confirming`: the answer the customer gave is what
+    they reported, and the proposed transaction stays in the evidence.
+    `charge`: the proposed charge, verified from its record but confirmed only
+    when the answer was yes.
     """
     return _escalation(
-        _facts(report, customer_confirmation=customer_confirmation), action,
+        report, action, charge=charge, charge_confirmed=customer_confirmation == "yes",
+        reported_extra={"customer_confirmation": customer_confirmation}, policy_reasons=policy_reasons,
         evidence=(case.matched_transaction_id,) if case.matched_transaction_id else (),
         open_questions=(open_question,), customer_reason=customer_reason,
     )
 
 
-def service_failure(action: str) -> HandoffRecord:
+def service_failure(action: str, charge: TransactionCandidate | None = None) -> HandoffRecord:
     return HandoffRecord(
-        facts={"customer_message": CUSTOMER_MESSAGE_OMITTED},
+        request_summary=request_summary(EscalationReason.SERVICE_ISSUE, charge, confirmed=True),
+        verified_facts=_verified_charge(charge, confirmed=True) if charge is not None else {},
+        customer_reported={"customer_message": CUSTOMER_MESSAGE_OMITTED},
+        policy_reasons=(),
         actions_taken=(action,),
-        evidence=(),
+        evidence=(charge.transaction_id,) if charge is not None else (),
         open_questions=("Requiere revisión manual del mensaje original del cliente.",),
     )

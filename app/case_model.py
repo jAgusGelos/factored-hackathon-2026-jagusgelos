@@ -65,12 +65,16 @@ class EscalationReason(StrEnum):
 
 @dataclass(frozen=True)
 class HandoffRecord:
-    """The structured artifact a case that escalates produces — facts,
-    actions taken, evidence, open questions. Never a raw transcript dump
-    (plan.md's Always-rule).
+    """What a person receives when a case escalates. Never a raw transcript
+    dump (plan.md's Always-rule). `verified_facts` only holds values read from
+    the charge record or this system's own records; everything the customer
+    said, or the model read from it, is in `customer_reported`.
     """
 
-    facts: dict[str, str]
+    request_summary: str
+    verified_facts: dict[str, str]
+    customer_reported: dict[str, str]
+    policy_reasons: tuple[str, ...]
     actions_taken: tuple[str, ...]
     evidence: tuple[str, ...]
     open_questions: tuple[str, ...]

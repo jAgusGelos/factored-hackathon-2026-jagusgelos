@@ -125,9 +125,9 @@ def test_escalation_case_confident_match_ineligible_produces_structured_handoff(
     assert reply["state"] == CaseState.ESCALATED
     case = cases.get_case(reply["case_id"], db_path=real_fixture_app_db)
     assert case.matched_transaction_id == FRAUD_SCORE_CHARGE == case.handoff["evidence"][0]
-    # Structured handoff (facts/actions/evidence/open_questions) — never a raw transcript.
-    assert set(case.handoff) == {"facts", "actions_taken", "evidence", "open_questions"}
-    assert any("fraud_score" in q for q in case.handoff["open_questions"])
+    # Structured handoff, never a raw transcript.
+    assert set(case.handoff) == {"request_summary", "verified_facts", "customer_reported", "policy_reasons", "actions_taken", "evidence", "open_questions"}
+    assert any("fraud_score" in q for q in case.handoff["policy_reasons"])
     assert OPENING not in json.dumps(case.handoff)
 
 
@@ -193,7 +193,7 @@ def test_picking_an_ineligible_charge_escalates_with_the_policy_reasons(real_fix
     handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
     assert handoff["evidence"] == [OVER_LIMIT_CHARGE]
     assert "eligió" in handoff["actions_taken"][0]
-    assert any("amount_usd" in q for q in handoff["open_questions"])
+    assert any("amount_usd" in q for q in handoff["policy_reasons"])
     assert logged_events(real_fixture_app_db, "simulated_credit") == []
 
 
@@ -440,7 +440,7 @@ def test_the_same_charge_is_never_credited_twice(real_fixture_app_db):
 
     assert reply["state"] == CaseState.ESCALATED
     handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
-    assert "credited_in_case" in handoff["facts"]
+    assert "credited_in_case" in handoff["verified_facts"]
     assert len(logged_events(real_fixture_app_db, "simulated_credit")) == 1
 
 
@@ -540,7 +540,7 @@ def test_turn_cap_handoff_keeps_what_the_customer_reported(real_fixture_app_db):
     reply = _say(session, real_fixture_app_db, charge_extraction(), "otra cosa", case_id=first["case_id"])
 
     handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
-    assert handoff["facts"]["reported_date"] == "2026-06-14"
+    assert handoff["customer_reported"]["date"] == "2026-06-14"
     assert handoff["evidence"]
 
 
@@ -697,8 +697,8 @@ def test_a_card_present_charge_is_never_credited_on_the_customers_word(real_fixt
 
     assert reply["state"] == CaseState.ESCALATED
     handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
-    assert any("card-present" in q for q in handoff["open_questions"])
-    assert handoff["facts"]["explanation_specific"] == "sí"
+    assert any("card-present" in q for q in handoff["policy_reasons"])
+    assert handoff["customer_reported"]["explanation_specific"] == "sí"
     assert logged_events(real_fixture_app_db, "simulated_credit") == []
 
 
@@ -708,7 +708,7 @@ def test_an_unrecognized_claim_on_a_merchant_the_customer_uses_escalates(real_fi
 
     assert reply["state"] == CaseState.ESCALATED
     handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
-    assert any("other charge(s) at 'Taxi Seguro'" in q for q in handoff["open_questions"])
+    assert any("other charge(s) at 'Taxi Seguro'" in q for q in handoff["policy_reasons"])
     assert logged_events(real_fixture_app_db, "simulated_credit") == []
 
 
@@ -723,7 +723,7 @@ def test_only_one_unrecognized_credit_per_window(real_fixture_app_db):
     assert first["state"] == CaseState.RESOLVED_AUTO
     assert second["state"] == CaseState.ESCALATED
     handoff = cases.get_case(second["case_id"], db_path=real_fixture_app_db).handoff
-    assert any("already granted" in q for q in handoff["open_questions"])
+    assert any("already granted" in q for q in handoff["policy_reasons"])
     assert len(logged_events(real_fixture_app_db, "simulated_credit")) == 1
 
 
@@ -776,7 +776,7 @@ def test_a_duplicate_pair_is_reversed_only_once(real_fixture_app_db):
     assert first["state"] == CaseState.RESOLVED_AUTO
     assert second["state"] == CaseState.ESCALATED
     handoff = cases.get_case(second["case_id"], db_path=real_fixture_app_db).handoff
-    assert any("duplicate pair was already credited" in q for q in handoff["open_questions"])
+    assert any("duplicate pair was already credited" in q for q in handoff["policy_reasons"])
     assert len(logged_events(real_fixture_app_db, "simulated_credit")) == 1
 
 
@@ -786,7 +786,7 @@ def test_a_duplicate_claim_without_a_twin_in_the_data_escalates(real_fixture_app
 
     assert reply["state"] == CaseState.ESCALATED
     handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
-    assert any("no other charge at the same merchant" in q for q in handoff["open_questions"])
+    assert any("no other charge at the same merchant" in q for q in handoff["policy_reasons"])
 
 
 def test_not_received_goes_to_a_person_as_a_merchant_dispute(real_fixture_app_db):
@@ -795,7 +795,7 @@ def test_not_received_goes_to_a_person_as_a_merchant_dispute(real_fixture_app_db
 
     assert reply["state"] == CaseState.ESCALATED
     handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
-    assert any("contracargo" in q for q in handoff["open_questions"])
+    assert any("contracargo" in q for q in handoff["policy_reasons"])
     assert logged_events(real_fixture_app_db, "simulated_credit") == []
 
 
@@ -874,7 +874,7 @@ def test_a_pending_twin_is_not_a_second_charge(real_fixture_app_db, tmp_path, mo
 
     assert reply["state"] == CaseState.ESCALATED
     handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
-    assert any("no other charge at the same merchant" in q for q in handoff["open_questions"])
+    assert any("no other charge at the same merchant" in q for q in handoff["policy_reasons"])
     assert logged_events(real_fixture_app_db, "simulated_credit") == []
 
 
@@ -911,7 +911,7 @@ def test_two_chats_cannot_both_slip_under_the_credit_limit(real_fixture_app_db, 
     assert logged_events(real_fixture_app_db, "credit_already_granted") == []
     assert len(logged_events(real_fixture_app_db, "simulated_credit")) == 1
     case = cases.get_case(second["case_id"], db_path=real_fixture_app_db)
-    assert case.handoff["facts"]["dispute_reason"] == "unrecognized"
+    assert case.handoff["customer_reported"]["dispute_reason"] == "unrecognized"
 
 
 def test_two_chats_cannot_reverse_both_charges_of_a_duplicate_pair(real_fixture_app_db, monkeypatch):
@@ -925,7 +925,7 @@ def test_two_chats_cannot_reverse_both_charges_of_a_duplicate_pair(real_fixture_
     assert second["state"] == CaseState.ESCALATED
     assert logged_events(real_fixture_app_db, "credit_already_granted")
     handoff = cases.get_case(second["case_id"], db_path=real_fixture_app_db).handoff
-    assert handoff["facts"]["credited_in_case"] == first["case_id"]
+    assert handoff["verified_facts"]["credited_in_case"] == first["case_id"]
     assert len(logged_events(real_fixture_app_db, "simulated_credit")) == 1
 
 
@@ -964,7 +964,8 @@ def test_an_unusable_assessment_is_reported_as_the_models_failure(real_fixture_a
     assert final["state"] == CaseState.ESCALATED
     assert len(logged_events(real_fixture_app_db, "explanation_parse_failed")) == 2
     handoff = cases.get_case(final["case_id"], db_path=real_fixture_app_db).handoff
-    assert handoff["open_questions"] == [handoffs.ASSESSMENT_FAILED]
+    assert handoff["policy_reasons"] == [handoffs.ASSESSMENT_FAILED]
+    assert handoff["open_questions"] == [handoffs.EXPLANATION_REVIEW_QUESTION]
 
 
 def test_a_too_short_explanation_is_not_labelled_as_a_model_summary(real_fixture_app_db):
@@ -973,7 +974,7 @@ def test_a_too_short_explanation_is_not_labelled_as_a_model_summary(real_fixture
     _explain(session, real_fixture_app_db, picked["case_id"], text="no sé")
     final = _explain(session, real_fixture_app_db, picked["case_id"], text="nada")
 
-    facts = cases.get_case(final["case_id"], db_path=real_fixture_app_db).handoff["facts"]
+    facts = cases.get_case(final["case_id"], db_path=real_fixture_app_db).handoff["customer_reported"]
     assert "demasiado breve" in facts["explanation_assessment"]
     assert "explanation_summary" not in facts
 
@@ -1073,7 +1074,7 @@ def test_a_new_case_on_a_charge_already_escalated_after_an_explanation_escalates
     assert event_sequence(real_fixture_app_db, retry["case_id"]).count("explanation_requested") == 0
     assert prior["case_id"] not in retry["reply"]
     handoff = cases.get_case(retry["case_id"], db_path=real_fixture_app_db).handoff
-    assert handoff["facts"]["prior_case"] == prior["case_id"]
+    assert handoff["verified_facts"]["prior_case"] == prior["case_id"]
     assert any(prior["case_id"] in q for q in handoff["open_questions"])
     assert logged_events(real_fixture_app_db, "prior_escalation_same_charge") == [
         {"matched_transaction_id": AUTO_RESOLVE_CHARGE, "prior_case_id": prior["case_id"]}
@@ -1089,7 +1090,7 @@ def test_a_typed_report_of_a_charge_escalated_after_an_explanation_escalates(rea
 
     assert retry["state"] == CaseState.ESCALATED
     handoff = cases.get_case(retry["case_id"], db_path=real_fixture_app_db).handoff
-    assert handoff["facts"]["prior_case"] == prior["case_id"]
+    assert handoff["verified_facts"]["prior_case"] == prior["case_id"]
 
 
 def test_a_charge_escalated_on_a_request_for_a_person_can_still_be_explained(real_fixture_app_db):
@@ -1129,7 +1130,7 @@ def test_a_new_case_on_a_charge_still_open_after_an_explanation_attempt_escalate
     assert retry["case_id"] != prior["case_id"]
     assert prior["case_id"] not in retry["reply"]
     handoff = cases.get_case(retry["case_id"], db_path=real_fixture_app_db).handoff
-    assert handoff["facts"]["prior_case"] == prior["case_id"]
+    assert handoff["verified_facts"]["prior_case"] == prior["case_id"]
     assert logged_events(real_fixture_app_db, "prior_escalation_same_charge") == [
         {"matched_transaction_id": AUTO_RESOLVE_CHARGE, "prior_case_id": prior["case_id"]}
     ]

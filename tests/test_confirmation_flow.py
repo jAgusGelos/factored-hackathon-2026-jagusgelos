@@ -203,8 +203,8 @@ def test_rejection_with_no_rounds_left_escalates(real_fixture_app_db):
     # The rejected charge stays as evidence for the agent, but is no longer the match.
     assert case.handoff["evidence"] == [proposed]
     assert case.matched_transaction_id is None
-    assert case.handoff["facts"]["customer_confirmation"] == "no"
-    assert set(case.handoff) == {"facts", "actions_taken", "evidence", "open_questions"}
+    assert case.handoff["customer_reported"]["customer_confirmation"] == "no"
+    assert set(case.handoff) == {"request_summary", "verified_facts", "customer_reported", "policy_reasons", "actions_taken", "evidence", "open_questions"}
 
 
 def test_asking_for_a_human_at_the_confirmation_step_first_gets_the_agent_to_try(real_fixture_app_db):
@@ -419,7 +419,7 @@ def test_yes_that_fails_reverification_is_recorded_as_a_confirmed_yes(real_fixtu
     reply = _confirm(session, real_fixture_app_db, first["case_id"], client)
 
     handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
-    assert handoff["facts"]["customer_confirmation"] == "yes"
+    assert handoff["customer_reported"]["customer_confirmation"] == "yes"
     assert "no la confirmó" not in handoff["actions_taken"][0]
     assert handoff["evidence"] == [matched_id]
 

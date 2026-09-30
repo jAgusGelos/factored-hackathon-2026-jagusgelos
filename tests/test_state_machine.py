@@ -179,7 +179,7 @@ def test_confident_match_over_threshold_escalates_with_handoff(fixture_con):
     assert evaluation.state == CaseState.ESCALATED
     assert evaluation.handoff is not None
     assert "TRX-1" in evaluation.handoff.evidence
-    assert any("amount_usd" in r for r in evaluation.handoff.open_questions)
+    assert any("amount_usd" in r for r in evaluation.handoff.policy_reasons)
 
 
 def test_zero_matches_asks_the_customer_to_pick(fixture_con):
@@ -232,10 +232,12 @@ def test_escalated_case_never_has_empty_handoff_facts(fixture_con):
         currency="USD",
     )
     assert evaluation.state == CaseState.ESCALATED
-    assert evaluation.handoff.facts
+    assert evaluation.handoff.verified_facts["transaction_id"]
+    assert evaluation.handoff.request_summary
     assert isinstance(evaluation.handoff.actions_taken, tuple)
     assert isinstance(evaluation.handoff.evidence, tuple)
     assert isinstance(evaluation.handoff.open_questions, tuple)
+    assert isinstance(evaluation.handoff.policy_reasons, tuple)
 
 
 def test_resuming_another_customers_case_raises_ownership_error(tmp_path):
@@ -255,8 +257,9 @@ def test_customer_requested_human_without_amount_or_date_records_no_fabricated_f
 
     evaluation = handoffs.human_request(ReportedCharge(amount=None, date=None, currency="MXN"))
     assert evaluation.state == CaseState.ESCALATED
-    assert "reported_amount" not in evaluation.handoff.facts
-    assert "reported_date" not in evaluation.handoff.facts
+    assert "amount" not in evaluation.handoff.customer_reported
+    assert "date" not in evaluation.handoff.customer_reported
+    assert evaluation.handoff.verified_facts == {}
 
 
 def test_fixture_lookup_failure_forces_escalation_with_the_escalation_notice(tmp_path, monkeypatch):

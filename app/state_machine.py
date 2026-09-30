@@ -137,12 +137,6 @@ __all__ = [
 _COUNTRY_CURRENCY = {"México": "MXN", "Colombia": "COP", "Argentina": "ARS"}
 _DEFAULT_CURRENCY = "USD"
 
-IDENTIFIED_BY_REPORT = "Se localizó una transacción que coincide con el monto y la fecha reportados."
-IDENTIFIED_BY_PICK = "El cliente eligió este cargo de la lista de sus movimientos."
-IDENTIFIED_BY_MERCHANT = "El cliente nombró el comercio y es su único cargo que coincide."
-IDENTIFIED_BY_CONFIRMATION = "El cliente confirmó el cargo propuesto."
-
-
 # -- Policy verdicts (no side effects) ----------------------------------------
 
 
@@ -172,7 +166,7 @@ def evaluate_case(
     if evaluate_match(candidates) == MatchOutcome.AMBIGUOUS:
         return CaseEvaluation(state=CaseState.SELECTING, candidates=tuple(candidates))
     return evaluate_transaction(
-        session, candidates[0], report=report, how_identified=IDENTIFIED_BY_REPORT, db_path=db_path,
+        session, candidates[0], report=report, how_identified=handoffs.IDENTIFIED_BY_REPORT, db_path=db_path,
     )
 
 
@@ -451,9 +445,10 @@ def _handle_human_request(turn: Turn) -> ChatReply:
                 turn.report, case, customer_confirmation=str(llm.ConfirmationAnswer.HUMAN),
                 action="Cliente solicitó explícitamente hablar con un agente humano.",
                 open_question="El cliente prefirió hablar con una persona antes de confirmar el cargo propuesto.",
-                customer_reason=EscalationReason.HUMAN_REQUESTED,
+                customer_reason=EscalationReason.HUMAN_REQUESTED, charge=_proposed_charge(turn),
             ))
-        return escalate(turn, handoffs.human_request(turn.report), charge=_charge_being_explained(turn))
+        explained = _charge_being_explained(turn)
+        return escalate(turn, handoffs.human_request(turn.report, explained), charge=explained)
     turn = replace(turn, human_requested=True)
     state = CaseState(case.state)
     if state in (CaseState.AWAITING_EXPLANATION, CaseState.CONFIRMING):
@@ -466,6 +461,11 @@ def _handle_human_request(turn: Turn) -> ChatReply:
     report = turn.report
     search = find_charges(turn.session, report) if report.has_details else recent_charges(turn.session)
     return _offer(turn, search, report, spend_round=False, human_deferred=True)
+
+
+def _proposed_charge(turn: Turn) -> TransactionCandidate | None:
+    matched_id = turn.case.matched_transaction_id
+    return get_own_transaction(turn.session, matched_id) if matched_id else None
 
 
 def _charge_being_explained(turn: Turn) -> TransactionCandidate | None:
@@ -531,7 +531,7 @@ def _confirm_proposed_charge(turn: Turn, report: ReportedCharge) -> ChatReply:
     case = turn.case
     matched = get_own_transaction(turn.session, case.matched_transaction_id) if case.matched_transaction_id else None
     evaluation = (
-        _policy_verdict(turn, matched, report, IDENTIFIED_BY_CONFIRMATION)
+        _policy_verdict(turn, matched, report, handoffs.IDENTIFIED_BY_CONFIRMATION)
         if matched is not None else CaseEvaluation(state=CaseState.ESCALATED)
     )
     if evaluation.state == CaseState.RESOLVED_AUTO:
@@ -539,12 +539,13 @@ def _confirm_proposed_charge(turn: Turn, report: ReportedCharge) -> ChatReply:
             turn, matched, expected_states=(CaseState.CONFIRMING,), expected_match=matched.transaction_id,
         )
     turn.log_event("confirmation_reverification_failed", {"state": evaluation.state})
-    reasons = evaluation.resolution_reasons or (evaluation.handoff.open_questions if evaluation.handoff else ())
+    reasons = evaluation.resolution_reasons
     return escalate(turn, handoffs.confirmation_outcome(
         report, case, customer_confirmation=str(llm.ConfirmationAnswer.YES),
         action="El cliente confirmó el cargo propuesto, pero la política no permitió auto-resolverlo al re-verificar.",
-        open_question="; ".join(reasons) or "No se pudo volver a verificar la transacción propuesta.",
-        customer_reason=EscalationReason.NEEDS_REVIEW,
+        open_question=handoffs.POLICY_REVIEW_QUESTION if reasons
+        else "No se pudo volver a verificar la transacción propuesta.",
+        customer_reason=EscalationReason.NEEDS_REVIEW, charge=matched, policy_reasons=reasons,
     ), charge=matched)
 
 
@@ -579,7 +580,7 @@ def _handle_selection(turn: Turn, transaction_id: str) -> ChatReply:
         return turn.reply(CaseState(case.state), replies.SELECTION_UNAVAILABLE[turn.language], current_options(turn))
 
     turn.log_event("charge_selected", {"transaction_id": transaction_id})
-    evaluation = _policy_verdict(turn, matched, turn.report, IDENTIFIED_BY_PICK)
+    evaluation = _policy_verdict(turn, matched, turn.report, handoffs.IDENTIFIED_BY_PICK)
     if evaluation.state == CaseState.RESOLVED_AUTO:
         # Picking the charge is the customer's identification of it (AD-12);
         # what happened with it comes next.
@@ -884,5 +885,5 @@ def _handle_partial_report(
     if merchant_named_now and search.matched_on_merchant and len(search.charges) == 1:
         # "El de Uber": exactly one of their charges is at that merchant, so
         # propose it instead of making them pick from a list of one.
-        return _propose_or_escalate(turn, search.charges[0], report, IDENTIFIED_BY_MERCHANT)
+        return _propose_or_escalate(turn, search.charges[0], report, handoffs.IDENTIFIED_BY_MERCHANT)
     return _offer(turn, search, report, spend_round=spend_round)

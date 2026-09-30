@@ -187,3 +187,23 @@ def test_get_case_describes_the_matched_charge(client):
         "transaction_id": "TRX-9", "date": "2026-06-01", "amount": 50.0, "currency": "USD",
         "merchant": "Cine", "category": "Entertainment",
     }
+
+
+def test_get_case_never_sends_the_policy_reasons_to_the_customer_session(client):
+    from app import cases
+
+    _login(client)
+    case_id = client.post("/api/chat", json={"message": "hola"}).json()["case_id"]
+    reasons = ["fraud_score=91.0 at/above the 30.0 threshold", "amount_usd=900.0 exceeds the 500.0 auto-resolve cap"]
+    stored = {
+        "request_summary": "El cliente disputa un cargo.", "verified_facts": {}, "customer_reported": {},
+        "policy_reasons": reasons, "actions_taken": ["x"], "evidence": [], "open_questions": ["y"],
+    }
+    cases.update_case(case_id, state="escalated", handoff=stored)
+
+    body = client.get(f"/api/case/{case_id}").json()
+    assert "policy_reasons" not in body["handoff"]
+    assert body["handoff"]["policy_reason_count"] == len(reasons)
+    text = json.dumps(body)
+    assert "threshold" not in text and "fraud_score" not in text and "auto-resolve cap" not in text
+    assert cases.get_case(case_id).handoff["policy_reasons"] == reasons

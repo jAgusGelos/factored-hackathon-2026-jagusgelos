@@ -39,7 +39,6 @@ class PolicyVerdict(Protocol):
     ) -> CaseEvaluation: ...
 
 
-IDENTIFIED_AND_EXPLAINED = "El cliente identificó el cargo y explicó qué pasó."
 
 
 def _charge_context(turn: Turn, state: str, matched: TransactionCandidate) -> llm.PromptContext:
@@ -181,14 +180,16 @@ def handle_explanation(
         )
     # The explanation raised no red flag; the evidence check for the reason it
     # names decides (a persuasive story alone never credits anything).
-    evaluation = policy_verdict(turn, matched, report, IDENTIFIED_AND_EXPLAINED, reason=assessment.reason)
+    evaluation = policy_verdict(turn, matched, report, handoffs.IDENTIFIED_AND_EXPLAINED, reason=assessment.reason)
     if evaluation.state == CaseState.RESOLVED_AUTO:
         return finish_resolved(
             turn, matched, reason=assessment.reason, twins=evaluation.duplicate_twins,
             expected_states=(CaseState.AWAITING_EXPLANATION,), expected_match=matched.transaction_id,
         )
-    facts = {**evaluation.handoff.facts, **handoffs.explanation_facts(assessment, too_short=too_short)}
-    handoff = replace(evaluation.handoff, facts=facts)
+    reported = {
+        **evaluation.handoff.customer_reported, **handoffs.explanation_reported(assessment, too_short=too_short),
+    }
+    handoff = replace(evaluation.handoff, customer_reported=reported)
     return finish_escalated(turn, replace(evaluation, handoff=handoff), report)
 
 

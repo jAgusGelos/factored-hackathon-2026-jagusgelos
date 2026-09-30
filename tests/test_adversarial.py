@@ -181,7 +181,7 @@ def test_injection_in_the_explanation_cannot_credit_a_card_present_charge(app_db
     assert reply["state"] == CaseState.ESCALATED
     case = cases.get_case(reply["case_id"], db_path=app_db)
     assert case.resolution_reference is None
-    assert any("card-present" in q for q in case.handoff["open_questions"])
+    assert any("card-present" in q for q in case.handoff["policy_reasons"])
 
 
 def test_extraction_schema_has_no_field_that_could_authorize_an_action():
