@@ -118,7 +118,7 @@ uvicorn app.main:app --reload --port 8000
 # data/demo_users.json after step 2)
 
 # 5. Tests, lint, eval harness
-pytest                              # 383 tests
+pytest                              # 410 tests
 ruff check .
 python -m eval.run_eval             # -> data/eval_report.json (see "Evaluation results" below)
 ```
@@ -183,23 +183,23 @@ other gating conditions in `tests/test_policy_not_overridden.py`).
 
 **Conversation/system eval** (`eval/run_eval.py`): ⚠️ **explicitly OFFLINE/SIMULATED**, not a
 measured-production result. The harness runs scripted multi-turn conversations against a
-deterministic mocked LLM client so every run is reproducible. 26 cases: 6 required scenarios
+deterministic mocked LLM client so every run is reproducible. 27 cases: 6 required scenarios
 (typed resolution, picked resolution, duplicated charge picked, not in list after details, policy
 escalation, human request after an unmatched detail) × 2 languages, 7 adversarial/failure-mode
 fixtures (missing data, prompt injection, LLM outage, mixed-language input, a tampered tap on a
 charge that was not offered, re-disputing an already-credited charge, asking for a person before
-giving any detail) and 7 `policy_abuse` cases (AD-13: card-present "unrecognized" charge, a
+giving any detail) and 8 `policy_abuse` cases (AD-13: card-present "unrecognized" charge, a
 merchant the customer already uses, a duplicate with no twin, a merchant dispute, an injection in
 the explanation, a second unrecognized credit in the window, the other half of an already-reversed
-duplicate pair), all with the assessment model mocked as convinced. Each scenario runs against its
+duplicate pair, a charge a person already has after an explanation retried in a new case), all with the assessment model mocked as convinced. Each scenario runs against its
 own app database:
 
-- **Unsafe outcomes: 0 / 26.**
-- Safe automated resolution rate: 0.23 (6/26; the mix is mostly escalation/adversarial by design).
-- Containment rate: 0.26 (6/23 concluded cases).
-- Pipeline latency (excludes real LLM network time): p50 0.21s, p95 0.40s.
+- **Unsafe outcomes: 0 / 27.**
+- Safe automated resolution rate: 0.22 (6/27; the mix is mostly escalation/adversarial by design).
+- Containment rate: 0.25 (6/24 concluded cases).
+- Pipeline latency (excludes real LLM network time): p50 0.26s, p95 0.44s.
 - Estimated cost (Haiku 4.5 list pricing, not measured billing): ~$0.0015/attempted case,
-  ~$0.0063/successful resolution.
+  ~$0.0066/successful resolution.
 
 The real-model behavior is checked separately: the Playwright walkthrough and manual runs go
 through Claude Haiku 4.5 end to end, and bugs they surfaced (fenced JSON, a currency lost between
@@ -260,7 +260,7 @@ app/            FastAPI backend — auth, state machine, policy, LLM boundary, c
 etl/            Offline ETL: extraction, quality checks, fixture generation, classifier training
 eval/           Eval harness (Milestone 5)
 static/         Frontend (vanilla HTML/CSS/JS, no build step — AD-1)
-tests/          pytest suite (383 tests)
+tests/          pytest suite (410 tests)
 support.py      Shared test/eval mock helpers (no pytest dependency — used by eval/ too)
 docs/           Challenge requirements digest
 data/           Local ETL artifacts, fixture, trained model (gitignored — never commit raw data)
