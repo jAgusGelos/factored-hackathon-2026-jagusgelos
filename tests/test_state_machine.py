@@ -367,3 +367,12 @@ def test_a_stored_dispute_reason_reads_back_as_the_same_reason(tmp_path, reason)
 
     stored = cases.get_case(case.case_id, db_path=app_db)
     assert ReportedCharge.from_case(stored).reason is reason
+
+
+def test_a_confirmed_charge_found_already_credited_keeps_that_open_question():
+    from app import handoffs
+    from app.state_machine import _reverification_question
+    from tests.support import clean_txn
+
+    evaluation = handoffs.already_credited(ReportedCharge(amount=None, date=None, currency=None), clean_txn(), "CASE-0")
+    assert _reverification_question(evaluation) == evaluation.handoff.open_questions[0]

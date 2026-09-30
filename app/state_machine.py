@@ -474,10 +474,9 @@ def _charge_being_explained(turn: Turn) -> TransactionCandidate | None:
     picked or confirmed, so an escalation there may name it (plan.md AD-5).
     Anywhere else the stored match may be an unconfirmed proposal: None.
     """
-    case = turn.case
-    if case.state != CaseState.AWAITING_EXPLANATION or not case.matched_transaction_id:
+    if turn.case.state != CaseState.AWAITING_EXPLANATION:
         return None
-    return get_own_transaction(turn.session, case.matched_transaction_id)
+    return _proposed_charge(turn)
 
 
 _ACTION_ANSWERS = {
@@ -530,7 +529,7 @@ def _handle_confirmation(turn: Turn, text: str, action: CustomerAction | None = 
 
 def _confirm_proposed_charge(turn: Turn, report: ReportedCharge) -> ChatReply:
     case = turn.case
-    matched = get_own_transaction(turn.session, case.matched_transaction_id) if case.matched_transaction_id else None
+    matched = _proposed_charge(turn)
     evaluation = (
         _policy_verdict(turn, matched, report, handoffs.ChargeIdentification.CONFIRMATION)
         if matched is not None else CaseEvaluation(state=CaseState.ESCALATED)
@@ -540,14 +539,20 @@ def _confirm_proposed_charge(turn: Turn, report: ReportedCharge) -> ChatReply:
             turn, matched, expected_states=(CaseState.CONFIRMING,), expected_match=matched.transaction_id,
         )
     turn.log_event("confirmation_reverification_failed", {"state": evaluation.state})
-    reasons = evaluation.resolution_reasons
     return escalate(turn, handoffs.confirmation_outcome(
         report, case, customer_confirmation=str(llm.ConfirmationAnswer.YES),
         action="El cliente confirmó el cargo propuesto, pero la política no permitió auto-resolverlo al re-verificar.",
-        open_question=handoffs.POLICY_REVIEW_QUESTION if reasons
-        else "No se pudo volver a verificar la transacción propuesta.",
-        customer_reason=EscalationReason.NEEDS_REVIEW, charge=matched, policy_reasons=reasons,
+        open_question=_reverification_question(evaluation), customer_reason=EscalationReason.NEEDS_REVIEW,
+        charge=matched, policy_reasons=evaluation.resolution_reasons,
     ), charge=matched)
+
+
+def _reverification_question(evaluation: CaseEvaluation) -> str:
+    if evaluation.resolution_reasons:
+        return handoffs.POLICY_REVIEW_QUESTION
+    if evaluation.handoff is not None:
+        return "; ".join(evaluation.handoff.open_questions)
+    return "No se pudo volver a verificar la transacción propuesta."
 
 
 def _charges_other_than_proposed(turn: Turn, report: ReportedCharge) -> ChargeSearch:
