@@ -1,7 +1,7 @@
 """Test-only re-exports of `support.py` plus the pytest skip marker.
 
 `support.py` (repo root) has no pytest dependency, since `eval/run_eval.py`
-(a standalone script) imports from it too — this module adds the
+(a standalone script) imports from it too; this module adds the
 pytest-specific bits on top, for `tests/` only.
 """
 
@@ -83,6 +83,7 @@ __all__ = [
     "session_for",
     "requires_real_fixture",
     "STATIC",
+    "EM_DASH",
     "chat_js_language_block",
     "assert_escalation_notice",
     "CONTACT_DEADLINE",
@@ -92,6 +93,7 @@ __all__ = [
 ]
 
 STATIC = REPO_ROOT / "static"
+EM_DASH = "\u2014"
 
 HANDOFF_KEYS = {
     "request_summary", "verified_facts", "customer_reported", "policy_reasons", "actions_taken", "evidence",

@@ -6,9 +6,9 @@ eligible cases automatically under an explicit policy, shows the customer their 
 from when the report is ambiguous, declines requests outside its scope, and hands off complex/high-risk cases to a human agent with a structured,
 verified case file. Built for the [Factored AI & Data Hackathon 2026](docs/challenge/challenge-brief.md).
 
-Full planning record (architecture decisions, research, design rationale): `.workspace/features/dispute-agent/`
-(`plan.md`, `todo.md`, `findings.md`, `DESIGN.md`). This README summarizes what's relevant to run,
-evaluate, and understand the shipped system.
+Architecture decisions of every feature, condensed: [`docs/architecture-decisions.md`](docs/architecture-decisions.md).
+The research and review record behind them is a local planning folder that is not part of the
+repo. This README summarizes what's relevant to run, evaluate, and understand the shipped system.
 
 ## Architecture at a glance
 
@@ -57,8 +57,9 @@ app/llm.py::generate_response()       <- LLM, NLG only, grounded in build_prompt
 **Why this split:** the challenge requires permissions/policy enforced *in code*, not in a model
 prompt. The LLM never decides whether to auto-resolve or escalate — it only extracts structured
 entities from free text and phrases the (code-decided) outcome in natural language. See
-`.workspace/features/dispute-agent/plan.md` (Architecture Decisions AD-1 through AD-11) for the
-full rationale, alternatives considered, and the three-experts/Codex adversarial review record.
+`docs/architecture-decisions.md` (dispute-agent AD-1 through AD-13) for each decision and its
+consequences; the local planning record (not in the repo) holds the full rationale, alternatives
+considered, and the three-experts/Codex adversarial review record.
 
 **Register.** The demo customer is Colombian, so every Spanish text addresses them as "usted", in
 neutral, professional Latin American Spanish (Portuguese uses "você" without slang): the fixed
@@ -371,14 +372,14 @@ tests/          pytest suite (666 tests)
 support.py      Shared test/eval mock helpers (no pytest dependency — used by eval/ too)
 docs/           Challenge requirements digest
 data/           Local ETL artifacts, fixture, trained model (gitignored — never commit raw data)
-.workspace/     Full planning record: plan.md, todo.md, findings.md, DESIGN.md (gitignored)
+.workspace/     Local planning record (gitignored); its decisions are in docs/architecture-decisions.md
 ```
 
 ## Submission checklist (per challenge rules)
 
 - [x] Public GitHub repo named `factored-hackathon-2026-jagusgelos`
 - [ ] Deployed tool link — pending a deployment-platform decision (Fly.io vs. Render; Fly.io
-      requires a credit card on file — see `.workspace/features/dispute-agent/plan.md` Open Questions).
+      requires a credit card on file; see dispute-agent AD-7 in `docs/architecture-decisions.md`).
       Deploy artifacts are ready (`Dockerfile`, `docker-entrypoint.sh`, `fly.toml`, `render.yaml`)
       and locally verified (a real Docker build + a real container-restart persistence test) —
       see `DEPLOY.md` for the exact remaining commands and what's proven vs. still pending.

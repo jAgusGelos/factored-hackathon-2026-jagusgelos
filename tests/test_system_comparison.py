@@ -27,7 +27,7 @@ from eval.run_eval import (
     run,
 )
 from support import REPO_ROOT
-from tests.support import clean_ctx, clean_txn, requires_real_fixture
+from tests.support import EM_DASH, clean_ctx, clean_txn, requires_real_fixture
 
 # Bucket counts in BUCKETS order: correct_resolution, unsafe_resolution,
 # missed_transfer_open, unnecessary_transfer, correct_transfer, correct_open, other_mismatch.
@@ -239,7 +239,6 @@ def test_the_pre_existing_report_keys_are_unchanged(comparison):
 
 README_PATH = REPO_ROOT / "README.md"
 README_SECTION_HEADING = "## System-level comparison"
-EM_DASH = "\u2014"
 
 
 def _readme_comparison_section() -> str:
