@@ -15,8 +15,13 @@ from typing import TypedDict
 
 from app.case_model import CaseState, EscalationReason
 from app.charge_search import ChargeOption, ListFilter, charge_option, iso_day, txn_day
-from app.llm import Language, StatementFact
-from app.policy import ESCALATION_CONTACT_BUSINESS_DAYS, DisputeReason, MissingDetail
+from app.llm import Language
+from app.policy import (
+    ESCALATION_CONTACT_BUSINESS_DAYS,
+    DisputeReason,
+    MissingDetail,
+    StatementField,
+)
 from app.transactions import TransactionCandidate
 
 WELCOME = {
@@ -143,15 +148,15 @@ ASK_FOR_STATEMENT = {
 # statement too short to tell what happened).
 _STATEMENT_FOLLOWUP = {
     Language.ES: {
-        StatementFact.CARD_POSSESSION: (
+        StatementField.CARD_POSSESSION: (
             "Gracias. Para que la persona que revise el caso tenga el contexto, indíqueme si tiene la "
             "tarjeta consigo en este momento."
         ),
-        StatementFact.MERCHANT_KNOWN: (
+        StatementField.MERCHANT_KNOWN: (
             "Gracias. Para que la persona que revise el caso tenga el contexto, indíqueme si conoce este "
             "comercio o si hizo usted esta compra."
         ),
-        StatementFact.HOW_NOTICED: (
+        StatementField.HOW_NOTICED: (
             "Gracias. Para que la persona que revise el caso tenga el contexto, indíqueme cómo y cuándo "
             "se dio cuenta del cargo."
         ),
@@ -161,15 +166,15 @@ _STATEMENT_FOLLOWUP = {
         ),
     },
     Language.PT: {
-        StatementFact.CARD_POSSESSION: (
+        StatementField.CARD_POSSESSION: (
             "Obrigado. Para que a pessoa que revisar o caso tenha o contexto, informe se está com o "
             "cartão neste momento."
         ),
-        StatementFact.MERCHANT_KNOWN: (
+        StatementField.MERCHANT_KNOWN: (
             "Obrigado. Para que a pessoa que revisar o caso tenha o contexto, informe se conhece este "
             "comerciante ou se fez esta compra."
         ),
-        StatementFact.HOW_NOTICED: (
+        StatementField.HOW_NOTICED: (
             "Obrigado. Para que a pessoa que revisar o caso tenha o contexto, informe como e quando "
             "percebeu a cobrança."
         ),
@@ -442,7 +447,7 @@ def explanation_followup(missing_detail: MissingDetail | None, language: Languag
     return _EXPLANATION_FOLLOWUP[language][missing_detail]
 
 
-def statement_followup(fact: StatementFact | None, language: Language) -> str:
+def statement_followup(fact: StatementField | None, language: Language) -> str:
     return _STATEMENT_FOLLOWUP[language][fact]
 
 

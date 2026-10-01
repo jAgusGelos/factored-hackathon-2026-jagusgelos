@@ -8,7 +8,6 @@ check for the reason it names (`policy_verdict`, supplied by
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import replace
 from typing import Protocol
 
@@ -37,6 +36,14 @@ from app.policy import (
     evaluate_explanation,
 )
 from app.transactions import TransactionCandidate, get_own_transaction
+
+
+class HumanRequest(Protocol):
+    """`explained`: this turn's text also told what happened, so the customer
+    is not asked again before a person.
+    """
+
+    def __call__(self, turn: Turn, *, explained: bool) -> ChatReply: ...
 
 
 class PolicyVerdict(Protocol):
@@ -107,6 +114,11 @@ def _explanation_verdict(
     return ExplanationDecision.escalate(handoffs.ASSESSMENT_FAILED)
 
 
+def _tells_what_happened(assessment: ExplanationAssessment) -> bool:
+    """The text also explained the charge, beyond asking for a person."""
+    return assessment.specific or assessment.reason != DisputeReason.UNCLEAR
+
+
 def _asks_for_a_person(turn: Turn, text: str) -> bool:
     """An explanation still too short to be assessed (so no model reads it)
     checked for a request for a person with the extraction call; only its
@@ -124,7 +136,7 @@ def _asks_for_a_person(turn: Turn, text: str) -> bool:
 
 
 def handle_explanation(
-    turn: Turn, text: str, *, policy_verdict: PolicyVerdict, on_human_request: Callable[[Turn], ChatReply],
+    turn: Turn, text: str, *, policy_verdict: PolicyVerdict, on_human_request: HumanRequest,
 ) -> ChatReply:
     """The customer's account of what happened. The model only assesses it;
     `policy.evaluate_explanation` may ask for one more detail or escalate, and
@@ -146,7 +158,7 @@ def handle_explanation(
     # Only when the assessment will not run (it reads `wants_human` itself):
     # at most one model call per turn, inside the shared turn budget.
     if too_short and _asks_for_a_person(turn, text):
-        return on_human_request(turn)
+        return on_human_request(turn, explained=False)
     try:
         assessment = _assess(turn, explanation, matched)
     except llm.LLMUnavailable as exc:
@@ -157,7 +169,7 @@ def handle_explanation(
         )
     if assessment is not None and assessment.wants_human:
         turn.log_event("human_request_detected", {"via": "assessment"})
-        return on_human_request(turn)
+        return on_human_request(turn, explained=_tells_what_happened(assessment))
     attempts_left = case.explanation_attempts + 1 < MAX_EXPLANATION_ATTEMPTS
     decision = _explanation_verdict(assessment, attempts_left=attempts_left)
     turn.log_event(

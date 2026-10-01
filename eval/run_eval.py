@@ -167,8 +167,8 @@ class CaseOutcome:
     language: Language = Language.ES
     escalation_reason: str | None = None
     statement_status: str | None = None
-    # The customer explained the charge in the explanation step, so the
-    # escalation went to a person without a separate statement.
+    # The customer had already explained the charge, so the escalation went
+    # to a person without a separate statement (`handoff_statement_skipped`).
     account_given: bool = False
 
 
@@ -245,7 +245,7 @@ def _run_script(
         latency_seconds=latency, estimated_prompt_chars=sum(map(len, prompts)),
         estimated_completion_chars=sum(map(len, completions)), case_id=case_id, turns=len(steps),
         language=language, **final,
-        account_given="explanation_assessed" in event_sequence(app_db_path, case_id),
+        account_given="handoff_statement_skipped" in event_sequence(app_db_path, case_id),
     )
 
 
@@ -678,7 +678,7 @@ def _statement_completeness(escalated: list[CaseOutcome]) -> dict:
         "missing_case_keys": missing,
         "note": (
             "Denominator: escalated cases that are neither a SERVICE_ISSUE (never asked) nor an "
-            "escalation after the customer's explanation was assessed (already their account)."
+            "escalation after the customer had already explained the charge (`handoff_statement_skipped`, already their account)."
         ),
     }
 

@@ -80,7 +80,8 @@ class Case:
     # An escalation decided in code but not yet handed off: the case waits in
     # `awaiting_statement` for the customer's own account first. Holds the
     # handoff, the reason and a snapshot of the charge the notice names, so
-    # finishing it never re-decides or re-reads anything.
+    # finishing it never re-decides or re-reads anything. Kept after the
+    # hand-off as the record of what was decided before the statement.
     pending_escalation: dict | None = None
     # The customer's statement so far (their own words, app db only, like
     # `explanation_text`; the handoff carries the model's summary and facts).

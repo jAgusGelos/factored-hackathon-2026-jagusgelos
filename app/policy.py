@@ -63,6 +63,7 @@ hackathon-scope simplification, not a validated FX-aware threshold.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from enum import StrEnum
@@ -435,3 +436,71 @@ def evaluate_resolution(txn: TransactionCandidate, ctx: DisputeContext) -> Resol
     if reasons:
         return ResolutionEvaluation(decision=ResolutionDecision.FORCED_ESCALATION, reasons=tuple(reasons))
     return ResolutionEvaluation(decision=ResolutionDecision.AUTO_RESOLVE, reasons=())
+
+
+# -- The customer's statement before a handoff (app/statement.py) ---------------
+
+
+class Tristate(StrEnum):
+    YES = "yes"
+    NO = "no"
+    UNKNOWN = "unknown"
+
+
+class HowNoticed(StrEnum):
+    APP_ALERT = "app_alert"
+    STATEMENT = "statement"
+    SMS_OR_EMAIL = "sms_or_email"
+    OTHER = "other"
+    UNKNOWN = "unknown"
+
+
+class StatementField(StrEnum):
+    """The key facts of the customer's statement, as the handoff names them."""
+
+    DENIES_PURCHASE = "denies_purchase"
+    MERCHANT_KNOWN = "merchant_known"
+    CARD_POSSESSION = "card_possession"
+    HOW_NOTICED = "how_noticed"
+    NOTICED_ON = "noticed_on"
+    OTHER_SUSPICIOUS_ACTIVITY = "other_suspicious_activity"
+
+
+@dataclass(frozen=True)
+class StatementAssessment:
+    """The model's read of the customer's statement before a handoff
+    (`app/statement.py`): a bounded neutral summary and closed-enum facts,
+    so no free customer text reaches the handoff. Every fact the customer
+    did not state is UNKNOWN (or None), never guessed.
+    """
+
+    summary: str
+    # About the latest message only: it refuses to tell more, or asks for a person.
+    declines: bool
+    wants_human: bool
+    denies_purchase: Tristate
+    merchant_known: Tristate
+    card_possession: Tristate
+    how_noticed: HowNoticed
+    noticed_on: str | None
+    other_suspicious_activity: Tristate
+
+    def facts(self) -> dict[StatementField, str | None]:
+        return {field: getattr(self, field) for field in StatementField}
+
+
+# The key facts the statement step may ask its one follow-up about, in the
+# order it asks (`app/statement.py`).
+FOLLOWUP_FACTS = (StatementField.CARD_POSSESSION, StatementField.MERCHANT_KNOWN, StatementField.HOW_NOTICED)
+
+
+def known_fact(value: object) -> bool:
+    """A key fact the customer stated: neither None nor "unknown"."""
+    return value not in (None, Tristate.UNKNOWN, HowNoticed.UNKNOWN)
+
+
+def card_possession_matters(facts: Mapping[str, object]) -> bool:
+    """Card possession only matters when the customer does not say they made
+    the purchase (the statement step's follow-up and the advisor's tasks).
+    """
+    return facts.get(StatementField.DENIES_PURCHASE) != Tristate.NO

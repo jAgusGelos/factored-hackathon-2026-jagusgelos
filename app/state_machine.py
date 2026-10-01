@@ -9,7 +9,8 @@ The agent tries first, once per request (plan.md AD-8): the first request
 to talk to a person keeps the case where it is (charge list, pending
 confirmation, explanation), spends no round, unlocks the handoff in the same
 compare-and-set and ends the reply with an offer; the second request (typed
-or the button) escalates. The handoff is also unlocked silently when the
+or the button) hands the case to a person, after the statement step unless
+the customer already explained the charge. The handoff is also unlocked silently when the
 customer gave details the agent could not resolve (`_offer` /
 `_ask_for_details`) or the clarification rounds are used up, and then the
 first request escalates at once. Policy escalations (fraud score, amount,
@@ -50,7 +51,8 @@ belongs to (an old button still on screen) changes nothing, and a turn sent
 with a `turn_id` is applied at most once (`app/turns.py`).
 
 The explanation step lives in `app/explanation.py` (it receives this
-module's `_policy_verdict`) and the credit it may grant in `app/credit.py`;
+module's `_policy_verdict`), the credit it may grant in `app/credit.py`, and
+the customer's statement before any handoff in `app/statement.py`;
 what every step shares (`Turn`, the compare-and-set transition, escalation)
 is in `app/case_turn.py`.
 
@@ -438,7 +440,7 @@ def _introduce(turn: Turn, scene: PromptScene) -> ChatReply:
 # -- Handlers ------------------------------------------------------------------
 
 
-def _handle_human_request(turn: Turn) -> ChatReply:
+def _handle_human_request(turn: Turn, *, explained: bool = False) -> ChatReply:
     """One "let me try first" per request (plan.md AD-8): the first request
     keeps the case where it is (the charge list, the pending confirmation or
     the explanation) with a fixed text, spends no round and unlocks the
@@ -455,12 +457,13 @@ def _handle_human_request(turn: Turn) -> ChatReply:
                 open_question="El cliente prefirió hablar con una persona antes de confirmar el cargo propuesto.",
                 customer_reason=EscalationReason.HUMAN_REQUESTED, charge=_proposed_charge(turn),
             ))
-        explained = _charge_being_explained(turn)
-        # Only an explanation already on the case is an account of what
-        # happened; without one the statement step asks first.
+        charge = _charge_being_explained(turn)
+        # An explanation on the case, or one this turn's assessment read, is
+        # the customer's account; without one the statement step asks first.
+        account_given = case.state == CaseState.AWAITING_EXPLANATION and (explained or bool(case.explanation_text))
         return escalate(
-            turn, handoffs.human_request(turn.report, explained), charge=explained,
-            account_given=case.state == CaseState.AWAITING_EXPLANATION and bool(case.explanation_text),
+            turn, handoffs.human_request(turn.report, charge, explained=account_given), charge=charge,
+            account_given=account_given,
         )
     turn = replace(turn, human_requested=True)
     state = CaseState(case.state)

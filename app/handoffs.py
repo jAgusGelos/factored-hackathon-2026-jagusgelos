@@ -21,8 +21,16 @@ from app.case_model import (
     ReportedCharge,
 )
 from app.charge_search import iso_day
-from app.llm import ConfirmationAnswer, Tristate, card_possession_matters, known_fact
-from app.policy import MATCH_DATE_TOLERANCE_DAYS, MAX_CASE_TURNS, ExplanationAssessment
+from app.llm import ConfirmationAnswer
+from app.policy import (
+    MATCH_DATE_TOLERANCE_DAYS,
+    MAX_CASE_TURNS,
+    ExplanationAssessment,
+    StatementField,
+    Tristate,
+    card_possession_matters,
+    known_fact,
+)
 from app.replies import format_amount
 from app.transactions import TransactionCandidate
 
@@ -141,15 +149,22 @@ def _escalation(
     )
 
 
-def human_request(report: ReportedCharge, charge: TransactionCandidate | None = None) -> CaseEvaluation:
-    """`charge`: one the customer already confirmed or picked, if any."""
+def human_request(
+    report: ReportedCharge, charge: TransactionCandidate | None = None, *, explained: bool = False,
+) -> CaseEvaluation:
+    """`charge`: one the customer already confirmed or picked, if any.
+    `explained`: they also explained it before asking for a person.
+    """
+    if charge is None:
+        question = "¿Qué cargo quiere revisar el cliente y qué pasó con él?"
+    elif explained:
+        question = EXPLANATION_REVIEW_QUESTION
+    else:
+        question = "¿Qué pasó con este cargo? El cliente pidió una persona antes de explicarlo."
     return _escalation(
         report, "Cliente solicitó explícitamente hablar con un agente humano.",
         customer_reason=EscalationReason.HUMAN_REQUESTED, charge=charge,
-        evidence=_charge_evidence(charge),
-        open_questions=("¿Qué cargo quiere revisar el cliente y qué pasó con él?",) if charge is None else (
-            "¿Qué pasó con este cargo? El cliente pidió una persona antes de explicarlo.",
-        ),
+        evidence=_charge_evidence(charge), open_questions=(question,),
     )
 
 
@@ -216,6 +231,10 @@ def prior_escalation_same_charge(
     )
 
 
+def _model_summary(summary: str) -> str:
+    return f"{summary} (resumen del modelo)"
+
+
 ASSESSMENT_FAILED = (
     "No se pudo evaluar la explicación: la respuesta del modelo no respetó el formato esperado. "
     "Leer la explicación del cliente en los mensajes del caso."
@@ -228,7 +247,7 @@ def explanation_reported(assessment: ExplanationAssessment | None, *, too_short:
     if assessment is None:
         return {"explanation_assessment": "no evaluable (respuesta del modelo inválida)"}
     return {
-        "explanation_summary": f"{assessment.summary} (resumen del modelo)",
+        "explanation_summary": _model_summary(assessment.summary),
         "explanation_specific": _yes_no(assessment.specific),
         "explanation_consistent": _yes_no(assessment.consistent),
     }
@@ -331,11 +350,13 @@ class StatementStatus(StrEnum):
 
 # One advisor task per key fact the statement left unknown.
 _STATEMENT_OPEN_QUESTIONS = {
-    "denies_purchase": "Confirmar con el cliente si hizo o autorizó esta compra.",
-    "merchant_known": "Confirmar con el cliente si conoce el comercio o lo usó alguna vez.",
-    "card_possession": "Confirmar con el cliente si tiene la tarjeta consigo.",
-    "how_noticed": "Confirmar con el cliente cómo y cuándo se dio cuenta del cargo.",
-    "other_suspicious_activity": "Confirmar con el cliente si hay otros cargos o movimientos que no reconoce.",
+    StatementField.DENIES_PURCHASE: "Confirmar con el cliente si hizo o autorizó esta compra.",
+    StatementField.MERCHANT_KNOWN: "Confirmar con el cliente si conoce el comercio o lo usó alguna vez.",
+    StatementField.CARD_POSSESSION: "Confirmar con el cliente si tiene la tarjeta consigo.",
+    StatementField.HOW_NOTICED: "Confirmar con el cliente cómo y cuándo se dio cuenta del cargo.",
+    StatementField.OTHER_SUSPICIOUS_ACTIVITY: (
+        "Confirmar con el cliente si hay otros cargos o movimientos que no reconoce."
+    ),
 }
 CARD_LOST_QUESTION = (
     "Confirmar con el cliente si perdió la tarjeta o se la robaron, y si corresponde bloquearla."
@@ -346,10 +367,10 @@ def _statement_open_questions(facts: dict[str, str | None]) -> tuple[str, ...]:
     unknown = [
         fact for fact in _STATEMENT_OPEN_QUESTIONS
         if not known_fact(facts.get(fact))
-        and (fact != "card_possession" or card_possession_matters(facts))
+        and (fact != StatementField.CARD_POSSESSION or card_possession_matters(facts))
     ]
     questions = tuple(_STATEMENT_OPEN_QUESTIONS[fact] for fact in unknown)
-    return (*questions, CARD_LOST_QUESTION) if facts.get("card_possession") == Tristate.NO else questions
+    return (*questions, CARD_LOST_QUESTION) if facts.get(StatementField.CARD_POSSESSION) == Tristate.NO else questions
 
 
 def with_statement(
@@ -364,7 +385,7 @@ def with_statement(
     facts = facts or {}
     reported = {"statement_status": str(status)}
     if status == StatementStatus.GIVEN:
-        reported["statement_summary"] = f"{summary} (resumen del modelo)"
+        reported["statement_summary"] = _model_summary(summary)
     reported |= {fact: str(value) for fact, value in facts.items() if known_fact(value)}
     return {
         **handoff,

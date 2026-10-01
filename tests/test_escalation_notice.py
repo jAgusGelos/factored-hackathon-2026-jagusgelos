@@ -276,6 +276,20 @@ def test_human_request_after_an_explanation_escalates_at_once(session, real_fixt
 
 
 @requires_real_fixture
+def test_an_explanation_that_also_asks_for_a_person_escalates_at_once(session, real_fixture_app_db):
+    case_id = reach_explaining(session, real_fixture_app_db)
+    _unlock(case_id, real_fixture_app_db, CaseState.AWAITING_EXPLANATION)
+    asks = {**NOT_RECEIVED_ASSESSMENT, "wants_human": True}
+
+    reply = mocked_turn(session, real_fixture_app_db, EXPLANATION, case_id, mock={"assessment": asks})
+
+    _assert_one_phase(reply, real_fixture_app_db)
+    assert_escalation_notice(reply, EscalationReason.HUMAN_REQUESTED, charge_named=True)
+    handoff = cases.get_case(case_id, db_path=real_fixture_app_db).handoff
+    assert handoff["open_questions"] == [handoffs.EXPLANATION_REVIEW_QUESTION]
+
+
+@requires_real_fixture
 def test_human_request_while_selecting_names_no_charge(session, real_fixture_app_db):
     listed = mocked_turn(session, real_fixture_app_db, "Ver mis últimos cargos", action=CustomerAction.SHOW_CHARGES)
     _unlock(listed["case_id"], real_fixture_app_db, CaseState.SELECTING)

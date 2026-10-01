@@ -16,7 +16,8 @@ call, never a new HUMAN_REQUESTED escalation.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, replace
 from enum import StrEnum
 
 from app import handoffs, llm, replies
@@ -29,8 +30,14 @@ from app.case_turn import (
     finish_pending_escalation,
     transition,
 )
-from app.llm import StatementFact, card_possession_matters, known_fact
-from app.policy import MIN_EXPLANATION_WORDS
+from app.policy import (
+    FOLLOWUP_FACTS,
+    MIN_EXPLANATION_WORDS,
+    StatementAssessment,
+    StatementField,
+    card_possession_matters,
+    known_fact,
+)
 
 
 class _Unavailable(StrEnum):
@@ -42,6 +49,32 @@ class _Unavailable(StrEnum):
     UNAVAILABLE = "unavailable"
     INVALID_OUTPUT = "invalid_output"
     EMPTY_SUMMARY = "empty_summary"
+
+
+# The model's summary is the only free text this step adds to a handoff, so
+# code checks it too: one the prompt's bounds do not hold for is dropped.
+_SUMMARY_MAX_WORDS = 40
+_QUOTED_RUN_WORDS = 6
+# Six or more digits (a document, phone or card number), an email, a link or quotes.
+_PERSONAL_DATA = re.compile(r"\d(?:[\s.-]?\d){5,}|@|https?://|[\"“”«»]")
+
+
+def _words(text: str) -> list[str]:
+    return re.findall(r"\w+", text.casefold())
+
+
+def _quotes_the_customer(summary: str, customer_text: str) -> bool:
+    said = _words(customer_text)
+    runs = {tuple(said[i:i + _QUOTED_RUN_WORDS]) for i in range(len(said) - _QUOTED_RUN_WORDS + 1)}
+    written = _words(summary)
+    return any(tuple(written[i:i + _QUOTED_RUN_WORDS]) in runs for i in range(len(written) - _QUOTED_RUN_WORDS + 1))
+
+
+def _summary_is_safe(summary: str, customer_text: str) -> bool:
+    return (
+        len(summary.split()) <= _SUMMARY_MAX_WORDS and not _PERSONAL_DATA.search(summary)
+        and not _quotes_the_customer(summary, customer_text)
+    )
 
 
 @dataclass(frozen=True)
@@ -61,17 +94,17 @@ class _Statement:
     def to_dict(self) -> dict:
         return {"summary": self.summary, "facts": self.facts}
 
-    def merged(self, assessment: llm.StatementAssessment) -> _Statement:
+    def merged(self, assessment: StatementAssessment) -> _Statement:
         """A fact the customer already gave is never lost to a later turn that
         does not repeat it.
         """
-        known = {fact: str(value) for fact, value in assessment.facts().items() if known_fact(value)}
+        known = {str(fact): str(value) for fact, value in assessment.facts().items() if known_fact(value)}
         return _Statement(summary=assessment.summary or self.summary, facts={**self.facts, **known})
 
-    def missing_fact(self) -> StatementFact | None:
-        """The one follow-up, in fixed priority (`llm.StatementFact`)."""
-        for fact in StatementFact:
-            if fact == StatementFact.CARD_POSSESSION and not card_possession_matters(self.facts):
+    def missing_fact(self) -> StatementField | None:
+        """The one follow-up, in fixed priority (`policy.FOLLOWUP_FACTS`)."""
+        for fact in FOLLOWUP_FACTS:
+            if fact == StatementField.CARD_POSSESSION and not card_possession_matters(self.facts):
                 continue
             if not known_fact(self.facts.get(fact)):
                 return fact
@@ -84,12 +117,14 @@ def handle_statement(turn: Turn, text: str, action: CustomerAction | None) -> Ch
     reason (never as a SERVICE_ISSUE).
     """
     case = turn.case
+    if case.pending_escalation is None:
+        raise ValueError(f"A case waiting for the statement without a pending escalation (case {case.case_id})")
     pending = PendingEscalation.from_dict(case.pending_escalation)
     known = _Statement.from_case(case.statement_facts)
     if action == CustomerAction.HUMAN:
         return _on_refusal(turn, pending, known, text=None, via="button")
     if not text.strip():
-        return _ask_more_or_finish(turn, pending, known, text=None, needs_more=True)
+        return _ask_more_or_finish(turn, pending, known, text=None, followup=None, needs_more=True)
     try:
         assessment = llm.assess_statement(
             text, earlier=case.statement_text, charge=charge_prompt_context(turn, CaseState.AWAITING_STATEMENT, pending.charge),
@@ -99,85 +134,101 @@ def handle_statement(turn: Turn, text: str, action: CustomerAction | None) -> Ch
         return _finish_without_assessment(turn, pending, known, text, failure=failure)
     if assessment is None:
         return _finish_without_assessment(turn, pending, known, text, failure=_Unavailable.INVALID_OUTPUT)
+    if assessment.summary and not _summary_is_safe(assessment.summary, f"{case.statement_text or ''}\n{text}"):
+        turn.log_event("handoff_statement_summary_dropped", {"pending_escalation_reason": pending.reason})
+        assessment = replace(assessment, summary="")
     statement = known.merged(assessment)
     if assessment.declines or assessment.wants_human:
         return _on_refusal(turn, pending, statement, text=text, via="text")
-    words = len(f"{case.statement_text or ''} {text}".split())
-    needs_more = words < MIN_EXPLANATION_WORDS or statement.missing_fact() is not None
-    return _ask_more_or_finish(turn, pending, statement, text=text, needs_more=needs_more)
+    # Only this turn: an earlier turn here was a refusal, never part of an account.
+    too_short = len(text.split()) < MIN_EXPLANATION_WORDS
+    followup = statement.missing_fact()
+    return _ask_more_or_finish(
+        turn, pending, statement, text=text, followup=followup, needs_more=too_short or followup is not None,
+    )
 
 
-def _event(turn: Turn, pending: PendingEscalation, event_type: str, **payload) -> None:
+def _outcome(pending: PendingEscalation, event_type: str, **payload) -> tuple[str, dict]:
     # Closed values only: never the customer's words or the model's summary.
-    turn.log_event(event_type, {"pending_escalation_reason": pending.reason, **payload})
+    return event_type, {"pending_escalation_reason": pending.reason, **payload}
 
 
-def _stay(turn: Turn, pending: PendingEscalation, statement: _Statement, text: str | None, **counter) -> ChatReply | None:
+def _stay(
+    turn: Turn, statement: _Statement, text: str | None, *, events: list[tuple[str, dict]], **counter,
+) -> ChatReply | None:
     """Keeps waiting for the statement, appending this turn's text, from the
-    exact counts this turn read (a concurrent statement turn loses).
+    exact counts this turn read (a concurrent statement turn loses). `events`
+    are logged only once the move is claimed.
     """
     case = turn.case
-    return transition(
+    lost = transition(
         turn, CaseState.AWAITING_STATEMENT, expected_states=(CaseState.AWAITING_STATEMENT,),
         expected_statement_counts=(case.statement_followups, case.statement_declines),
         append_statement=text, statement_facts=statement.to_dict(), **counter,
     )
+    if lost:
+        return lost
+    for event_type, payload in events:
+        turn.log_event(event_type, payload)
+    return None
 
 
 def _on_refusal(
     turn: Turn, pending: PendingEscalation, statement: _Statement, *, text: str | None, via: str,
 ) -> ChatReply:
     """The first refusal gets one insistence; the second is handed off as
-    declined. A refusal after the follow-up is not one: the customer already
-    gave their account.
+    declined. A refusal after a follow-up to an account the customer already
+    gave hands that account off instead.
     """
     case = turn.case
-    if case.statement_followups > 0:
+    if case.statement_followups > 0 and statement.summary:
         return _finish(turn, pending, statement, text)
-    _event(turn, pending, "handoff_statement_declined", decline_number=case.statement_declines + 1, via=via)
+    declined = _outcome(pending, "handoff_statement_declined", decline_number=case.statement_declines + 1, via=via)
     if case.statement_declines > 0:
-        return _finish(turn, pending, statement, text, status=handoffs.StatementStatus.DECLINED)
-    lost = _stay(turn, pending, statement, text, add_statement_decline=True)
-    if lost:
-        return lost
-    _event(turn, pending, "handoff_statement_insisted")
-    return turn.reply(CaseState.AWAITING_STATEMENT, replies.STATEMENT_INSIST[turn.language])
+        return _finish(turn, pending, statement, text, status=handoffs.StatementStatus.DECLINED, events=[declined])
+    lost = _stay(
+        turn, statement, text, events=[declined, _outcome(pending, "handoff_statement_insisted")],
+        add_statement_decline=True,
+    )
+    return lost or turn.reply(CaseState.AWAITING_STATEMENT, replies.STATEMENT_INSIST[turn.language])
 
 
 def _ask_more_or_finish(
-    turn: Turn, pending: PendingEscalation, statement: _Statement, *, text: str | None, needs_more: bool,
+    turn: Turn, pending: PendingEscalation, statement: _Statement, *, text: str | None,
+    followup: StatementField | None, needs_more: bool,
 ) -> ChatReply:
     if not needs_more or turn.case.statement_followups > 0:
         return _finish(turn, pending, statement, text)
-    fact = statement.missing_fact()
-    lost = _stay(turn, pending, statement, text, add_statement_followup=True)
-    if lost:
-        return lost
-    _event(turn, pending, "handoff_statement_followup_requested", fact=fact)
-    return turn.reply(CaseState.AWAITING_STATEMENT, replies.statement_followup(fact, turn.language))
+    asked = _outcome(pending, "handoff_statement_followup_requested", fact=followup)
+    lost = _stay(turn, statement, text, events=[asked], add_statement_followup=True)
+    return lost or turn.reply(CaseState.AWAITING_STATEMENT, replies.statement_followup(followup, turn.language))
 
 
 def _finish_without_assessment(
     turn: Turn, pending: PendingEscalation, statement: _Statement, text: str, *, failure: _Unavailable,
 ) -> ChatReply:
     """A summary from an earlier turn still stands; only this turn's text went unread."""
-    _event(turn, pending, "handoff_statement_unavailable", failure_class=failure)
-    return _finish(turn, pending, statement, text, log_outcome=False)
+    unavailable = _outcome(pending, "handoff_statement_unavailable", failure_class=failure)
+    return _finish(turn, pending, statement, text, events=[unavailable])
 
 
 def _finish(
     turn: Turn, pending: PendingEscalation, statement: _Statement, text: str | None,
-    *, status: handoffs.StatementStatus | None = None, log_outcome: bool = True,
+    *, status: handoffs.StatementStatus | None = None, events: list[tuple[str, dict]] | None = None,
 ) -> ChatReply:
+    """`events`: the outcome to log once the hand-off is claimed; by default
+    the one its status implies.
+    """
     if status is None:
         status = handoffs.StatementStatus.GIVEN if statement.summary else handoffs.StatementStatus.SUMMARY_UNAVAILABLE
-    if log_outcome and status == handoffs.StatementStatus.GIVEN:
-        _event(turn, pending, "handoff_statement_available")
-    elif log_outcome and status == handoffs.StatementStatus.SUMMARY_UNAVAILABLE:
-        _event(turn, pending, "handoff_statement_unavailable", failure_class=_Unavailable.EMPTY_SUMMARY)
+    if events is None:
+        events = [
+            _outcome(pending, "handoff_statement_available") if status == handoffs.StatementStatus.GIVEN
+            else _outcome(pending, "handoff_statement_unavailable", failure_class=_Unavailable.EMPTY_SUMMARY)
+        ]
     handoff = handoffs.with_statement(pending.handoff, status=status, summary=statement.summary, facts=statement.facts)
     case = turn.case
     return finish_pending_escalation(
-        turn, pending, handoff, append_statement=text, statement_facts=statement.to_dict(),
+        turn, pending, handoff, claimed_events=events, append_statement=text, statement_facts=statement.to_dict(),
         expected_statement_counts=(case.statement_followups, case.statement_declines),
     )

@@ -29,7 +29,7 @@ import logging
 import re
 import time
 import unicodedata
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
@@ -39,7 +39,14 @@ from typing import TypeVar
 import anthropic
 
 from app import config
-from app.policy import DisputeReason, ExplanationAssessment, MissingDetail
+from app.policy import (
+    DisputeReason,
+    ExplanationAssessment,
+    HowNoticed,
+    MissingDetail,
+    StatementAssessment,
+    Tristate,
+)
 
 logger = logging.getLogger("app.llm")
 
@@ -638,6 +645,8 @@ _ASSESSMENT_SYSTEM_PROMPT = (
 
 
 MAX_CONTRADICTION_CHARS = 120
+# The longest model-written summary kept (explanation and statement alike).
+MODEL_SUMMARY_MAX_CHARS = 300
 
 
 def _parse_assessment(raw: str) -> ExplanationAssessment | None:
@@ -652,7 +661,7 @@ def _parse_assessment(raw: str) -> ExplanationAssessment | None:
             specific=data["specific"],
             consistent=data["consistent"],
             contradictions=tuple(str(c)[:MAX_CONTRADICTION_CHARS] for c in contradictions[:5]),
-            summary=str(data.get("summary") or "")[:300],
+            summary=str(data.get("summary") or "")[:MODEL_SUMMARY_MAX_CHARS],
             missing_detail=_parse_missing_detail(data.get("missing_detail")),
             # Lenient: a missing or non-boolean flag means "not asked".
             wants_human=data.get("wants_human") is True,
@@ -699,69 +708,6 @@ def assess_explanation(explanation: str, *, charge: PromptContext) -> Explanatio
     return assessment
 
 
-class Tristate(StrEnum):
-    YES = "yes"
-    NO = "no"
-    UNKNOWN = "unknown"
-
-
-class HowNoticed(StrEnum):
-    APP_ALERT = "app_alert"
-    STATEMENT = "statement"
-    SMS_OR_EMAIL = "sms_or_email"
-    OTHER = "other"
-    UNKNOWN = "unknown"
-
-
-@dataclass(frozen=True)
-class StatementAssessment:
-    """The model's read of the customer's statement before a handoff
-    (`app/statement.py`): a bounded neutral summary and closed-enum facts,
-    so no free customer text reaches the handoff. Every fact the customer
-    did not state is UNKNOWN (or None), never guessed.
-    """
-
-    summary: str
-    # About the latest message only: it refuses to tell more, or asks for a person.
-    declines: bool
-    wants_human: bool
-    denies_purchase: Tristate
-    merchant_known: Tristate
-    card_possession: Tristate
-    how_noticed: HowNoticed
-    noticed_on: str | None
-    other_suspicious_activity: Tristate
-
-    def facts(self) -> dict[str, str | None]:
-        return {
-            "denies_purchase": self.denies_purchase, "merchant_known": self.merchant_known,
-            "card_possession": self.card_possession, "how_noticed": self.how_noticed,
-            "noticed_on": self.noticed_on, "other_suspicious_activity": self.other_suspicious_activity,
-        }
-
-
-class StatementFact(StrEnum):
-    """The key facts the statement step may ask one follow-up about, in the
-    order it asks (`app/statement.py`).
-    """
-
-    CARD_POSSESSION = "card_possession"
-    MERCHANT_KNOWN = "merchant_known"
-    HOW_NOTICED = "how_noticed"
-
-
-def known_fact(value: object) -> bool:
-    """A key fact the customer stated: neither None nor "unknown"."""
-    return value not in (None, Tristate.UNKNOWN, HowNoticed.UNKNOWN)
-
-
-def card_possession_matters(facts: Mapping[str, object]) -> bool:
-    """Card possession only matters when the customer does not say they made
-    the purchase (the statement step's follow-up and the advisor's tasks).
-    """
-    return facts.get("denies_purchase") != Tristate.NO
-
-
 STATEMENT_MARKER = "[ASSESS_STATEMENT]"
 
 _TRISTATE_CHOICES = "|".join(f'"{value}"' for value in Tristate)
@@ -796,7 +742,6 @@ _STATEMENT_SYSTEM_PROMPT = (
     "clearly state: never guess."
 )
 
-STATEMENT_SUMMARY_MAX_CHARS = 300
 
 
 _Closed = TypeVar("_Closed", bound=StrEnum)
@@ -820,7 +765,7 @@ def _parse_statement(raw: str) -> StatementAssessment | None:
     if not isinstance(data, dict) or not isinstance(data.get("summary"), str):
         return None
     return StatementAssessment(
-        summary=data["summary"].strip()[:STATEMENT_SUMMARY_MAX_CHARS],
+        summary=data["summary"].strip()[:MODEL_SUMMARY_MAX_CHARS],
         declines=data.get("declines") is True,
         wants_human=data.get("wants_human") is True,
         denies_purchase=_closed(Tristate, data.get("denies_purchase"), Tristate.UNKNOWN),

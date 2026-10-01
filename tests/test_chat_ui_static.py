@@ -17,8 +17,8 @@ import pytest
 
 from app import handoffs, replies
 from app.case_model import CaseState, CustomerAction
-from app.llm import ConfirmationAnswer, HowNoticed, Language, Tristate
-from app.policy import DisputeReason
+from app.llm import ConfirmationAnswer, Language
+from app.policy import DisputeReason, HowNoticed, Tristate
 from tests.support import STATIC, chat_js_language_block
 from tests.test_handoff_shape import PRODUCERS
 

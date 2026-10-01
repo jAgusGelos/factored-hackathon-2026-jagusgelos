@@ -239,8 +239,8 @@ class PendingEscalation:
     """An escalation decided in code and held while the customer gives their
     statement (`cases.Case.pending_escalation`): the exact handoff and reason
     it will be handed off with, and the charge its notice names. The charge
-    is a snapshot of its display fields, so finishing the escalation never
-    reads the fixture (a failed read there must not become a SERVICE_ISSUE).
+    is a snapshot (every field but the fraud score), so finishing the
+    escalation never reads the fixture (a failed read there must not become a SERVICE_ISSUE).
     """
 
     reason: EscalationReason
@@ -256,7 +256,8 @@ class PendingEscalation:
                 "transaction_id": charge.transaction_id, "date": iso_day(charge), "amount": charge.amount,
                 "currency": charge.currency, "merchant_name": charge.merchant_name,
                 "merchant_category": charge.merchant_category, "channel": charge.channel,
-                "transaction_status": charge.transaction_status,
+                "transaction_status": charge.transaction_status, "amount_usd": charge.amount_usd,
+                "is_synthetic": charge.is_synthetic, "transaction_type": charge.transaction_type,
             },
         }
 
@@ -265,9 +266,11 @@ class PendingEscalation:
         snapshot = data["charge"]
         charge = None if snapshot is None else TransactionCandidate(
             transaction_id=snapshot["transaction_id"], transaction_date=date.fromisoformat(snapshot["date"]),
-            amount=snapshot["amount"], currency=snapshot["currency"], amount_usd=None, fraud_score=None,
-            transaction_status=snapshot["transaction_status"], merchant_name=snapshot["merchant_name"],
-            merchant_category=snapshot["merchant_category"], channel=snapshot["channel"], is_synthetic=False,
+            amount=snapshot["amount"], currency=snapshot["currency"], amount_usd=snapshot.get("amount_usd"),
+            fraud_score=None, transaction_status=snapshot["transaction_status"],
+            merchant_name=snapshot["merchant_name"], merchant_category=snapshot["merchant_category"],
+            channel=snapshot["channel"], is_synthetic=snapshot.get("is_synthetic", False),
+            transaction_type=snapshot.get("transaction_type"),
         )
         return cls(reason=EscalationReason(data["reason"]), handoff=data["handoff"], charge=charge)
 
@@ -308,6 +311,8 @@ def finish_escalated(
     lost = transition(turn, CaseState.ESCALATED, handoff=handoff, escalation_reason=reason, **fields)
     if lost:
         return lost
+    # The one record of why no statement was asked (the eval reads it).
+    turn.log_event("handoff_statement_skipped", {"reason": "account_given", "escalation_reason": reason})
     turn.log_event("case_escalated", handoff)
     return _escalation_reply(turn, reason, charge=notice_charge)
 
@@ -327,12 +332,16 @@ def _ask_for_statement(turn: Turn, pending: PendingEscalation, fields: dict) -> 
     return turn.reply(CaseState.AWAITING_STATEMENT, replies.ASK_FOR_STATEMENT[turn.language])
 
 
-def finish_pending_escalation(turn: Turn, pending: PendingEscalation, handoff: dict, **fields) -> ChatReply:
+def finish_pending_escalation(
+    turn: Turn, pending: PendingEscalation, handoff: dict, *, claimed_events: list[tuple[str, dict]] = (),
+    **fields,
+) -> ChatReply:
     """Hands off the escalation the statement step held, with its own reason
     and `handoff` (the pending one plus the statement fields), from
     `awaiting_statement` only: a stale or concurrent statement turn loses the
-    compare-and-set instead of escalating twice. `fields`: the statement
-    step's own columns and guards (`cases.update_case`).
+    compare-and-set instead of escalating twice. `claimed_events`: the
+    statement step's outcome, logged only once the hand-off is claimed.
+    `fields`: the statement step's own columns and guards (`cases.update_case`).
     """
     lost = transition(
         turn, CaseState.ESCALATED, expected_states=(CaseState.AWAITING_STATEMENT,), handoff=handoff,
@@ -340,6 +349,8 @@ def finish_pending_escalation(turn: Turn, pending: PendingEscalation, handoff: d
     )
     if lost:
         return lost
+    for event_type, payload in claimed_events:
+        turn.log_event(event_type, payload)
     turn.log_event("case_escalated", handoff)
     return _escalation_reply(turn, pending.reason, charge=pending.charge)
 
