@@ -14,6 +14,7 @@ Below `app/credit.py`, `app/explanation.py`, `app/statement.py` and
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
@@ -333,7 +334,7 @@ def _ask_for_statement(turn: Turn, pending: PendingEscalation, fields: dict) -> 
 
 
 def finish_pending_escalation(
-    turn: Turn, pending: PendingEscalation, handoff: dict, *, claimed_events: list[tuple[str, dict]] = (),
+    turn: Turn, pending: PendingEscalation, handoff: dict, *, claimed_events: Sequence[tuple[str, dict]] = (),
     **fields,
 ) -> ChatReply:
     """Hands off the escalation the statement step held, with its own reason

@@ -17,6 +17,7 @@ call, never a new HUMAN_REQUESTED escalation.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
 
@@ -38,6 +39,7 @@ from app.policy import (
     card_possession_matters,
     known_fact,
 )
+from app.transactions import TransactionCandidate
 
 
 class _Unavailable(StrEnum):
@@ -52,11 +54,15 @@ class _Unavailable(StrEnum):
 
 
 # The model's summary is the only free text this step adds to a handoff, so
-# code checks it too: one the prompt's bounds do not hold for is dropped.
-_SUMMARY_MAX_WORDS = 40
+# code checks it too, with a margin over what the prompt asks: one that does
+# not hold is dropped.
+_SUMMARY_MAX_WORDS = llm.STATEMENT_SUMMARY_MAX_WORDS + 15
 _QUOTED_RUN_WORDS = 6
-# Six or more digits (a document, phone or card number), an email, a link or quotes.
-_PERSONAL_DATA = re.compile(r"\d(?:[\s.-]?\d){5,}|@|https?://|[\"“”«»]")
+# Dates are not personal data; a document, phone or card number is a long run
+# of digits however it is separated.
+_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b")
+_LONG_NUMBER = re.compile(r"\d(?:[\s.,/\-–—]?\d){5,}")
+_CONTACT_OR_QUOTE = re.compile(r"@|https?://|[\"“”«»'‘’]")
 
 
 def _words(text: str) -> list[str]:
@@ -64,15 +70,32 @@ def _words(text: str) -> list[str]:
 
 
 def _quotes_the_customer(summary: str, customer_text: str) -> bool:
-    said = _words(customer_text)
-    runs = {tuple(said[i:i + _QUOTED_RUN_WORDS]) for i in range(len(said) - _QUOTED_RUN_WORDS + 1)}
+    """A run of the customer's own words, or the whole summary when it is shorter."""
     written = _words(summary)
-    return any(tuple(written[i:i + _QUOTED_RUN_WORDS]) in runs for i in range(len(written) - _QUOTED_RUN_WORDS + 1))
+    run = min(_QUOTED_RUN_WORDS, len(written))
+    if run == 0:
+        return False
+    said = _words(customer_text)
+    runs = {tuple(said[i:i + run]) for i in range(len(said) - run + 1)}
+    return any(tuple(written[i:i + run]) in runs for i in range(len(written) - run + 1))
 
 
-def _summary_is_safe(summary: str, customer_text: str) -> bool:
+def _charge_amount_digits(charge: TransactionCandidate | None) -> frozenset[str]:
+    """The charge's own amount as the model may write it (with or without cents)."""
+    if charge is None:
+        return frozenset()
+    return frozenset({str(int(charge.amount)), re.sub(r"\D", "", f"{charge.amount:.2f}")})
+
+
+def _names_personal_data(summary: str, charge: TransactionCandidate | None) -> bool:
+    allowed = _charge_amount_digits(charge)
+    numbers = (re.sub(r"\D", "", match) for match in _LONG_NUMBER.findall(_DATE.sub(" ", summary)))
+    return any(digits not in allowed for digits in numbers) or bool(_CONTACT_OR_QUOTE.search(summary))
+
+
+def _summary_is_safe(summary: str, customer_text: str, charge: TransactionCandidate | None) -> bool:
     return (
-        len(summary.split()) <= _SUMMARY_MAX_WORDS and not _PERSONAL_DATA.search(summary)
+        len(summary.split()) <= _SUMMARY_MAX_WORDS and not _names_personal_data(summary, charge)
         and not _quotes_the_customer(summary, customer_text)
     )
 
@@ -122,7 +145,7 @@ def handle_statement(turn: Turn, text: str, action: CustomerAction | None) -> Ch
     pending = PendingEscalation.from_dict(case.pending_escalation)
     known = _Statement.from_case(case.statement_facts)
     if action == CustomerAction.HUMAN:
-        return _on_refusal(turn, pending, known, text=None, via="button")
+        return _on_refusal(turn, pending, known, text=None, via="button", had_account=bool(known.summary))
     if not text.strip():
         return _ask_more_or_finish(turn, pending, known, text=None, followup=None, needs_more=True)
     try:
@@ -134,17 +157,22 @@ def handle_statement(turn: Turn, text: str, action: CustomerAction | None) -> Ch
         return _finish_without_assessment(turn, pending, known, text, failure=failure)
     if assessment is None:
         return _finish_without_assessment(turn, pending, known, text, failure=_Unavailable.INVALID_OUTPUT)
-    if assessment.summary and not _summary_is_safe(assessment.summary, f"{case.statement_text or ''}\n{text}"):
-        turn.log_event("handoff_statement_summary_dropped", {"pending_escalation_reason": pending.reason})
+    noted: list[tuple[str, dict]] = []
+    customer_text = f"{case.statement_text or ''}\n{text}"
+    if assessment.summary and not _summary_is_safe(assessment.summary, customer_text, pending.charge):
+        noted.append(_outcome(pending, "handoff_statement_summary_dropped"))
         assessment = replace(assessment, summary="")
     statement = known.merged(assessment)
     if assessment.declines or assessment.wants_human:
-        return _on_refusal(turn, pending, statement, text=text, via="text")
+        return _on_refusal(
+            turn, pending, statement, text=text, via="text", had_account=bool(known.summary), noted=noted,
+        )
     # Only this turn: an earlier turn here was a refusal, never part of an account.
     too_short = len(text.split()) < MIN_EXPLANATION_WORDS
     followup = statement.missing_fact()
     return _ask_more_or_finish(
         turn, pending, statement, text=text, followup=followup, needs_more=too_short or followup is not None,
+        noted=noted,
     )
 
 
@@ -154,7 +182,7 @@ def _outcome(pending: PendingEscalation, event_type: str, **payload) -> tuple[st
 
 
 def _stay(
-    turn: Turn, statement: _Statement, text: str | None, *, events: list[tuple[str, dict]], **counter,
+    turn: Turn, statement: _Statement, text: str | None, *, events: Sequence[tuple[str, dict]], **counter,
 ) -> ChatReply | None:
     """Keeps waiting for the statement, appending this turn's text, from the
     exact counts this turn read (a concurrent statement turn loses). `events`
@@ -175,19 +203,22 @@ def _stay(
 
 def _on_refusal(
     turn: Turn, pending: PendingEscalation, statement: _Statement, *, text: str | None, via: str,
+    had_account: bool, noted: Sequence[tuple[str, dict]] = (),
 ) -> ChatReply:
     """The first refusal gets one insistence; the second is handed off as
-    declined. A refusal after a follow-up to an account the customer already
-    gave hands that account off instead.
+    declined. A refusal after a follow-up to an account the customer gave
+    before this turn hands that account off instead.
     """
     case = turn.case
-    if case.statement_followups > 0 and statement.summary:
-        return _finish(turn, pending, statement, text)
+    if case.statement_followups > 0 and had_account:
+        return _finish(turn, pending, statement, text, noted=noted)
     declined = _outcome(pending, "handoff_statement_declined", decline_number=case.statement_declines + 1, via=via)
     if case.statement_declines > 0:
-        return _finish(turn, pending, statement, text, status=handoffs.StatementStatus.DECLINED, events=[declined])
+        return _finish(
+            turn, pending, statement, text, status=handoffs.StatementStatus.DECLINED, events=[*noted, declined],
+        )
     lost = _stay(
-        turn, statement, text, events=[declined, _outcome(pending, "handoff_statement_insisted")],
+        turn, statement, text, events=[*noted, declined, _outcome(pending, "handoff_statement_insisted")],
         add_statement_decline=True,
     )
     return lost or turn.reply(CaseState.AWAITING_STATEMENT, replies.STATEMENT_INSIST[turn.language])
@@ -195,12 +226,12 @@ def _on_refusal(
 
 def _ask_more_or_finish(
     turn: Turn, pending: PendingEscalation, statement: _Statement, *, text: str | None,
-    followup: StatementField | None, needs_more: bool,
+    followup: StatementField | None, needs_more: bool, noted: Sequence[tuple[str, dict]] = (),
 ) -> ChatReply:
     if not needs_more or turn.case.statement_followups > 0:
-        return _finish(turn, pending, statement, text)
+        return _finish(turn, pending, statement, text, noted=noted)
     asked = _outcome(pending, "handoff_statement_followup_requested", fact=followup)
-    lost = _stay(turn, statement, text, events=[asked], add_statement_followup=True)
+    lost = _stay(turn, statement, text, events=[*noted, asked], add_statement_followup=True)
     return lost or turn.reply(CaseState.AWAITING_STATEMENT, replies.statement_followup(followup, turn.language))
 
 
@@ -208,16 +239,20 @@ def _finish_without_assessment(
     turn: Turn, pending: PendingEscalation, statement: _Statement, text: str, *, failure: _Unavailable,
 ) -> ChatReply:
     """A summary from an earlier turn still stands; only this turn's text went unread."""
-    unavailable = _outcome(pending, "handoff_statement_unavailable", failure_class=failure)
-    return _finish(turn, pending, statement, text, events=[unavailable])
+    if statement.summary:
+        outcome = _outcome(pending, "handoff_statement_available", unread_turn=failure)
+    else:
+        outcome = _outcome(pending, "handoff_statement_unavailable", failure_class=failure)
+    return _finish(turn, pending, statement, text, events=[outcome])
 
 
 def _finish(
     turn: Turn, pending: PendingEscalation, statement: _Statement, text: str | None,
-    *, status: handoffs.StatementStatus | None = None, events: list[tuple[str, dict]] | None = None,
+    *, status: handoffs.StatementStatus | None = None, events: Sequence[tuple[str, dict]] | None = None,
+    noted: Sequence[tuple[str, dict]] = (),
 ) -> ChatReply:
-    """`events`: the outcome to log once the hand-off is claimed; by default
-    the one its status implies.
+    """`events`: the outcome to log once the hand-off is claimed (after
+    `noted`); by default the one its status implies.
     """
     if status is None:
         status = handoffs.StatementStatus.GIVEN if statement.summary else handoffs.StatementStatus.SUMMARY_UNAVAILABLE
@@ -229,6 +264,6 @@ def _finish(
     handoff = handoffs.with_statement(pending.handoff, status=status, summary=statement.summary, facts=statement.facts)
     case = turn.case
     return finish_pending_escalation(
-        turn, pending, handoff, claimed_events=events, append_statement=text, statement_facts=statement.to_dict(),
-        expected_statement_counts=(case.statement_followups, case.statement_declines),
+        turn, pending, handoff, claimed_events=[*noted, *events], append_statement=text,
+        statement_facts=statement.to_dict(), expected_statement_counts=(case.statement_followups, case.statement_declines),
     )

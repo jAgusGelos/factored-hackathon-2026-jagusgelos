@@ -106,8 +106,12 @@ declining, with no model call), and then the hand-off with the original reason a
 notice, whatever they answer. The handoff gains `statement_status` (given, declined or
 summary_unavailable), the summary labelled "(resumen del modelo)", the known facts under what the
 customer reported, and one open question per fact still unknown; their own words stay in the case
-record only. Technical failures (`SERVICE_ISSUE`) never ask, nor do escalations after the customer
-already explained the charge in the explanation step. If the summary call fails, the case is handed
+record only. Code also checks the summary, with a margin over the prompt: one longer than 40 words,
+with a long run of digits that is not the charge's amount or a date, an email, a link, quotes, or a
+run of the customer's own words is dropped (`handoff_statement_summary_dropped`) and the statement
+counts as summary_unavailable. Technical failures (`SERVICE_ISSUE`) never ask, nor do escalations
+after the customer already explained the charge in the explanation step, including an explanation
+specific enough to assess that also asked for a person (logged as `handoff_statement_skipped`). If the summary call fails, the case is handed
 off with its original reason, never relabelled as a technical problem.
 
 ## Dispute policy: the evidence decides, not the claim (AD-13)
@@ -170,7 +174,7 @@ uvicorn app.main:app --reload --port 8000
 # data/demo_users.json after step 2)
 
 # 5. Tests, lint, eval harness
-pytest                              # 754 tests
+pytest                              # 765 tests
 ruff check .
 python -m eval.run_eval             # -> data/eval_report.json (see "Evaluation results" below)
 ```
@@ -242,7 +246,7 @@ other gating conditions in `tests/test_policy_not_overridden.py`).
 
 **Conversation/system eval** (`eval/run_eval.py`): ⚠️ **explicitly OFFLINE/SIMULATED**, not a
 measured-production result. The harness runs scripted multi-turn conversations against a
-deterministic mocked LLM client so every run is reproducible. 38 cases: 6 required scenarios
+deterministic mocked LLM client so every run is reproducible. 40 cases: 6 required scenarios
 (typed resolution, picked resolution, duplicated charge picked, not in list after details, policy
 escalation, human request after an unmatched detail) × 2 languages, 7 adversarial/failure-mode
 fixtures (missing data, prompt injection, LLM outage, mixed-language input, a tampered tap on a
@@ -251,25 +255,26 @@ giving any detail), a currency-parity case in Spanish and Portuguese ("38.500 pe
 extraction mocked as COP in Spanish and MXN in Portuguese: both must reach `confirming`) and 8 `policy_abuse` cases (AD-13: card-present "unrecognized" charge, a
 merchant the customer already uses, a duplicate with no twin, a merchant dispute, an injection in
 the explanation, a second unrecognized credit in the window, the other half of an already-reversed
-duplicate pair, a charge a person already has after an explanation retried in a new case), all with the assessment model mocked as convinced, and 9 `statement` cases (the customer's statement
+duplicate pair, a charge a person already has after an explanation retried in a new case), all with the assessment model mocked as convinced, and 11 `statement` cases (the customer's statement
 before a handoff: given in Spanish and Portuguese, declined twice by the button, declined twice in
 text, one follow-up, the summary call timing out, an LLM outage that must not ask, "No está en la
-lista" with no model call on the tap, and an injection in the statement). Every escalating script
+lista" with no model call on the tap, an injection in the statement, and an explanation that also
+asks for a person: a vague one still gets the statement, a specific one does not). Every escalating script
 includes the statement turn, every escalated case must keep its expected reason, a handoff that
 quotes a typed customer message (30 characters or more) word for word is unsafe, and some turns have a model-call ceiling.
 Each scenario runs against its own app database:
 
-- **Unsafe outcomes: 0 / 38.**
-- **Statement completeness: 1.0 (19/19).** `escalation_quality.statement_completeness_rate`: every
+- **Unsafe outcomes: 0 / 40.**
+- **Statement completeness: 1.0 (20/20).** `escalation_quality.statement_completeness_rate`: every
   escalated case that is neither a technical failure nor an escalation after the customer's
   explanation carries a statement outcome (given, declined or summary_unavailable); the cases
   missing one are listed in `missing_case_keys`.
-- By language (`by_language`): Spanish 30 cases, 30 safe (3 resolved, 24 escalated); Portuguese 8
+- By language (`by_language`): Spanish 32 cases, 32 safe (3 resolved, 26 escalated); Portuguese 8
   cases, 8 safe (3 resolved, 4 escalated). The adversarial, policy-abuse and statement cases run in
   Spanish only (except the currency-parity and statement-given cases), so the Portuguese sample is smaller.
-- Safe automated resolution rate: 0.16 (6/38; the mix is mostly escalation/adversarial by design).
-- Containment rate: 0.18 (6/34 concluded cases).
-- Pipeline latency (excludes real LLM network time): p50 0.57s, p95 0.92s.
+- Safe automated resolution rate: 0.15 (6/40; the mix is mostly escalation/adversarial by design).
+- Containment rate: 0.17 (6/36 concluded cases).
+- Pipeline latency (excludes real LLM network time): p50 0.25s, p95 0.48s.
 - Real Claude Haiku 4.5 turn latency (manual runs, 2026-09-30): the explanation turn that resolves took 1.3-6.6 s (median 3.2 s over 8 ES/PT runs; 3.1-17.8 s before the resolution message became a validated template), while a first typed report, which makes two model calls, took 6-22 s (the "38.500 pesos" report, 3 runs per language: 4.1-21.2 s, median 8.9 s). Button and menu taps ("Ver mis últimos cargos", a tapped charge, "Sí, es ese", "No es ese", "No está en la lista", "Hablar con una persona") make no model call and were answered in 0.05-0.14 s (a tapped charge ~1 s, local policy and classifier work), down from 1.2-12.2 s when each paid an NLG call (3 runs each, 2026-09-30). Escalation and first-request-for-a-person turns write their reply from a fixed template (the notice or the question about what happened, the deferral and the offer), with no NLG call: a policy escalation from a typed report took 4.0-5.9 s (its only model call is the extraction), a typed request for a person 1.1-6.2 s (its only model call is the extraction, or the explanation check while a charge is being explained), and the same moves from a button or a tapped charge 0.1-0.9 s (manual runs, 2026-09-30). Every turn's model calls share a 20 s budget and the chat shows a typing indicator, then a retry option at 25 s.
 - Statement before the handoff (manual runs against Claude Haiku 4.5, 2026-10-01: 2 Spanish and 2
   Portuguese policy escalations, "No reconozco una compra en Tienda Online Global" and a complete
@@ -278,8 +283,8 @@ Each scenario runs against its own app database:
   hand and the bank alert as structured facts. The question itself is a template (the escalating
   report took 1.3-1.6 s), and the statement turn, with its one model call, took 1.8-16.7 s (median
   3.7 s over the 8 runs; one Portuguese run hit 16.7 s, inside the 20 s budget).
-- Estimated cost (Haiku 4.5 list pricing, not measured billing): ~$0.0015/attempted case,
-  ~$0.0097/successful resolution.
+- Estimated cost (Haiku 4.5 list pricing, not measured billing): ~$0.0016/attempted case,
+  ~$0.0105/successful resolution.
 
 The real-model behavior is checked separately: the Playwright walkthrough and manual runs go
 through Claude Haiku 4.5 end to end, and bugs they surfaced (fenced JSON, a currency lost between
@@ -322,7 +327,7 @@ turns, over-strict fact checks on natural wordings) are pinned by regression tes
   "pesos" (COP vs MXN). Now a currency counts only when the customer names it (a deterministic check
   on the text, `app/llm.py::stated_currency`), and a mocked test plus 3 real runs per language pin
   the same state. Other wordings may still differ between languages; the eval reports results by
-  language, but its Portuguese sample is 8 cases against 30 in Spanish.
+  language, but its Portuguese sample is 8 cases against 32 in Spanish.
 - **The statement adds one to three turns before most handoffs** (all but technical failures and
   escalations after the customer's explanation). A customer who already asked twice
   for a person is asked what happened, and a refusal gets one insistence before the hand-off. The summary is the model's, labelled as such, and in manual runs
@@ -362,7 +367,7 @@ app/            FastAPI backend — auth, state machine, policy, LLM boundary, c
 etl/            Offline ETL: extraction, quality checks, fixture generation, classifier training
 eval/           Eval harness (Milestone 5)
 static/         Frontend (vanilla HTML/CSS/JS, no build step — AD-1)
-tests/          pytest suite (754 tests)
+tests/          pytest suite (765 tests)
 support.py      Shared test/eval mock helpers (no pytest dependency — used by eval/ too)
 docs/           Challenge requirements digest
 data/           Local ETL artifacts, fixture, trained model (gitignored — never commit raw data)

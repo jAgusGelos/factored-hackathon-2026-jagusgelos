@@ -713,6 +713,9 @@ STATEMENT_MARKER = "[ASSESS_STATEMENT]"
 _TRISTATE_CHOICES = "|".join(f'"{value}"' for value in Tristate)
 _HOW_NOTICED_CHOICES = "|".join(f'"{value}"' for value in HowNoticed)
 
+# What the statement prompt asks of the summary (`app/statement.py` checks it with a margin).
+STATEMENT_SUMMARY_MAX_WORDS = 25
+
 _STATEMENT_SYSTEM_PROMPT = (
     f"{STATEMENT_MARKER} A bank customer whose card dispute is being handed to a human advisor "
     "was asked what happened and why they want a refund. You are given the charge facts (if a "
@@ -727,7 +730,7 @@ _STATEMENT_SYSTEM_PROMPT = (
     f'"noticed_on": <"YYYY-MM-DD"|null>, "other_suspicious_activity": <{_TRISTATE_CHOICES}>}}. '
     "summary: what the customer reports, from everything they said, as one neutral sentence in "
     "correct Spanish (translate it when the customer wrote in Portuguese; never mix the two "
-    "languages), third person, at most 25 words, no names, numbers of documents, phone numbers, "
+    f"languages), third person, at most {STATEMENT_SUMMARY_MAX_WORDS} words, no names, numbers of documents, phone numbers, "
     "emails or other personal data, and no quotes; an empty string if they reported nothing. "
     "declines: true only if the LATEST message refuses or prefers not to tell what happened. "
     "wants_human: true only if the LATEST message asks to talk to a person instead of answering. "
@@ -741,7 +744,6 @@ _STATEMENT_SYSTEM_PROMPT = (
     "not recognize. Use \"unknown\" (or null for noticed_on) for anything the customer did not "
     "clearly state: never guess."
 )
-
 
 
 _Closed = TypeVar("_Closed", bound=StrEnum)

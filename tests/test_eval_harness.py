@@ -77,8 +77,11 @@ def test_run_covers_the_statement_scenarios(tmp_path):
     assert set(statement) == {
         "statement_given[es]", "statement_given[pt]", "statement_declined_twice", "statement_typed_refusal",
         "statement_one_followup", "statement_summary_timeout", "service_issue_bypasses_statement",
-        "tap_to_statement_no_model", "statement_injection",
+        "tap_to_statement_no_model", "statement_injection", "vague_explanation_then_person",
+        "specific_explanation_then_person",
     }
+    assert statement["vague_explanation_then_person"]["statement_status"] == "given"
+    assert statement["specific_explanation_then_person"]["account_given"] is True
     assert statement["statement_summary_timeout"]["escalation_reason"] == "needs_review"
     assert statement["service_issue_bypasses_statement"]["statement_status"] is None
 

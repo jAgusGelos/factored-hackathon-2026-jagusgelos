@@ -469,7 +469,7 @@ def test_the_raw_statement_reaches_neither_the_handoff_nor_the_events(session, a
     assert case.handoff["verified_facts"] == pending["verified_facts"]
 
 
-# -- Review fixes (final review) ---------------------------------------------------
+# -- Summary bounds, refusals after a follow-up, outcome events on a lost race -----
 
 
 @pytest.mark.parametrize(
@@ -559,3 +559,68 @@ def test_an_escalation_that_skips_the_statement_says_why(session, app_db):
     assert logged_events(app_db, "handoff_statement_skipped") == [
         {"reason": "account_given", "escalation_reason": "needs_review"},
     ]
+
+
+@pytest.mark.parametrize(
+    "summary",
+    ["El cliente no reconoce el cargo de 38.500 COP del 2026-06-09.", "Lo notó el 10/06/2026 en la app del banco."],
+    ids=["charge_amount_and_iso_date", "short_date"],
+)
+def test_a_summary_with_the_charge_amount_or_a_date_is_kept(session, app_db, summary):
+    held, _ = _held(session, app_db)
+
+    _say(session, app_db, held["case_id"], statement={**GIVEN_STATEMENT, "summary": summary})
+
+    assert _handoff(app_db, held["case_id"])["customer_reported"]["statement_status"] == "given"
+
+
+@pytest.mark.parametrize(
+    "summary",
+    ["Teléfono 300 555 1234 para contactarlo.", "Cédula 1.023.456.789 del cliente.", "Pidió que 'devuelvan todo'.",
+     "No reconozco este cargo nunca"],
+    ids=["phone", "dotted_document", "single_quotes", "short_echo"],
+)
+def test_a_summary_with_other_numbers_quotes_or_a_short_echo_is_dropped(session, app_db, summary):
+    held, _ = _held(session, app_db)
+
+    _say(session, app_db, held["case_id"], "No reconozco este cargo nunca", statement={**GIVEN_STATEMENT, "summary": summary})
+
+    assert _handoff(app_db, held["case_id"])["customer_reported"]["statement_status"] == "summary_unavailable"
+
+
+def test_a_typed_refusal_after_a_follow_up_to_no_account_gets_the_insistence(session, app_db):
+    held, _ = _held(session, app_db)
+    refusal_read_as_summary = {**DECLINE, "summary": "El cliente prefiere no dar detalles."}
+
+    _say(session, app_db, held["case_id"], "hola", statement={**DECLINE, "declines": False})
+    insisted = _say(session, app_db, held["case_id"], "no quiero contar nada", statement=refusal_read_as_summary)
+
+    assert insisted["reply"] == replies.STATEMENT_INSIST[Language.ES]
+
+
+def test_a_dropped_summary_is_not_logged_by_a_turn_that_loses_the_race(session, app_db):
+    held, _ = _held(session, app_db)
+    stale = cases.get_case(held["case_id"], db_path=app_db)
+    _say(session, app_db, held["case_id"])
+    turn = Turn(session, stale, Language.ES, uuid.uuid4().hex, app_db)
+    echo = {**GIVEN_STATEMENT, "summary": "Cédula 1.023.456.789 del cliente."}
+
+    with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(charge_extraction(), statement=echo)):
+        reply = handle_statement(turn, STATEMENT, None)
+
+    assert reply["state"] == CaseState.ESCALATED
+    assert logged_events(app_db, "handoff_statement_summary_dropped") == []
+    assert len(logged_events(app_db, "handoff_statement_available")) == 1
+
+
+def test_a_failure_after_an_earlier_summary_hands_it_off_and_says_so(session, app_db):
+    held, _ = _held(session, app_db)
+
+    _say(session, app_db, held["case_id"], statement=NO_CARD_FACT)
+    mocked_turn(session, app_db, "sí la tengo", held["case_id"], client=statement_down_client(charge_extraction()))
+
+    assert _handoff(app_db, held["case_id"])["customer_reported"]["statement_status"] == "given"
+    assert logged_events(app_db, "handoff_statement_available") == [
+        {"pending_escalation_reason": "needs_review", "unread_turn": "unavailable"},
+    ]
+    assert logged_events(app_db, "handoff_statement_unavailable") == []

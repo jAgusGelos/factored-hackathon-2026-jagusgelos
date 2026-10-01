@@ -10,6 +10,7 @@ plan.md AD-4). The builders that cover several causes (`confirmation_outcome`,
 
 from __future__ import annotations
 
+from dataclasses import replace
 from enum import StrEnum
 
 from app import cases
@@ -239,6 +240,12 @@ ASSESSMENT_FAILED = (
     "No se pudo evaluar la explicación: la respuesta del modelo no respetó el formato esperado. "
     "Leer la explicación del cliente en los mensajes del caso."
 )
+
+
+def with_reported(evaluation: CaseEvaluation, extra: dict[str, str]) -> CaseEvaluation:
+    """The same verdict with more of what the customer reported (or the model read from it)."""
+    reported = {**evaluation.handoff.customer_reported, **extra}
+    return replace(evaluation, handoff=replace(evaluation.handoff, customer_reported=reported))
 
 
 def explanation_reported(assessment: ExplanationAssessment | None, *, too_short: bool = False) -> dict[str, str]:

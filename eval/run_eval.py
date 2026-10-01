@@ -610,10 +610,33 @@ def _run_statement_injection(app_db_path: Path) -> CaseOutcome:
     )
 
 
+def _explanation_with_a_request(case_key: str, *, specific: bool, status: StatementStatus | None) -> Callable[[Path], CaseOutcome]:
+    """An explanation that also asks for a person, then the button: only a
+    specific one is the customer's account; a vague one still gets the statement.
+    """
+    def run(app_db_path: Path) -> CaseOutcome:
+        asks = {**NOT_RECEIVED_ASSESSMENT, "reason": "unrecognized", "specific": specific, "wants_human": True}
+        steps = [
+            Step(DISPUTE_OPENING[Language.ES]),
+            Step("Uber", selected_transaction_id=AUTO_RESOLVE_CHARGE),
+            Step("No reconozco ese cargo de Uber, quiero hablar con un agente", assessment=asks),
+            Step(HUMAN_REQUEST[Language.ES], action=CustomerAction.HUMAN, max_model_calls=0),
+        ]
+        if status is not None:
+            steps.append(Step(STATEMENT[Language.ES]))
+        return _statement_case(
+            case_key, steps, app_db_path, status=status, reason=EscalationReason.HUMAN_REQUESTED,
+        )
+
+    return run
+
+
 STATEMENT_SCENARIOS: tuple[Callable[[Path], CaseOutcome], ...] = (
     _statement_given(Language.ES), _statement_given(Language.PT), _run_statement_declined_twice,
     _run_statement_typed_refusal, _run_statement_one_followup, _run_statement_summary_timeout,
     _run_service_issue_bypasses_statement, _run_tap_to_statement_no_model, _run_statement_injection,
+    _explanation_with_a_request("vague_explanation_then_person", specific=False, status=StatementStatus.GIVEN),
+    _explanation_with_a_request("specific_explanation_then_person", specific=True, status=None),
 )
 
 

@@ -287,6 +287,35 @@ def test_an_explanation_that_also_asks_for_a_person_escalates_at_once(session, r
     assert_escalation_notice(reply, EscalationReason.HUMAN_REQUESTED, charge_named=True)
     handoff = cases.get_case(case_id, db_path=real_fixture_app_db).handoff
     assert handoff["open_questions"] == [handoffs.EXPLANATION_REVIEW_QUESTION]
+    assert handoff["customer_reported"]["explanation_summary"].endswith("(resumen del modelo)")
+
+
+@requires_real_fixture
+def test_an_explanation_given_with_a_first_request_is_kept_for_the_second(session, real_fixture_app_db):
+    case_id = reach_explaining(session, real_fixture_app_db)
+    asks = {**NOT_RECEIVED_ASSESSMENT, "wants_human": True}
+
+    deferred = mocked_turn(session, real_fixture_app_db, EXPLANATION, case_id, mock={"assessment": asks})
+    reply = mocked_turn(session, real_fixture_app_db, "Hablar con una persona", case_id, action=CustomerAction.HUMAN)
+
+    assert deferred["state"] == CaseState.AWAITING_EXPLANATION
+    stored = cases.get_case(case_id, db_path=real_fixture_app_db)
+    assert stored.explanation_text == EXPLANATION and stored.explanation_attempts == 0
+    _assert_one_phase(reply, real_fixture_app_db)
+    assert logged_events(real_fixture_app_db, "handoff_statement_skipped")
+
+
+@requires_real_fixture
+def test_a_vague_explanation_with_a_request_still_asks_for_the_statement(session, real_fixture_app_db):
+    case_id = reach_explaining(session, real_fixture_app_db)
+    _unlock(case_id, real_fixture_app_db, CaseState.AWAITING_EXPLANATION)
+    vague = {**NOT_RECEIVED_ASSESSMENT, "reason": "unrecognized", "specific": False, "wants_human": True}
+
+    asked = mocked_turn(session, real_fixture_app_db, "No reconozco el cargo, quiero un agente", case_id,
+                        mock={"assessment": vague})
+
+    reply = _through_statement(session, real_fixture_app_db, asked)
+    assert_escalation_notice(reply, EscalationReason.HUMAN_REQUESTED, charge_named=True)
 
 
 @requires_real_fixture
@@ -405,16 +434,17 @@ def test_a_named_merchant_whose_only_charge_fails_screening_names_it(session, re
 
 
 @requires_real_fixture
-def test_an_explanation_of_a_charge_no_longer_found_escalates_at_once(session, real_fixture_app_db):
+def test_an_unread_explanation_of_a_charge_no_longer_found_asks_for_the_statement(session, real_fixture_app_db):
+    # This turn's text is never assessed here, so it is not yet an account.
     case_id = reach_explaining(session, real_fixture_app_db)
     assert cases.update_case(
         case_id, state=CaseState.AWAITING_EXPLANATION, clear_fields=("matched_transaction_id",),
         db_path=real_fixture_app_db,
     )
 
-    reply = mocked_turn(session, real_fixture_app_db, EXPLANATION, case_id)
+    asked = mocked_turn(session, real_fixture_app_db, EXPLANATION, case_id)
 
-    _assert_one_phase(reply, real_fixture_app_db)
+    reply = _through_statement(session, real_fixture_app_db, asked)
     assert_escalation_notice(reply, EscalationReason.CHARGE_NOT_IDENTIFIED, charge_named=False)
 
 

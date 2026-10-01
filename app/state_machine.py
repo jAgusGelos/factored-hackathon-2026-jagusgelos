@@ -104,7 +104,7 @@ from app.charge_search import (
     recent_charges,
     txn_day,
 )
-from app.explanation import ask_for_explanation, handle_explanation
+from app.explanation import GivenAccount, ask_for_explanation, handle_explanation
 from app.llm import Language, PromptScene
 from app.policy import (
     ABUSE_GUARD_WINDOW_DAYS,
@@ -440,7 +440,7 @@ def _introduce(turn: Turn, scene: PromptScene) -> ChatReply:
 # -- Handlers ------------------------------------------------------------------
 
 
-def _handle_human_request(turn: Turn, *, explained: bool = False) -> ChatReply:
+def _handle_human_request(turn: Turn, *, account: GivenAccount | None = None) -> ChatReply:
     """One "let me try first" per request (plan.md AD-8): the first request
     keeps the case where it is (the charge list, the pending confirmation or
     the explanation) with a fixed text, spends no round and unlocks the
@@ -458,17 +458,23 @@ def _handle_human_request(turn: Turn, *, explained: bool = False) -> ChatReply:
                 customer_reason=EscalationReason.HUMAN_REQUESTED, charge=_proposed_charge(turn),
             ))
         charge = _charge_being_explained(turn)
-        # An explanation on the case, or one this turn's assessment read, is
-        # the customer's account; without one the statement step asks first.
-        account_given = case.state == CaseState.AWAITING_EXPLANATION and (explained or bool(case.explanation_text))
-        return escalate(
-            turn, handoffs.human_request(turn.report, charge, explained=account_given), charge=charge,
-            account_given=account_given,
+        # An explanation on the case, or this turn's own, is the customer's
+        # account; without one the statement step asks first.
+        account_given = case.state == CaseState.AWAITING_EXPLANATION and (
+            account is not None or bool(case.explanation_text)
         )
+        evaluation = handoffs.human_request(turn.report, charge, explained=account_given)
+        if account is not None:
+            evaluation = handoffs.with_reported(evaluation, handoffs.explanation_reported(account.assessment))
+        return escalate(turn, evaluation, charge=charge, account_given=account_given)
     turn = replace(turn, human_requested=True)
     state = CaseState(case.state)
     if state in (CaseState.AWAITING_EXPLANATION, CaseState.CONFIRMING):
-        lost = transition(turn, state, expected_states=(state,))
+        # An account given with the request is kept (never as an attempt), so
+        # the next request does not ask for it again.
+        lost = transition(
+            turn, state, expected_states=(state,), append_explanation=account.text if account is not None else None,
+        )
         deferred = (
             replies.HUMAN_DEFERRED_WHILE_EXPLAINING if state == CaseState.AWAITING_EXPLANATION
             else replies.HUMAN_DEFERRED_WHILE_CONFIRMING

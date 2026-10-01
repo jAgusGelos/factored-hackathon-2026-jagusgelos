@@ -8,7 +8,7 @@ check for the reason it names (`policy_verdict`, supplied by
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 from app import config, handoffs, llm, replies
@@ -38,12 +38,19 @@ from app.policy import (
 from app.transactions import TransactionCandidate, get_own_transaction
 
 
-class HumanRequest(Protocol):
-    """`explained`: this turn's text also told what happened, so the customer
+@dataclass(frozen=True)
+class GivenAccount:
+    """A text that asked for a person and also told what happened (the
+    assessment found it specific): kept as the explanation, so the customer
     is not asked again before a person.
     """
 
-    def __call__(self, turn: Turn, *, explained: bool) -> ChatReply: ...
+    text: str
+    assessment: ExplanationAssessment
+
+
+class HumanRequest(Protocol):
+    def __call__(self, turn: Turn, *, account: GivenAccount | None) -> ChatReply: ...
 
 
 class PolicyVerdict(Protocol):
@@ -114,11 +121,6 @@ def _explanation_verdict(
     return ExplanationDecision.escalate(handoffs.ASSESSMENT_FAILED)
 
 
-def _tells_what_happened(assessment: ExplanationAssessment) -> bool:
-    """The text also explained the charge, beyond asking for a person."""
-    return assessment.specific or assessment.reason != DisputeReason.UNCLEAR
-
-
 def _asks_for_a_person(turn: Turn, text: str) -> bool:
     """An explanation still too short to be assessed (so no model reads it)
     checked for a request for a person with the extraction call; only its
@@ -152,13 +154,13 @@ def handle_explanation(
     explanation = f"{case.explanation_text}\n{text}" if case.explanation_text else text
     if matched is None:
         return escalate(
-            turn, handoffs.unidentified_charge(turn.report, case), account_given=bool(explanation.strip()),
+            turn, handoffs.unidentified_charge(turn.report, case), account_given=bool(case.explanation_text),
         )
     too_short = _too_short(explanation)
     # Only when the assessment will not run (it reads `wants_human` itself):
     # at most one model call per turn, inside the shared turn budget.
     if too_short and _asks_for_a_person(turn, text):
-        return on_human_request(turn, explained=False)
+        return on_human_request(turn, account=None)
     try:
         assessment = _assess(turn, explanation, matched)
     except llm.LLMUnavailable as exc:
@@ -169,7 +171,8 @@ def handle_explanation(
         )
     if assessment is not None and assessment.wants_human:
         turn.log_event("human_request_detected", {"via": "assessment"})
-        return on_human_request(turn, explained=_tells_what_happened(assessment))
+        account = GivenAccount(text, assessment) if assessment.specific else None
+        return on_human_request(turn, account=account)
     attempts_left = case.explanation_attempts + 1 < MAX_EXPLANATION_ATTEMPTS
     decision = _explanation_verdict(assessment, attempts_left=attempts_left)
     turn.log_event(
@@ -201,11 +204,8 @@ def handle_explanation(
             turn, matched, reason=assessment.reason, twins=evaluation.duplicate_twins,
             expected_states=(CaseState.AWAITING_EXPLANATION,), expected_match=matched.transaction_id,
         )
-    reported = {
-        **evaluation.handoff.customer_reported, **handoffs.explanation_reported(assessment, too_short=too_short),
-    }
-    handoff = replace(evaluation.handoff, customer_reported=reported)
-    return finish_escalated(turn, replace(evaluation, handoff=handoff), report, account_given=True)
+    explained = handoffs.with_reported(evaluation, handoffs.explanation_reported(assessment, too_short=too_short))
+    return finish_escalated(turn, explained, report, account_given=True)
 
 
 # The dispute reasons a person handles, as the customer is told them.
