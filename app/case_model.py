@@ -32,23 +32,49 @@ NON_TERMINAL_STATES = tuple(str(s) for s in CaseState if s not in TERMINAL_STATE
 
 class CustomerAction(StrEnum):
     """Quick-reply buttons. They carry the customer's intent without going
-    through the LLM classifier, so a tap on "Sí, es ese" is never misread.
+    through the LLM classifier, so a tap on "Sí, es ese" is never misread,
+    and their replies are templates, with no model call at all (AD-9).
     """
 
     CONFIRM_YES = "confirm_yes"
     CONFIRM_NO = "confirm_no"
     NONE_OF_THESE = "none_of_these"
     HUMAN = "human"
+    SHOW_CHARGES = "show_charges"
+
+
+class EscalationReason(StrEnum):
+    """Why a case went to a person, in the customer's terms: the escalation
+    notice (`replies.escalation_notice`) turns it into one sentence in the
+    customer's language. Chosen at the site that escalates, never by the model,
+    and never split by policy rule: every policy, fraud, amount, limit,
+    contradiction or vague-explanation outcome is NEEDS_REVIEW, so no
+    threshold or rule name can reach the customer.
+    """
+
+    HUMAN_REQUESTED = "human_requested"
+    CHARGE_NOT_IDENTIFIED = "charge_not_identified"
+    NEEDS_REVIEW = "needs_review"
+    NOT_RECEIVED = "not_received"
+    WRONG_AMOUNT = "wrong_amount"
+    CARD_LOST_STOLEN = "card_lost_stolen"
+    ALREADY_CREDITED = "already_credited"
+    ALREADY_IN_REVIEW = "already_in_review"
+    SERVICE_ISSUE = "service_issue"
 
 
 @dataclass(frozen=True)
 class HandoffRecord:
-    """The structured artifact a case that escalates produces — facts,
-    actions taken, evidence, open questions. Never a raw transcript dump
-    (plan.md's Always-rule).
+    """What a person receives when a case escalates. Never a raw transcript
+    dump (plan.md's Always-rule). `verified_facts` only holds values read from
+    the charge record or this system's own records; everything the customer
+    said, or the model read from it, is in `customer_reported`.
     """
 
-    facts: dict[str, str]
+    request_summary: str
+    verified_facts: dict[str, str]
+    customer_reported: dict[str, str]
+    policy_reasons: tuple[str, ...]
     actions_taken: tuple[str, ...]
     evidence: tuple[str, ...]
     open_questions: tuple[str, ...]
@@ -72,6 +98,9 @@ class CaseEvaluation:
     # The customer's other charges that make the matched one a verifiable
     # duplicate (AD-13); they decide the credit key of a duplicate reversal.
     duplicate_twins: tuple[str, ...] = field(default_factory=tuple)
+    # Set on every verdict that reaches `case_turn.finish_escalated` (it
+    # refuses one without it): what the escalation notice tells the customer.
+    customer_reason: EscalationReason | None = None
 
 
 @dataclass(frozen=True)
@@ -83,16 +112,16 @@ class ReportedCharge:
 
     amount: float | None
     date: date | None
-    currency: str
+    currency: str | None
     merchant: str | None = None
     reason: DisputeReason | None = None
 
     @classmethod
-    def from_case(cls, case: cases.Case, default_currency: str) -> ReportedCharge:
+    def from_case(cls, case: cases.Case) -> ReportedCharge:
         return cls(
             amount=case.reported_amount,
             date=date.fromisoformat(case.reported_date) if case.reported_date else None,
-            currency=case.reported_currency or default_currency,
+            currency=case.reported_currency,
             merchant=case.reported_merchant,
             reason=DisputeReason(case.dispute_reason) if case.dispute_reason else None,
         )

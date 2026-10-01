@@ -1,6 +1,7 @@
 """Customer-facing copy (Spanish and Portuguese) and how amounts/dates are
 written in it. These are the deterministic texts: the welcome message the chat
-opens with (served to the frontend by `/api/me`), and every fallback used when
+opens with (served to the frontend by `/api/me`), the resolution message (always
+this template, see `app/credit.py`), and every fallback used when
 the LLM is unavailable or its reply fails a check in a conversation step
 (`app/state_machine.py`, `app/explanation.py`, `app/credit.py`,
 `app/case_turn.py`).
@@ -10,20 +11,21 @@ from __future__ import annotations
 
 import re
 from datetime import date
+from typing import TypedDict
 
-from app.case_model import CaseState
-from app.charge_search import ListFilter, iso_day, txn_day
+from app.case_model import CaseState, EscalationReason
+from app.charge_search import ChargeOption, ListFilter, charge_option, iso_day, txn_day
 from app.llm import Language
-from app.policy import DisputeReason
+from app.policy import ESCALATION_CONTACT_BUSINESS_DAYS, DisputeReason, MissingDetail
 from app.transactions import TransactionCandidate
 
 WELCOME = {
     Language.ES: (
-        "Hola, soy el asistente de disputas de LATAM Bank. Te ayudo con cargos que no reconocés: "
-        "te muestro tus últimos movimientos para que elijas el cargo, lo reviso contra la política "
-        "del banco y, si corresponde, te aplico un crédito provisional en el momento. Si necesita "
-        "más revisión, lo paso a una persona del equipo con todo el resumen.\n\n"
-        "Contame qué cargo querés revisar (monto, fecha o comercio, lo que recuerdes) o tocá una opción."
+        "Hola, soy el asistente de disputas de LATAM Bank. Le ayudo con cargos que no reconoce: "
+        "le muestro sus últimos movimientos para que elija el cargo, lo reviso según la política "
+        "del banco y, si corresponde, le aplico un crédito provisional en el momento. Si el caso "
+        "necesita más revisión, lo derivo a una persona del equipo con todo el resumen.\n\n"
+        "Cuénteme qué cargo quiere revisar (monto, fecha o comercio, lo que recuerde) o toque una opción."
     ),
     Language.PT: (
         "Olá, sou o assistente de contestações do LATAM Bank. Ajudo com cobranças que você não "
@@ -37,8 +39,8 @@ WELCOME = {
 
 OUT_OF_SCOPE = {
     Language.ES: (
-        "Por este canal solo puedo ayudarte con cargos que no reconocés. Si querés, contame qué "
-        "cargo te llamó la atención o te muestro tus últimos movimientos."
+        "Por este canal solo puedo ayudarle con cargos que no reconoce. Si lo desea, cuénteme qué "
+        "cargo le llamó la atención o le muestro sus últimos movimientos."
     ),
     Language.PT: (
         "Por este canal só posso ajudar com cobranças que você não reconhece. Se quiser, me conte "
@@ -48,20 +50,20 @@ OUT_OF_SCOPE = {
 
 ASK_FOR_DETAILS = {
     Language.ES: (
-        "Para ayudarte necesito el monto exacto y la fecha aproximada del cargo que no "
-        "reconocés. ¿Me los podés compartir?"
+        "Para ayudarle necesito el monto exacto y la fecha aproximada del cargo que no "
+        "reconoce. ¿Me los puede indicar?"
     ),
     Language.PT: (
-        "Para te ajudar preciso do valor exato e da data aproximada da cobrança que você não "
+        "Para ajudar, preciso do valor exato e da data aproximada da cobrança que você não "
         "reconhece. Pode me informar?"
     ),
 }
 
 CHARGE_LIST = {
     Language.ES: {
-        ListFilter.RECENT: "Te muestro abajo tus últimos cargos. Tocá el que no reconocés, o “No está en la lista” si no aparece.",
-        ListFilter.FILTERED: "Te muestro abajo los cargos que coinciden con lo que me contaste. Tocá el que no reconocés, o “No está en la lista” si no aparece.",
-        ListFilter.FALLBACK_RECENT: "No encontré cargos que coincidan con eso, así que te muestro abajo tus últimos cargos. Tocá el que no reconocés, o “No está en la lista” si no aparece.",
+        ListFilter.RECENT: "Abajo tiene sus últimos cargos. Toque el que no reconoce, o “No está en la lista” si no aparece.",
+        ListFilter.FILTERED: "Abajo tiene los cargos que coinciden con lo que me contó. Toque el que no reconoce, o “No está en la lista” si no aparece.",
+        ListFilter.FALLBACK_RECENT: "No encontré cargos que coincidan con eso, así que abajo tiene sus últimos cargos. Toque el que no reconoce, o “No está en la lista” si no aparece.",
     },
     Language.PT: {
         ListFilter.RECENT: "Mostro abaixo suas últimas cobranças. Toque na que você não reconhece, ou em “Não está na lista” se ela não aparecer.",
@@ -71,38 +73,50 @@ CHARGE_LIST = {
 }
 
 SELECTION_UNAVAILABLE = {
-    Language.ES: "Esa opción ya no está disponible. Elegí uno de los cargos de la lista de abajo.",
+    Language.ES: "Esa opción ya no está disponible. Elija uno de los cargos de la lista de abajo.",
     Language.PT: "Essa opção não está mais disponível. Escolha uma das cobranças da lista abaixo.",
+}
+
+# A quick-reply tapped after the conversation moved past it (an old "Sí, es
+# ese" or "No está en la lista"): it changes nothing.
+ACTION_UNAVAILABLE = {
+    Language.ES: "Esa opción ya no está disponible. Puede continuar desde el último mensaje.",
+    Language.PT: "Essa opção não está mais disponível. Você pode continuar a partir da última mensagem.",
 }
 
 HUMAN_DEFERRED = {
     Language.ES: (
-        "Antes de pasarte con una persona dejame intentar resolverlo yo, que suele ser mucho más "
-        "rápido. Tocá el cargo que no reconocés o contame monto, fecha o comercio; si no lo "
-        "encuentro, te paso con alguien del equipo."
+        "Antes de derivarlo, intentemos ubicar el cargo, que suele ser mucho más rápido: toque el "
+        "cargo que no reconoce o indíqueme monto, fecha o comercio."
     ),
     Language.PT: (
-        "Antes de passar para uma pessoa, deixa eu tentar resolver, que costuma ser bem mais rápido. "
-        "Toque na cobrança que você não reconhece ou me conte valor, data ou comerciante; se eu não "
-        "encontrar, passo para alguém da equipe."
+        "Antes de encaminhar, vamos tentar localizar a cobrança, o que costuma ser bem mais rápido: "
+        "toque na cobrança que você não reconhece ou informe valor, data ou comerciante."
     ),
+}
+
+# Appended to a reply after the customer's first request for a person
+# (`case_turn.Turn.reply`): the agent tried once, the second request escalates.
+HUMAN_OFFER = {
+    Language.ES: "Si aun así prefiere hablar con una persona, vuelva a pedirlo o use el botón «Hablar con una persona».",
+    Language.PT: "Se ainda assim preferir falar com uma pessoa, peça de novo ou use o botão «Falar com uma pessoa».",
 }
 
 HUMAN_DEFERRED_WHILE_CONFIRMING = {
     Language.ES: (
-        "Antes de pasarte con una persona dejame cerrarlo yo, que es más rápido: ¿es ese el cargo "
-        "que no reconocés? Si no es, decime que no y lo buscamos."
+        "Antes de derivarlo, confirmemos el cargo, que es más rápido: ¿es ese el cargo que no "
+        "reconoce? Si no es, indíquelo y lo buscamos."
     ),
     Language.PT: (
-        "Antes de passar para uma pessoa, deixa eu resolver, que é mais rápido: é essa a cobrança "
-        "que você não reconhece? Se não for, diga que não e a gente procura."
+        "Antes de encaminhar, vamos confirmar a cobrança, o que é mais rápido: é essa a cobrança "
+        "que você não reconhece? Se não for, diga que não e procuramos outra."
     ),
 }
 
 ASK_FOR_EXPLANATION = {
     Language.ES: (
-        "Ya ubiqué el cargo: {charge}. Contame con tus palabras qué pasó: cómo te diste cuenta, si "
-        "reconocés el comercio, si tenés la tarjeta, si pagaste algo y no lo recibiste. Con eso "
+        "Ya ubiqué el cargo: {charge}. Cuénteme con sus palabras qué pasó: cómo se dio cuenta, si "
+        "reconoce el comercio, si tiene la tarjeta, si pagó algo y no lo recibió. Con eso "
         "decido si puedo reintegrarlo ahora."
     ),
     Language.PT: (
@@ -112,58 +126,136 @@ ASK_FOR_EXPLANATION = {
     ),
 }
 
-EXPLANATION_FOLLOWUP = {
-    Language.ES: (
-        "Gracias. Para poder decidir necesito un detalle más concreto: por ejemplo cómo te diste "
-        "cuenta del cargo, si tenés la tarjeta con vos o si recibiste lo que pagaste."
-    ),
-    Language.PT: (
-        "Obrigado. Para decidir preciso de um detalhe mais concreto: por exemplo como você percebeu "
-        "a cobrança, se está com o cartão ou se recebeu o que pagou."
-    ),
+_EXPLANATION_FOLLOWUP = {
+    Language.ES: {
+        None: (
+            "Gracias. Para poder decidir necesito un detalle más concreto: por ejemplo cómo se dio "
+            "cuenta del cargo, si tiene la tarjeta consigo o si recibió lo que pagó."
+        ),
+        MissingDetail.HOW_NOTICED: "Gracias. Para poder decidir necesito un detalle más: ¿cómo se dio cuenta de este cargo?",
+        MissingDetail.CARD_POSSESSION: (
+            "Gracias. Para poder decidir necesito un detalle más: ¿tiene la tarjeta consigo en este momento?"
+        ),
+        MissingDetail.MERCHANT_KNOWN: (
+            "Gracias. Para poder decidir necesito un detalle más: ¿conoce este comercio o lo usó alguna vez?"
+        ),
+        MissingDetail.ITEM_RECEIVED: "Gracias. Para poder decidir necesito un detalle más: ¿recibió lo que pagó con este cargo?",
+    },
+    Language.PT: {
+        None: (
+            "Obrigado. Para decidir preciso de um detalhe mais concreto: por exemplo como você percebeu "
+            "a cobrança, se está com o cartão ou se recebeu o que pagou."
+        ),
+        MissingDetail.HOW_NOTICED: "Obrigado. Para decidir preciso de mais um detalhe: como você percebeu esta cobrança?",
+        MissingDetail.CARD_POSSESSION: "Obrigado. Para decidir preciso de mais um detalhe: você está com o cartão neste momento?",
+        MissingDetail.MERCHANT_KNOWN: (
+            "Obrigado. Para decidir preciso de mais um detalhe: você conhece este comerciante ou já o usou alguma vez?"
+        ),
+        MissingDetail.ITEM_RECEIVED: "Obrigado. Para decidir preciso de mais um detalhe: você recebeu o que pagou com esta cobrança?",
+    },
 }
 
 HUMAN_DEFERRED_WHILE_EXPLAINING = {
     Language.ES: (
-        "Antes de pasarte con una persona dejame intentar resolverlo, que es más rápido: contame "
-        "qué pasó con ese cargo y lo reviso ahora mismo."
+        "Antes de derivarlo, intentemos resolverlo, que es más rápido: cuénteme qué pasó con ese "
+        "cargo y lo reviso ahora mismo."
     ),
     Language.PT: (
-        "Antes de passar para uma pessoa, deixa eu tentar resolver, que é mais rápido: me conte o "
-        "que aconteceu com essa cobrança e eu reviso agora mesmo."
+        "Antes de encaminhar, vamos tentar resolver, o que é mais rápido: conte o que aconteceu "
+        "com essa cobrança e eu reviso agora mesmo."
     ),
 }
 
 ASK_FOR_ONE_DETAIL = {
-    Language.ES: "Contame un dato más del cargo (monto aproximado, fecha o comercio) y lo busco.",
-    Language.PT: "Me conte mais um dado da cobrança (valor aproximado, data ou comerciante) e eu procuro.",
+    Language.ES: "Indíqueme un dato más del cargo (monto aproximado, fecha o comercio) y lo busco.",
+    Language.PT: "Informe mais um dado da cobrança (valor aproximado, data ou comerciante) e eu procuro.",
 }
 
 CASE_MOVED_ON = {
-    Language.ES: "Tu caso cambió mientras te respondía (quizás desde otra pestaña). Seguimos desde acá.",
+    Language.ES: "Su caso cambió mientras le respondía (quizás desde otra pestaña). Seguimos desde aquí.",
     Language.PT: "Seu caso mudou enquanto eu respondia (talvez em outra aba). Seguimos daqui.",
 }
 
-ESCALATED = {
+class EscalationNotice(TypedDict):
+    """What the customer is told about a case that went to a person, for the
+    chat's card and client panel (`ChatReply.escalation`). The same values
+    are in the notice text, so the message and the card cannot disagree.
+    """
+
+    case_number: str
+    # Only a charge the customer identified (picked, named, confirmed): never
+    # an unconfirmed proposal (plan.md AD-5).
+    charge: ChargeOption | None
+    # Localized; None for a case escalated before the reason was stored.
+    reason: str | None
+    contact_business_days: int
+
+
+# The reason sentence of the escalation notice, one per EscalationReason. No
+# threshold, score or rule name: every policy outcome is NEEDS_REVIEW.
+_ESCALATION_REASON = {
+    Language.ES: {
+        EscalationReason.HUMAN_REQUESTED: "usted pidió hablar con una persona",
+        EscalationReason.CHARGE_NOT_IDENTIFIED: "no pudimos identificar el cargo con los datos disponibles",
+        EscalationReason.NEEDS_REVIEW: "el cargo necesita la revisión de una persona antes de cualquier reintegro",
+        EscalationReason.NOT_RECEIVED: (
+            "usted indicó que no recibió lo que pagó, y ese reclamo se gestiona con el comercio"
+        ),
+        EscalationReason.WRONG_AMOUNT: "usted indicó que el monto no es el correcto, y hay que determinar el monto real",
+        EscalationReason.CARD_LOST_STOLEN: (
+            "usted indicó que perdió la tarjeta o se la robaron, y una persona revisa sus movimientos recientes"
+        ),
+        EscalationReason.ALREADY_CREDITED: "ese cargo ya tuvo un crédito en otro caso",
+        EscalationReason.ALREADY_IN_REVIEW: "ese cargo ya se está revisando en otro caso",
+        EscalationReason.SERVICE_ISSUE: "tuvimos un problema técnico al procesar su solicitud",
+    },
+    Language.PT: {
+        EscalationReason.HUMAN_REQUESTED: "você pediu para falar com uma pessoa",
+        EscalationReason.CHARGE_NOT_IDENTIFIED: "não conseguimos identificar a cobrança com os dados disponíveis",
+        EscalationReason.NEEDS_REVIEW: "a cobrança precisa da análise de uma pessoa antes de qualquer reembolso",
+        EscalationReason.NOT_RECEIVED: (
+            "você informou que não recebeu o que pagou, e essa contestação é tratada com o comerciante"
+        ),
+        EscalationReason.WRONG_AMOUNT: "você informou que o valor não está correto, e é preciso definir o valor real",
+        EscalationReason.CARD_LOST_STOLEN: (
+            "você informou que perdeu o cartão ou que ele foi roubado, e uma pessoa analisa suas "
+            "movimentações recentes"
+        ),
+        EscalationReason.ALREADY_CREDITED: "essa cobrança já teve um crédito em outro caso",
+        EscalationReason.ALREADY_IN_REVIEW: "essa cobrança já está em análise em outro caso",
+        EscalationReason.SERVICE_ISSUE: "tivemos um problema técnico ao processar sua solicitação",
+    },
+}
+
+_ESCALATION_NOTICE = {
     Language.ES: (
-        "Le paso tu caso a una persona del equipo de disputas, con todo lo que revisamos hasta "
-        "acá. Se va a contactar con vos para seguir."
+        "Derivé su caso a una persona del equipo de disputas.{charge} Motivo: {reason}. Su número "
+        "de caso es {case_number}. Le contactaremos en un plazo de hasta {days} días hábiles. Este "
+        "chat ya no agrega información al caso: si tiene algo más para contar, podrá hacerlo cuando "
+        "le contacten."
     ),
     Language.PT: (
-        "Vou passar seu caso para uma pessoa da equipe de disputas, com tudo o que revisamos até "
-        "aqui. Ela vai entrar em contato para seguir."
+        "Encaminhei seu caso para uma pessoa da equipe de contestações.{charge} Motivo: {reason}. O "
+        "número do seu caso é {case_number}. Entraremos em contato em até {days} dias úteis. Este "
+        "chat não adiciona mais informações ao caso: se tiver algo mais a contar, poderá fazer isso "
+        "quando entrarmos em contato."
     ),
+}
+
+_ESCALATION_CHARGE = {
+    Language.ES: " El cargo es {charge}.",
+    Language.PT: " A cobrança é {charge}.",
 }
 
 _RESOLVED = {
     Language.ES: {
         DisputeReason.UNRECOGNIZED: (
-            "Listo: te aplicamos un crédito provisional por ese cargo. Por seguridad bloqueamos tu "
-            "tarjeta. El equipo revisa el caso y, si el cargo resultara tuyo, el crédito se revierte. "
-            "Tu número de referencia es {reference}."
+            "Listo: le aplicamos un crédito provisional por ese cargo. Por seguridad bloqueamos su "
+            "tarjeta. El equipo revisa el caso y, si el cargo resultara suyo, el crédito se revierte. "
+            "Su número de referencia es {reference}."
         ),
         DisputeReason.DUPLICATE: (
-            "Listo: confirmamos que el cargo estaba duplicado y te devolvimos uno de los dos. Tu "
+            "Listo: confirmamos que el cargo estaba duplicado y le devolvimos uno de los dos. Su "
             "número de referencia es {reference}."
         ),
     },
@@ -182,8 +274,8 @@ _RESOLVED = {
 
 _CONFIRMATION_QUESTION = {
     Language.ES: (
-        "Encontré este cargo: {amount} en {merchant} el {date}. ¿Es ese el que no reconocés? Si "
-        "me confirmás, avanzo con tu caso."
+        "Encontré este cargo: {amount} en {merchant} el {date}. ¿Es ese el que no reconoce? Si "
+        "me lo confirma, avanzo con su caso."
     ),
     Language.PT: (
         "Encontrei esta cobrança: {amount} em {merchant} no dia {date}. É essa a que você não "
@@ -198,12 +290,18 @@ _UNKNOWN_MERCHANT = {
 
 _TERMINAL = {
     Language.ES: {
-        CaseState.RESOLVED_AUTO: "Tu caso ya fue resuelto (referencia {reference}).",
-        CaseState.ESCALATED: "Tu caso ya fue derivado a un agente humano; te van a contactar a la brevedad.",
+        CaseState.RESOLVED_AUTO: "Su caso ya fue resuelto (referencia {reference}).",
+        CaseState.ESCALATED: (
+            "Su caso {case_number} ya fue derivado a una persona del equipo, que le contactará en un "
+            "plazo de hasta {days} días hábiles desde la derivación."
+        ),
     },
     Language.PT: {
         CaseState.RESOLVED_AUTO: "Seu caso já foi resolvido (referência {reference}).",
-        CaseState.ESCALATED: "Seu caso já foi encaminhado a um agente humano; você será contatado em breve.",
+        CaseState.ESCALATED: (
+            "Seu caso {case_number} já foi encaminhado a uma pessoa da equipe, que entrará em contato "
+            "em até {days} dias úteis a partir do encaminhamento."
+        ),
     },
 }
 
@@ -230,34 +328,38 @@ def resolved(reference: str, reason: DisputeReason, language: Language) -> str:
     return _RESOLVED[language][reason].format(reference=reference)
 
 
-# What a resolution message must tell the customer, per reason: each entry is
-# one fact, satisfied by any of its word stems (lowercase).
-_REQUIRED_DISCLOSURES = {
-    Language.ES: {
-        DisputeReason.UNRECOGNIZED: (("provisional",), ("bloque",), ("revier", "revert")),
-        DisputeReason.DUPLICATE: (("duplicad",), ("uno de los dos", "devolvimos", "reintegr")),
-    },
-    Language.PT: {
-        DisputeReason.UNRECOGNIZED: (("provisóri", "provisori"), ("bloque",), ("revert",)),
-        DisputeReason.DUPLICATE: (("duplicad",), ("uma das duas", "devolvemos", "reembols")),
-    },
-}
-
-
-def states_required_disclosures(reply: str, reason: DisputeReason, language: Language) -> bool:
-    """Whether a model-written resolution tells the customer everything the
-    policy requires: for an unrecognized charge that the credit is provisional,
-    the card is blocked and the credit is reversed if the charge was theirs;
-    for a duplicate, that it was duplicated and one charge was returned.
-    """
-    text = reply.lower()
-    return all(any(stem in text for stem in fact) for fact in _REQUIRED_DISCLOSURES[language][reason])
-
-
-def terminal_case(state: CaseState, reference: str | None, language: Language) -> str:
+def terminal_case(state: CaseState, *, case_number: str, reference: str | None, language: Language) -> str:
     # The CURRENT request's language, not the case's: the customer may have
     # switched the ES/PT toggle after the case closed.
-    return _TERMINAL[language][state].format(reference=reference)
+    return _TERMINAL[language][state].format(
+        reference=reference, case_number=case_number, days=ESCALATION_CONTACT_BUSINESS_DAYS,
+    )
+
+
+def escalation_summary(
+    case_number: str, reason: EscalationReason | None, *, charge: TransactionCandidate | None, language: Language,
+) -> EscalationNotice:
+    return {
+        "case_number": case_number,
+        "charge": charge_option(charge) if charge is not None else None,
+        "reason": _ESCALATION_REASON[language][reason] if reason is not None else None,
+        "contact_business_days": ESCALATION_CONTACT_BUSINESS_DAYS,
+    }
+
+
+def escalation_notice(
+    case_number: str, reason: EscalationReason, *, charge: TransactionCandidate | None, language: Language,
+) -> tuple[str, EscalationNotice]:
+    """The message a case gets when it goes to a person, always this template
+    (never the model): the charge when the customer identified it, the reason,
+    the case number and the contact deadline.
+    """
+    notice = escalation_summary(case_number, reason, charge=charge, language=language)
+    text = _ESCALATION_NOTICE[language].format(
+        charge=_ESCALATION_CHARGE[language].format(charge=charge_summary(charge, language)) if charge is not None else "",
+        reason=notice["reason"], case_number=case_number, days=notice["contact_business_days"],
+    )
+    return text, notice
 
 
 def charge_summary(matched: TransactionCandidate, language: Language) -> str:
@@ -267,6 +369,10 @@ def charge_summary(matched: TransactionCandidate, language: Language) -> str:
 
 def ask_for_explanation(matched: TransactionCandidate, language: Language) -> str:
     return ASK_FOR_EXPLANATION[language].format(charge=charge_summary(matched, language))
+
+
+def explanation_followup(missing_detail: MissingDetail | None, language: Language) -> str:
+    return _EXPLANATION_FOLLOWUP[language][missing_detail]
 
 
 def confirmation_question(matched: TransactionCandidate, language: Language) -> str:

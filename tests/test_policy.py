@@ -12,7 +12,6 @@ from app.policy import (
     REASONS_REQUIRING_A_PERSON,
     DisputeContext,
     DisputeReason,
-    ExplanationAssessment,
     ExplanationDecision,
     ExplanationVerdict,
     MatchOutcome,
@@ -25,7 +24,7 @@ from app.policy import (
     match_amount_tolerance,
     screening_failures,
 )
-from tests.support import clean_ctx, clean_txn
+from tests.support import clean_assessment, clean_ctx, clean_txn
 
 AS_OF = date(2026, 6, 18)
 
@@ -206,14 +205,8 @@ def test_reasons_accumulate_for_the_handoff():
 # -- The explanation assessment can only ask for more or escalate -------------------
 
 
-def _assessment(**overrides) -> ExplanationAssessment:
-    base = dict(reason=DisputeReason.UNRECOGNIZED, specific=True, consistent=True, contradictions=(), summary="")
-    base.update(overrides)
-    return ExplanationAssessment(**base)
-
-
 def test_a_vague_explanation_asks_for_one_more_detail_then_escalates():
-    vague = _assessment(specific=False)
+    vague = clean_assessment(specific=False)
     assert evaluate_explanation(vague, attempts_left=True) == ExplanationDecision.needs_detail()
     decision = evaluate_explanation(vague, attempts_left=False)
     assert decision.verdict == ExplanationVerdict.ESCALATE and decision.escalation_reason
@@ -221,7 +214,7 @@ def test_a_vague_explanation_asks_for_one_more_detail_then_escalates():
 
 def test_an_inconsistent_explanation_escalates_with_the_contradictions():
     decision = evaluate_explanation(
-        _assessment(consistent=False, contradictions=("dice que fue en marzo",)), attempts_left=True,
+        clean_assessment(consistent=False, contradictions=("dice que fue en marzo",)), attempts_left=True,
     )
     assert decision.verdict == ExplanationVerdict.ESCALATE
     assert "marzo" in decision.escalation_reason
@@ -229,7 +222,7 @@ def test_an_inconsistent_explanation_escalates_with_the_contradictions():
 
 @pytest.mark.parametrize("reason", [DisputeReason.NOT_RECEIVED, DisputeReason.WRONG_AMOUNT, DisputeReason.CARD_LOST_STOLEN])
 def test_explanations_naming_a_person_only_reason_escalate(reason):
-    decision = evaluate_explanation(_assessment(reason=reason), attempts_left=True)
+    decision = evaluate_explanation(clean_assessment(reason=reason), attempts_left=True)
     assert decision.verdict == ExplanationVerdict.ESCALATE and decision.escalation_reason
 
 
@@ -237,7 +230,7 @@ def test_accepting_an_explanation_does_not_make_an_ineligible_charge_creditable(
     """The most convincing explanation possible still leaves the charge to
     the evidence check: a card-present "unrecognized" charge escalates.
     """
-    assert evaluate_explanation(_assessment(), attempts_left=True) == ExplanationDecision.accept()
+    assert evaluate_explanation(clean_assessment(), attempts_left=True) == ExplanationDecision.accept()
     assert evaluate_resolution(clean_txn(channel="POS"), clean_ctx()).decision == ResolutionDecision.FORCED_ESCALATION
 
 
@@ -269,7 +262,7 @@ def test_no_creditable_reason_is_also_sent_to_a_person():
 @pytest.mark.parametrize("language", [Language.ES, Language.PT])
 def test_every_creditable_reason_has_a_resolution_message_and_its_disclosures(language):
     assert set(replies._RESOLVED[language]) == AUTO_CREDITABLE_REASONS
-    assert set(replies._REQUIRED_DISCLOSURES[language]) == AUTO_CREDITABLE_REASONS
+    assert set(_REQUIRED_DISCLOSURES[str(language)]) == AUTO_CREDITABLE_REASONS
 
 
 # -- USD pricing ----------------------------------------------------------------------
@@ -307,21 +300,32 @@ def test_a_charge_dated_after_the_data_as_of_date_escalates():
 # -- What a resolution message must disclose ------------------------------------------
 
 
+# One fact per entry, satisfied by any of its word stems (lowercase): an
+# unrecognized charge's credit is provisional, the card is blocked and the
+# credit is reversed if the charge was theirs; a duplicate was duplicated and
+# one of the two charges was returned.
+_REQUIRED_DISCLOSURES = {
+    "es": {
+        DisputeReason.UNRECOGNIZED: (("provisional",), ("bloque",), ("revier", "revert")),
+        DisputeReason.DUPLICATE: (("duplicad",), ("uno de los dos", "devolvimos", "reintegr")),
+    },
+    "pt": {
+        DisputeReason.UNRECOGNIZED: (("provisóri", "provisori"), ("bloque",), ("revert",)),
+        DisputeReason.DUPLICATE: (("duplicad",), ("uma das duas", "devolvemos", "reembols")),
+    },
+}
+
+
 @pytest.mark.parametrize("language", ["es", "pt"])
 @pytest.mark.parametrize("reason", [DisputeReason.UNRECOGNIZED, DisputeReason.DUPLICATE])
-def test_every_resolution_template_states_the_required_disclosures(language, reason):
+def test_every_resolution_template_states_the_reference_and_the_required_disclosures(language, reason):
+    """The resolution message is always this template (never model-written),
+    so the template itself must carry every disclosure the policy requires.
+    """
     from app import replies
     from app.llm import Language
 
-    template = replies.resolved("REF-X", reason, Language(language))
-    assert replies.states_required_disclosures(template, reason, Language(language))
-
-
-def test_an_unrecognized_reply_without_the_provisional_or_reversal_notice_is_rejected():
-    from app import replies
-    from app.llm import Language
-
-    missing_provisional = "Listo, bloqueamos tu tarjeta y si el cargo fue tuyo se revierte. REF-X"
-    missing_reversal = "Listo, crédito provisional aplicado y tarjeta bloqueada. REF-X"
-    for reply in (missing_provisional, missing_reversal):
-        assert not replies.states_required_disclosures(reply, DisputeReason.UNRECOGNIZED, Language.ES)
+    template = replies.resolved("REF-X", reason, Language(language)).lower()
+    assert "ref-x" in template
+    for stems in _REQUIRED_DISCLOSURES[language][reason]:
+        assert any(stem in template for stem in stems), (reason, language, stems)

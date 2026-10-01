@@ -29,7 +29,7 @@ import pytest
 from app import cases, db
 from app import transactions as txns_module
 from app.auth import Session
-from app.case_model import ReportedCharge
+from app.case_model import EscalationReason, ReportedCharge
 from app.policy import DisputeReason
 from app.state_machine import CaseState, evaluate_case, handle_message
 from app.transactions import (
@@ -42,6 +42,7 @@ from app.transactions import (
     list_own_charges,
     search_own_transactions,
 )
+from tests.support import assert_escalation_notice
 
 CUSTOMER_DATA_FUNCTIONS = (
     search_own_transactions,
@@ -178,7 +179,7 @@ def test_confident_match_over_threshold_escalates_with_handoff(fixture_con):
     assert evaluation.state == CaseState.ESCALATED
     assert evaluation.handoff is not None
     assert "TRX-1" in evaluation.handoff.evidence
-    assert any("amount_usd" in r for r in evaluation.handoff.open_questions)
+    assert any("amount_usd" in r for r in evaluation.handoff.policy_reasons)
 
 
 def test_zero_matches_asks_the_customer_to_pick(fixture_con):
@@ -231,10 +232,12 @@ def test_escalated_case_never_has_empty_handoff_facts(fixture_con):
         currency="USD",
     )
     assert evaluation.state == CaseState.ESCALATED
-    assert evaluation.handoff.facts
+    assert evaluation.handoff.verified_facts["transaction_id"]
+    assert evaluation.handoff.request_summary
     assert isinstance(evaluation.handoff.actions_taken, tuple)
     assert isinstance(evaluation.handoff.evidence, tuple)
     assert isinstance(evaluation.handoff.open_questions, tuple)
+    assert isinstance(evaluation.handoff.policy_reasons, tuple)
 
 
 def test_resuming_another_customers_case_raises_ownership_error(tmp_path):
@@ -254,14 +257,15 @@ def test_customer_requested_human_without_amount_or_date_records_no_fabricated_f
 
     evaluation = handoffs.human_request(ReportedCharge(amount=None, date=None, currency="MXN"))
     assert evaluation.state == CaseState.ESCALATED
-    assert "reported_amount" not in evaluation.handoff.facts
-    assert "reported_date" not in evaluation.handoff.facts
+    assert "amount" not in evaluation.handoff.customer_reported
+    assert "date" not in evaluation.handoff.customer_reported
+    assert evaluation.handoff.verified_facts == {}
 
 
-def test_fixture_lookup_failure_forces_escalation_with_fallback_message(tmp_path, monkeypatch):
+def test_fixture_lookup_failure_forces_escalation_with_the_escalation_notice(tmp_path, monkeypatch):
     from unittest.mock import patch
 
-    from app import llm, state_machine
+    from app import state_machine
     from tests.support import mock_anthropic_client
 
     def _broken_profile(_session):
@@ -277,7 +281,7 @@ def test_fixture_lookup_failure_forces_escalation_with_fallback_message(tmp_path
         reply = handle_message(SESSION, None, "Tengo un cargo que no reconozco", db_path=app_db)
 
     assert reply["state"] == CaseState.ESCALATED
-    assert reply["reply"] == llm.DETERMINISTIC_FALLBACK_MESSAGE[llm.Language.ES]
+    assert_escalation_notice(reply, EscalationReason.SERVICE_ISSUE, charge_named=False)
 
 
 def test_unknown_case_id_starts_a_new_case_and_logs_it(tmp_path):
@@ -323,6 +327,37 @@ def test_terminal_case_reply_uses_the_current_turns_language_not_the_stored_one(
     assert "resolvido" in reply["reply"]  # Portuguese wording, not the Spanish "resuelto"
 
 
+def test_a_closed_case_stays_closed_and_a_new_claim_is_a_new_case(tmp_path):
+    """AD-1 (usability-s1): the server never reopens or auto-replaces a terminal
+    case; the chat opens the next claim by sending case_id None."""
+    from unittest.mock import patch
+
+    from tests.support import app_db_rows, mock_anthropic_client
+
+    app_db = tmp_path / "app.db"
+    db.init_db(app_db)
+    case = cases.create_case(SESSION.customer_id, "es", db_path=app_db)
+    cases.update_case(case.case_id, state=CaseState.RESOLVED_AUTO, resolution_reference="REF-TEST", db_path=app_db)
+    before = cases.get_case(case.case_id, db_path=app_db)
+
+    def case_count():
+        return app_db_rows(app_db, "SELECT COUNT(*) FROM cases")[0][0]
+
+    extraction = {"amount": None, "currency": None, "date": None, "merchant_hint": None, "wants_human": False}
+    with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(extraction)):
+        on_closed = handle_message(SESSION, case.case_id, "No reconozco otra compra", language="es", db_path=app_db)
+        assert on_closed["case_id"] == case.case_id
+        assert on_closed["state"] == CaseState.RESOLVED_AUTO
+        assert "REF-TEST" in on_closed["reply"]
+        assert case_count() == 1
+
+        new_claim = handle_message(SESSION, None, "No reconozco otra compra", language="es", db_path=app_db)
+
+    assert new_claim["case_id"] != case.case_id
+    assert case_count() == 2
+    assert cases.get_case(case.case_id, db_path=app_db) == before
+
+
 @pytest.mark.parametrize("reason", list(DisputeReason))
 def test_a_stored_dispute_reason_reads_back_as_the_same_reason(tmp_path, reason):
     app_db = tmp_path / "app.db"
@@ -331,4 +366,4 @@ def test_a_stored_dispute_reason_reads_back_as_the_same_reason(tmp_path, reason)
     assert cases.update_case(case.case_id, state=CaseState.SELECTING, dispute_reason=reason, db_path=app_db)
 
     stored = cases.get_case(case.case_id, db_path=app_db)
-    assert ReportedCharge.from_case(stored, "USD").reason is reason
+    assert ReportedCharge.from_case(stored).reason is reason

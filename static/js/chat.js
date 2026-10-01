@@ -6,18 +6,17 @@ const STRINGS = {
     htmlLang: "es",
     timeLocale: "es-AR",
     starterShowCharges: "Ver mis últimos cargos",
-    starterShowChargesMessage: "Mostrame mis últimos cargos",
     quickHuman: "Hablar con una persona",
     quickNotInList: "No está en la lista",
     quickYes: "Sí, es ese",
     quickNo: "No es ese",
-    chargeListLabel: "Tus movimientos",
+    chargeListLabel: "Sus movimientos",
     unknownMerchant: "Comercio sin nombre",
-    badgeSelecting: "Elegí el cargo",
-    stepTransactionSelecting: "Mostrando tus movimientos para que elijas",
+    badgeSelecting: "Elija el cargo",
+    stepTransactionSelecting: "Mostrando sus movimientos para que elija",
     categories: { Food: "Comida", Transport: "Transporte", Services: "Servicios", Entertainment: "Entretenimiento", Health: "Salud", Other: "Otros" },
     messageLabel: "Mensaje",
-    inputPlaceholder: "Escribí tu mensaje...",
+    inputPlaceholder: "Escriba su mensaje...",
     send: "Enviar",
     logout: "Salir",
     panelTitle: "Ficha del caso",
@@ -34,10 +33,10 @@ const STRINGS = {
     stepPolicyEscalated: "Derivado a un agente humano",
     badgePending: "Esperando reporte",
     badgeClarifying: "Necesita aclaración",
-    badgeConfirming: "Esperando tu confirmación",
-    stepTransactionAwaitingConfirm: "Cargo encontrado, pendiente de tu confirmación",
-    badgeExplaining: "Esperando tu explicación",
-    stepPolicyExplaining: "Falta que cuentes qué pasó con el cargo",
+    badgeConfirming: "Esperando su confirmación",
+    stepTransactionAwaitingConfirm: "Cargo encontrado, pendiente de su confirmación",
+    badgeExplaining: "Esperando su explicación",
+    stepPolicyExplaining: "Falta que nos cuente qué pasó con el cargo",
     badgeResolved: "Resuelto",
     badgeEscalated: "Escalado",
     verifiedChip: (ref) => `✓ Referencia ${ref}`,
@@ -46,22 +45,65 @@ const STRINGS = {
       `Cargo confirmado (${amount}). Crédito provisional simulado registrado (referencia ${ref}).`,
     actionCardEscalatedTitle: "Caso derivado",
     actionCardEscalatedBody: "El caso fue derivado a un agente humano con el resumen estructurado del reclamo.",
+    // Escalation card and client panel (usability-s2 DESIGN.md, direction B).
+    caseNumberLabel: "Número de caso",
+    escalationStepDone: "Caso derivado a una persona del equipo",
+    escalationStepPending: "Le contactamos",
+    escalationDeadline: (days) => `En un plazo de hasta ${days} días hábiles`,
+    stepDone: "Hecho:",
+    stepPending: "Pendiente:",
+    escalationCharge: (charge) => `Cargo: ${charge}`,
+    escalationReason: (reason) => `Motivo: ${reason}`,
+    escalationNote: "Este chat ya no agrega información al caso.",
     personaClient: "Vista Cliente",
     personaInternal: "Vista Interna",
     handoffTitle: "Resumen para el agente humano",
+    handoffRequest: "Pedido del cliente",
     handoffFacts: "Hechos verificados",
+    handoffFactsTag: "Del registro",
+    handoffReported: "Lo que dijo el cliente",
+    handoffReportedTag: "Sin verificar",
+    handoffLegacyFacts: "Datos del caso",
+    handoffPolicy: "Motivos de política",
+    handoffPolicyCount: (n) => (n === 1 ? "1 motivo registrado en el expediente interno." : `${n} motivos registrados en el expediente interno.`),
     handoffActions: "Acciones realizadas",
     handoffEvidence: "Evidencia",
     handoffQuestions: "Preguntas abiertas",
-    sendError: "No se pudo enviar el mensaje. Intentá de nuevo.",
+    handoffFields: {
+      transaction_id: "Transacción", merchant: "Comercio", amount: "Monto", currency: "Moneda", date: "Fecha",
+      channel: "Canal", status: "Estado", category: "Categoría", charge_confirmed: "Confirmado por el cliente",
+      credited_in_case: "Ya acreditado en el caso", prior_case: "Caso anterior", candidate_count: "Cargos candidatos",
+      charges_shown: "Cargos mostrados", dispute_reason: "Motivo de la disputa",
+      customer_confirmation: "Respuesta a la confirmación", explanation_summary: "Explicación (resumen del modelo)",
+      explanation_specific: "Explicación concreta", explanation_consistent: "Explicación coherente",
+      explanation_assessment: "Evaluación de la explicación", customer_message: "Mensaje del cliente",
+      reported_amount: "Monto reportado", reported_date: "Fecha reportada", reported_merchant: "Comercio reportado",
+      matched_transaction_id: "Transacción identificada",
+    },
+    handoffValues: {
+      unrecognized: "No reconoce el cargo", duplicate: "Cargo duplicado", not_received: "No recibió el producto",
+      wrong_amount: "Monto incorrecto", card_lost_stolen: "Tarjeta perdida o robada", unclear: "No está claro",
+      yes: "Sí", no: "No", human: "Pidió una persona", sí: "Sí",
+    },
     sessionLoadError: "No se pudo cargar la sesión.",
     logoutFailed: "No se pudo cerrar sesión.",
+    // Wait indicator, retry and new claim (usability-s1 DESIGN.md copy table).
+    waitGeneric: "El asistente está respondiendo…",
+    waitSearching: "Buscando sus movimientos…",
+    waitConfirming: "Revisando el cargo…",
+    waitExplanation: "Revisando su explicación…",
+    waitSlow: "Está tardando más de lo habitual. Seguimos procesando su mensaje.",
+    turnError: "No se pudo obtener respuesta. Puede reintentar el envío.",
+    retry: "Reintentar",
+    quickNewClaim: "Reportar otro cargo",
+    claimResolved: "resuelto",
+    claimEscalated: "derivado",
+    claimDivider: (ref, outcome) => `Nuevo reclamo · caso anterior ${ref ? `${ref} ` : ""}(${outcome})`,
   },
   pt: {
     htmlLang: "pt-BR",
     timeLocale: "pt-BR",
     starterShowCharges: "Ver minhas últimas cobranças",
-    starterShowChargesMessage: "Mostre minhas últimas cobranças",
     quickHuman: "Falar com uma pessoa",
     quickNotInList: "Não está na lista",
     quickYes: "Sim, é essa",
@@ -101,16 +143,58 @@ const STRINGS = {
       `Cobrança confirmada (${amount}). Crédito provisório simulado registrado (referência ${ref}).`,
     actionCardEscalatedTitle: "Caso encaminhado",
     actionCardEscalatedBody: "O caso foi encaminhado a um agente humano com o resumo estruturado da reclamação.",
+    caseNumberLabel: "Número do caso",
+    escalationStepDone: "Caso encaminhado a uma pessoa da equipe",
+    escalationStepPending: "Entraremos em contato",
+    escalationDeadline: (days) => `Em até ${days} dias úteis`,
+    stepDone: "Feito:",
+    stepPending: "Pendente:",
+    escalationCharge: (charge) => `Cobrança: ${charge}`,
+    escalationReason: (reason) => `Motivo: ${reason}`,
+    escalationNote: "Este chat não adiciona mais informações ao caso.",
     personaClient: "Vista Cliente",
     personaInternal: "Vista Interna",
     handoffTitle: "Resumo para o agente humano",
+    handoffRequest: "Pedido do cliente",
     handoffFacts: "Fatos verificados",
+    handoffFactsTag: "Do registro",
+    handoffReported: "O que o cliente disse",
+    handoffReportedTag: "Não verificado",
+    handoffLegacyFacts: "Dados do caso",
+    handoffPolicy: "Motivos de política",
+    handoffPolicyCount: (n) => (n === 1 ? "1 motivo registrado no dossiê interno." : `${n} motivos registrados no dossiê interno.`),
     handoffActions: "Ações realizadas",
     handoffEvidence: "Evidências",
     handoffQuestions: "Perguntas em aberto",
-    sendError: "Não foi possível enviar a mensagem. Tente novamente.",
+    handoffFields: {
+      transaction_id: "Transação", merchant: "Estabelecimento", amount: "Valor", currency: "Moeda", date: "Data",
+      channel: "Canal", status: "Status", category: "Categoria", charge_confirmed: "Confirmada pelo cliente",
+      credited_in_case: "Já creditada no caso", prior_case: "Caso anterior", candidate_count: "Cobranças candidatas",
+      charges_shown: "Cobranças mostradas", dispute_reason: "Motivo da contestação",
+      customer_confirmation: "Resposta à confirmação", explanation_summary: "Explicação (resumo do modelo)",
+      explanation_specific: "Explicação concreta", explanation_consistent: "Explicação coerente",
+      explanation_assessment: "Avaliação da explicação", customer_message: "Mensagem do cliente",
+      reported_amount: "Valor informado", reported_date: "Data informada", reported_merchant: "Estabelecimento informado",
+      matched_transaction_id: "Transação identificada",
+    },
+    handoffValues: {
+      unrecognized: "Não reconhece a cobrança", duplicate: "Cobrança duplicada", not_received: "Não recebeu o produto",
+      wrong_amount: "Valor incorreto", card_lost_stolen: "Cartão perdido ou roubado", unclear: "Não está claro",
+      yes: "Sim", no: "Não", human: "Pediu uma pessoa", sí: "Sim",
+    },
     sessionLoadError: "Não foi possível carregar a sessão.",
     logoutFailed: "Não foi possível encerrar a sessão.",
+    waitGeneric: "O assistente está respondendo…",
+    waitSearching: "Buscando suas movimentações…",
+    waitConfirming: "Verificando a cobrança…",
+    waitExplanation: "Analisando sua explicação…",
+    waitSlow: "Está demorando mais que o normal. Continuamos processando sua mensagem.",
+    turnError: "Não foi possível obter resposta. Você pode tentar enviar novamente.",
+    retry: "Tentar novamente",
+    quickNewClaim: "Contestar outra cobrança",
+    claimResolved: "resolvido",
+    claimEscalated: "encaminhado",
+    claimDivider: (ref, outcome) => `Nova reclamação · caso anterior ${ref ? `${ref} ` : ""}(${outcome})`,
   },
 };
 
@@ -120,6 +204,7 @@ const ACTIONS = Object.freeze({
   NONE_OF_THESE: "none_of_these",
   CONFIRM_YES: "confirm_yes",
   CONFIRM_NO: "confirm_no",
+  SHOW_CHARGES: "show_charges",
 });
 
 const state = {
@@ -127,11 +212,56 @@ const state = {
   language: "es",
   caseId: null,
   caseStatus: null,
+  caseState: null, // the state from the last delivered reply (null = no case yet)
+  closedCase: null, // {state, reference} of a terminal case until a new claim starts
+  // reply.escalation of the escalated case plus the time it arrived; the card
+  // and the client panel render from it, never from /api/case.
+  escalation: null,
   personaView: "client", // "client" | "internal"
   busy: false,
 };
 
+// Must match app/case_model.py::CaseState.
+const CASE_STATES = Object.freeze({
+  AWAITING_REPORT: "awaiting_report",
+  CLARIFYING: "clarifying",
+  SELECTING: "selecting",
+  CONFIRMING: "confirming",
+  AWAITING_EXPLANATION: "awaiting_explanation",
+  RESOLVED_AUTO: "resolved_auto",
+  ESCALATED: "escalated",
+});
+
+const TERMINAL_STATES = new Set([CASE_STATES.RESOLVED_AUTO, CASE_STATES.ESCALATED]);
+
+// What the typing indicator says while a turn from each state is in flight.
+const WAIT_CAPTION_KEYS = Object.freeze({
+  [CASE_STATES.AWAITING_REPORT]: "waitSearching",
+  [CASE_STATES.SELECTING]: "waitSearching",
+  [CASE_STATES.CLARIFYING]: "waitSearching",
+  [CASE_STATES.CONFIRMING]: "waitConfirming",
+  [CASE_STATES.AWAITING_EXPLANATION]: "waitExplanation",
+});
+
+const TURN_OUTCOMES = Object.freeze({
+  DELIVERED: "delivered",
+  IN_PROGRESS: "in_progress",
+  REJECTED: "rejected",
+  SESSION_EXPIRED: "session_expired",
+  FAILED: "failed",
+});
+
+// app/main.py answers 409 while the same turn_id is still being processed.
+const HTTP_TURN_IN_PROGRESS = 409;
+const HTTP_UNAUTHORIZED = 401;
+// The server's per-turn model budget is 20 s (AD-5); the client gives up a bit later.
+const TURN_TIMEOUT_MS = 25000;
+const SLOW_TURN_MS = 10000;
+
+let slowTimer = null;
+
 const chatLog = document.getElementById("chat-log");
+const chatStatus = document.getElementById("chat-status");
 const chatForm = document.getElementById("chat-form");
 const messageInput = document.getElementById("message-input");
 const messageLabel = document.getElementById("message-label");
@@ -155,7 +285,7 @@ function humanButton() {
 }
 
 function starterButtons() {
-  return [quickButton(t("starterShowCharges"), () => sendToAgent({ message: t("starterShowChargesMessage") }))];
+  return [actionButton("starterShowCharges", ACTIONS.SHOW_CHARGES)];
 }
 
 // The conversation opens with the agent introducing itself and what it can
@@ -167,9 +297,8 @@ function renderWelcome() {
   const bubble = document.createElement("div");
   bubble.className = "msg-bubble msg-bubble--agent welcome";
   bubble.textContent = state.welcome[state.language];
-  const starters = document.createElement("div");
-  starters.className = "quick-replies interactive welcome";
-  starters.append(...starterButtons());
+  const starters = quickRepliesBlock(starterButtons());
+  starters.classList.add("welcome");
   chatLog.prepend(bubble, starters);
 }
 
@@ -236,19 +365,35 @@ function appendBubble(role, text) {
   el.className = `msg-bubble msg-bubble--${role}`;
   el.textContent = text;
   chatLog.appendChild(el);
+  scrollLogToEnd();
+}
+
+function scrollLogToEnd() {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-function appendActionCard(title, body, { isError = false } = {}) {
+function currentTime() {
+  return new Date().toLocaleTimeString(t("timeLocale"), { hour: "2-digit", minute: "2-digit" });
+}
+
+// `bodyHtml`: markup already escaped by its builder (the escalation details).
+function appendActionCard(title, body, { isError = false, actions = [], bodyHtml = null } = {}) {
   const card = document.createElement("div");
   card.className = `action-card${isError ? " action-card--error" : ""}`;
-  const time = new Date().toLocaleTimeString(t("timeLocale"), { hour: "2-digit", minute: "2-digit" });
+  const content = bodyHtml ?? (body ? escapeHtml(body) : "");
   card.innerHTML = `
-    <div class="action-card__head">${escapeHtml(title)}<span class="action-card__time">${escapeHtml(time)}</span></div>
-    <div class="action-card__body">${escapeHtml(body)}</div>
+    <div class="action-card__head">${escapeHtml(title)}<span class="action-card__time">${escapeHtml(currentTime())}</span></div>
+    ${content ? `<div class="action-card__body">${content}</div>` : ""}
   `;
+  if (actions.length) {
+    // "interactive": the next send retires these buttons like any other block.
+    const row = document.createElement("div");
+    row.className = "action-card__actions interactive";
+    row.append(...actions);
+    card.appendChild(row);
+  }
   chatLog.appendChild(card);
-  chatLog.scrollTop = chatLog.scrollHeight;
+  scrollLogToEnd();
 }
 
 function escapeHtml(str) {
@@ -263,8 +408,12 @@ function listItemsHtml(items) {
 
 function onSubmit(event) {
   event.preventDefault();
+  // Checked BEFORE clearing the input: text typed while a turn is in flight is kept.
+  if (state.busy) return;
   const message = messageInput.value.trim();
   if (!message) return;
+  // A typed message after a closed case opens a new claim (AD-1).
+  if (state.closedCase) startNewClaim();
   messageInput.value = "";
   sendToAgent({ message });
 }
@@ -272,69 +421,239 @@ function onSubmit(event) {
 // Everything the customer sends goes through here: typed text, a tapped
 // charge (selected_transaction_id) or a quick-reply button (action). The
 // bubble always shows what the customer "said" (the button label for a tap).
-async function sendToAgent({ message, selectedTransactionId = null, action = null }) {
+function sendToAgent({ message, selectedTransactionId = null, action = null }) {
   if (state.busy) return;
-  state.busy = true;
-  sendBtn.disabled = true;
+  // Generated before the DOM is touched, so nothing is half-sent if it fails.
+  const turnId = newTurnId();
   const retired = retireInteractiveBlocks();
   appendBubble("customer", message);
-  let delivered = false;
+  // Frozen payload: a retry re-sends exactly this, same turn_id (AD-4), so the
+  // server replays the turn instead of applying it twice.
+  const turn = {
+    body: Object.freeze({
+      case_id: state.caseId,
+      message,
+      language: state.language,
+      selected_transaction_id: selectedTransactionId,
+      action,
+      turn_id: turnId,
+    }),
+    retired,
+    attempts: 0,
+  };
+  runTurn(turn);
+}
 
+// crypto.randomUUID exists only in secure contexts (HTTPS or localhost); the
+// fallback builds the same lowercase UUIDv4 from crypto.getRandomValues.
+function newTurnId() {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+async function runTurn(turn) {
+  if (state.busy) return;
+  const prevState = state.caseState;
+  setBusy(true, WAIT_CAPTION_KEYS[prevState] || "waitGeneric");
+  turn.attempts += 1;
+  const { outcome, reply } = await postTurn(turn.body);
+  if (outcome === TURN_OUTCOMES.SESSION_EXPIRED) {
+    hideTyping();
+    setBusy(false);
+    window.location.href = "/";
+    return;
+  }
+
+  // Before rendering: the typing bubble never sits under the reply.
+  hideTyping();
+  let focusTarget = messageInput;
+  try {
+    if (outcome === TURN_OUTCOMES.DELIVERED) {
+      await renderReply(reply, prevState);
+    } else {
+      // Only a definite rejection of the FIRST attempt proves the turn changed
+      // nothing server-side: a retry's rejection says nothing about the first.
+      if (outcome === TURN_OUTCOMES.REJECTED && turn.attempts === 1) restoreInteractiveBlocks(turn.retired);
+      focusTarget = appendRetryCard(turn, outcome === TURN_OUTCOMES.IN_PROGRESS);
+    }
+  } finally {
+    setBusy(false);
+    focusTarget.focus();
+  }
+}
+
+// POSTs one turn, giving up after TURN_TIMEOUT_MS. Never throws.
+async function postTurn(body) {
+  const controller = new AbortController();
+  const abortTimer = setTimeout(() => controller.abort(), TURN_TIMEOUT_MS);
   try {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify({
-        case_id: state.caseId,
-        message,
-        language: state.language,
-        selected_transaction_id: selectedTransactionId,
-        action,
-      }),
+      body: JSON.stringify(body),
+      signal: controller.signal,
     });
-
-    if (!res.ok) {
-      appendActionCard(t("sendError"), `HTTP ${res.status}`, { isError: true });
-      return;
-    }
-
-    const reply = await res.json();
-    delivered = true;
-    state.caseId = reply.case_id;
-    appendBubble("agent", reply.reply);
-    if (reply.options && reply.options.length) appendChargeList(reply.options);
-    appendQuickReplies(reply.state, reply.human_available);
-
-    if (await refreshCaseStatus()) {
-      renderTurnActionCard(reply.state);
-    }
-    renderPanel();
-  } catch (err) {
-    if (!delivered) appendActionCard(t("sendError"), String(err), { isError: true });
+    if (res.ok) return { outcome: TURN_OUTCOMES.DELIVERED, reply: await res.json() };
+    if (res.status === HTTP_TURN_IN_PROGRESS) return { outcome: TURN_OUTCOMES.IN_PROGRESS, reply: null };
+    if (res.status === HTTP_UNAUTHORIZED) return { outcome: TURN_OUTCOMES.SESSION_EXPIRED, reply: null };
+    if (res.status >= 400 && res.status < 500) return { outcome: TURN_OUTCOMES.REJECTED, reply: null };
+  } catch {
+    // Abort (timeout), network error or an unreadable body: the turn may
+    // have been applied on the server, so nothing is given back.
   } finally {
-    if (!delivered) restoreInteractiveBlocks(retired);
-    state.busy = false;
-    sendBtn.disabled = false;
-    messageInput.focus();
+    clearTimeout(abortTimer);
   }
+  return { outcome: TURN_OUTCOMES.FAILED, reply: null };
 }
 
-function quickButton(label, onClick) {
+async function renderReply(reply, prevState) {
+  // An abandoned turn can come back without a case (case_id null): no case yet.
+  state.caseId = reply.case_id || null;
+  state.caseState = reply.state || null;
+  appendBubble("agent", reply.reply);
+  if (reply.options && reply.options.length) appendChargeList(reply.options);
+  rememberEscalation(reply.escalation);
+
+  const refreshed = state.caseId ? await refreshCaseStatus() : false;
+  if (!state.caseId) state.caseStatus = null;
+  // The card marks the transition into a terminal state, once per case. The
+  // escalation card needs only the reply, so a failed refresh cannot drop it.
+  if (!TERMINAL_STATES.has(prevState) && (refreshed || reply.state === CASE_STATES.ESCALATED)) {
+    renderTurnActionCard(reply.state);
+  }
+  // Last, so the next thing the customer can do sits at the end of the thread.
+  appendQuickReplies(reply.state, reply.human_available);
+  state.closedCase = TERMINAL_STATES.has(reply.state)
+    ? { state: reply.state, reference: closedCaseReference(reply.state) }
+    : null;
+  renderPanel();
+}
+
+// What the new-claim divider names: the resolution reference, or the case
+// number of an escalated case.
+function closedCaseReference(caseState) {
+  if (caseState === CASE_STATES.ESCALATED) return state.escalation ? state.escalation.case_number : null;
+  return state.caseStatus ? state.caseStatus.resolution_reference : null;
+}
+
+function appendRetryCard(turn, inProgress) {
+  const retryBtn = quickButton(t("retry"), () => {
+    if (state.busy) return;
+    // Retires this retry row too. It never comes back: a rejection restores
+    // only turn.retired, the blocks the first send took away.
+    retireInteractiveBlocks();
+    runTurn(turn);
+  }, "btn-secondary");
+  appendActionCard(inProgress ? t("waitSlow") : t("turnError"), "", { isError: !inProgress, actions: [retryBtn] });
+  return retryBtn;
+}
+
+function setBusy(busy, captionKey = null) {
+  state.busy = busy;
+  sendBtn.disabled = busy;
+  messageInput.readOnly = busy;
+  chatLog.setAttribute("aria-busy", String(busy));
+  if (busy) {
+    showTyping(t(captionKey));
+    slowTimer = setTimeout(() => setWaitText(t("waitSlow"), true), SLOW_TURN_MS);
+  }
+  // Not busy: runTurn already hid the typing bubble before rendering the reply.
+}
+
+// The whole bubble is aria-hidden: the log's aria-live must not announce it;
+// #chat-status (role=status, outside the log) carries the same text instead.
+function showTyping(caption) {
+  hideTyping();
+  const bubble = document.createElement("div");
+  bubble.className = "msg-bubble msg-bubble--agent msg-bubble--typing";
+  bubble.setAttribute("aria-hidden", "true");
+  bubble.innerHTML = `
+    <span class="typing-dots"><span></span><span></span><span></span></span>
+    <span class="typing-caption"></span>
+  `;
+  chatLog.appendChild(bubble);
+  setWaitText(caption, false);
+  scrollLogToEnd();
+}
+
+function setWaitText(text, slow) {
+  const caption = chatLog.querySelector(".msg-bubble--typing .typing-caption");
+  if (caption) {
+    caption.textContent = text;
+    caption.classList.toggle("typing-caption--slow", slow);
+  }
+  chatStatus.textContent = text;
+}
+
+function hideTyping() {
+  clearTimeout(slowTimer);
+  slowTimer = null;
+  chatLog.querySelectorAll(".msg-bubble--typing").forEach((el) => el.remove());
+  chatStatus.textContent = "";
+}
+
+// A new claim in the same chat (AD-1): the closed case stays as it is, the
+// next message goes out without case_id, so the server opens a new case.
+function startNewClaim({ fromButton = false } = {}) {
+  if (state.busy) return;
+  const closed = state.closedCase;
+  retireInteractiveBlocks({ permanently: true });
+  state.caseId = null;
+  state.caseStatus = null;
+  state.caseState = null;
+  state.closedCase = null;
+  state.escalation = null;
+  state.personaView = "client";
+
+  if (closed) appendClaimDivider(closed);
+  renderPanel();
+
+  if (fromButton) {
+    const starters = quickRepliesBlock(starterButtons());
+    chatLog.appendChild(starters);
+    starters.querySelector("button").focus();
+  }
+  scrollLogToEnd();
+}
+
+function appendClaimDivider(closed) {
+  const divider = document.createElement("div");
+  divider.className = "claim-divider";
+  const outcome = t(closed.state === CASE_STATES.RESOLVED_AUTO ? "claimResolved" : "claimEscalated");
+  divider.textContent = t("claimDivider", closed.reference, outcome);
+  chatLog.appendChild(divider);
+}
+
+function quickButton(label, onClick, className = "quick-reply") {
   const btn = document.createElement("button");
   btn.type = "button";
-  btn.className = "quick-reply";
+  btn.className = className;
   btn.textContent = label;
   btn.addEventListener("click", onClick);
   return btn;
 }
 
+// "interactive": the next send retires the block like any other.
+function quickRepliesBlock(buttons) {
+  const block = document.createElement("div");
+  block.className = "quick-replies interactive";
+  block.append(...buttons);
+  return block;
+}
+
 // Old lists/buttons stay visible as history but can no longer be used. If the
-// message never reached the server they are given back (restoreInteractiveBlocks).
-function retireInteractiveBlocks() {
+// message definitely changed nothing they are given back
+// (restoreInteractiveBlocks), except the ones retired for good by a new claim.
+function retireInteractiveBlocks({ permanently = false } = {}) {
   const blocks = [...chatLog.querySelectorAll(".interactive:not(.retired)")];
   blocks.forEach((block) => {
     block.classList.add("retired");
+    if (permanently) block.dataset.retiredForGood = "true";
     block.querySelectorAll("button").forEach((b) => { b.disabled = true; });
   });
   return blocks;
@@ -342,6 +661,7 @@ function retireInteractiveBlocks() {
 
 function restoreInteractiveBlocks(blocks) {
   blocks.forEach((block) => {
+    if (block.dataset.retiredForGood) return;
     block.classList.remove("retired");
     block.querySelectorAll("button").forEach((b) => {
       b.disabled = false;
@@ -351,8 +671,9 @@ function restoreInteractiveBlocks(blocks) {
 }
 
 function formatAmount(amount, currency) {
+  const style = currency ? { style: "currency", currency } : {};
   try {
-    return new Intl.NumberFormat(t("timeLocale"), { style: "currency", currency, maximumFractionDigits: 2 }).format(amount);
+    return new Intl.NumberFormat(t("timeLocale"), { ...style, maximumFractionDigits: 2 }).format(amount);
   } catch {
     return `${amount} ${currency}`;
   }
@@ -367,8 +688,12 @@ function chargeLabel(opt) {
   return `${opt.merchant || t("unknownMerchant")} · ${formatAmount(opt.amount, opt.currency)} · ${formatDay(opt.date)}`;
 }
 
+function categoryLabel(category) {
+  return t("categories")[category] || String(category);
+}
+
 function chargeMeta(opt) {
-  const category = opt.category ? t("categories")[opt.category] || opt.category : null;
+  const category = opt.category ? categoryLabel(opt.category) : null;
   return category ? `${formatDay(opt.date)} · ${category}` : formatDay(opt.date);
 }
 
@@ -395,26 +720,27 @@ function appendChargeList(options) {
     block.appendChild(btn);
   });
   chatLog.appendChild(block);
-  chatLog.scrollTop = chatLog.scrollHeight;
+  scrollLogToEnd();
 }
 
-// "Hablar con una persona" only appears once the server says the agent has
-// tried and could not resolve the case (human_available).
+// "Hablar con una persona" only appears once the server says a request for a
+// person escalates (human_available): after the customer's first request, or
+// once the agent could not resolve the case.
 function appendQuickReplies(caseState, humanAvailable) {
   const buttons = [];
-  if (caseState === "selecting") {
+  if (caseState === CASE_STATES.SELECTING) {
     buttons.push(actionButton("quickNotInList", ACTIONS.NONE_OF_THESE));
-  } else if (caseState === "confirming") {
+  } else if (caseState === CASE_STATES.CONFIRMING) {
     buttons.push(actionButton("quickYes", ACTIONS.CONFIRM_YES), actionButton("quickNo", ACTIONS.CONFIRM_NO));
   }
-  if (caseState === "awaiting_report") buttons.push(...starterButtons());
+  if (caseState === CASE_STATES.AWAITING_REPORT) buttons.push(...starterButtons());
+  if (TERMINAL_STATES.has(caseState)) {
+    buttons.push(quickButton(t("quickNewClaim"), () => startNewClaim({ fromButton: true })));
+  }
   if (humanAvailable) buttons.push(humanButton());
   if (!buttons.length) return;
-  const block = document.createElement("div");
-  block.className = "quick-replies interactive";
-  block.append(...buttons);
-  chatLog.appendChild(block);
-  chatLog.scrollTop = chatLog.scrollHeight;
+  chatLog.appendChild(quickRepliesBlock(buttons));
+  scrollLogToEnd();
 }
 
 async function refreshCaseStatus() {
@@ -438,21 +764,55 @@ function caseChargeLabel(status) {
 
 function renderTurnActionCard(newState) {
   const status = state.caseStatus;
-  if (newState === "resolved_auto") {
+  if (newState === CASE_STATES.RESOLVED_AUTO) {
     appendActionCard(
       t("actionCardResolvedTitle"),
       t("actionCardResolvedBody", caseChargeLabel(status), status.resolution_reference),
     );
-  } else if (newState === "escalated") {
-    appendActionCard(t("actionCardEscalatedTitle"), t("actionCardEscalatedBody"));
+  } else if (newState === CASE_STATES.ESCALATED) {
+    // A legacy reply without an escalation object keeps the generic sentence.
+    if (state.escalation) appendActionCard(t("actionCardEscalatedTitle"), "", { bodyHtml: escalationDetailsHtml() });
+    else appendActionCard(t("actionCardEscalatedTitle"), t("actionCardEscalatedBody"));
   }
 }
 
-function verifyStepHtml(variant, dotLabel, label, detail) {
+// Later replies about the same case name no charge (only the escalating turn
+// knows the customer identified one): the first charge and time are kept, the
+// rest follows the latest reply (e.g. the reason in the language just chosen).
+function rememberEscalation(escalation) {
+  if (!escalation) return;
+  const sameCase = state.escalation && state.escalation.case_number === escalation.case_number;
+  state.escalation = sameCase
+    ? { ...escalation, charge: state.escalation.charge, time: state.escalation.time }
+    : { ...escalation, time: currentTime() };
+}
+
+// The one builder of the escalation details, for the card and the client
+// panel: case number, the two-step timeline, the charge (only when known),
+// the reason and the note. Every value is escaped here.
+function escalationDetailsHtml() {
+  const esc = state.escalation;
+  let html = `
+    <div class="client-summary">${escapeHtml(t("caseNumberLabel"))}</div>
+    <div class="case-id">${escapeHtml(esc.case_number)}</div>
+    <div class="action-card__timeline">
+      ${verifyStepHtml("done", "✓", t("escalationStepDone"), esc.time, t("stepDone"))}
+      ${verifyStepHtml("pending", "2", t("escalationStepPending"), t("escalationDeadline", esc.contact_business_days), t("stepPending"))}
+    </div>
+  `;
+  if (esc.charge) html += `<p class="client-summary">${escapeHtml(t("escalationCharge", chargeLabel(esc.charge)))}</p>`;
+  if (esc.reason) html += `<p class="client-summary">${escapeHtml(t("escalationReason", esc.reason))}</p>`;
+  html += `<p class="client-summary">${escapeHtml(t("escalationNote"))}</p>`;
+  return html;
+}
+
+// `srState`: the step's state in words for screen readers (the dot is aria-hidden).
+function verifyStepHtml(variant, dotLabel, label, detail, srState = null) {
+  const prefix = srState ? `<span class="sr-only">${escapeHtml(srState)} </span>` : "";
   return `
     <div class="verify-step verify-step--${variant}">
       <div class="dot" aria-hidden="true">${dotLabel}</div>
-      <div class="label">${escapeHtml(label)}</div>
+      <div class="label">${prefix}${escapeHtml(label)}</div>
       <div class="detail">${escapeHtml(detail)}</div>
     </div>
   `;
@@ -464,40 +824,48 @@ function badgeHtml(variant, label) {
 
 function renderPanel() {
   const status = state.caseStatus;
-  const caseState = status ? status.state : null;
+  // The escalation object wins: a failed refresh may have left the previous
+  // turn's status (or none) behind, and the case is escalated either way.
+  const caseState = state.escalation ? CASE_STATES.ESCALATED : status ? status.state : null;
   const transactionFound = () => t("stepTransactionFound", caseChargeLabel(status));
 
   let badge;
   let step2Variant = "pending", step2Dot = "2", step2Detail = t("stepTransactionPending");
   let step3Variant = "pending", step3Dot = "3", step3Detail = t("stepPolicyPending");
 
-  if (caseState === "clarifying") {
+  if (caseState === CASE_STATES.CLARIFYING) {
     badge = badgeHtml("warning", t("badgeClarifying"));
     step2Variant = "warning"; step2Dot = "?";
     step2Detail = t("stepTransactionSearching");
-  } else if (caseState === "selecting") {
+  } else if (caseState === CASE_STATES.SELECTING) {
     badge = badgeHtml("warning", t("badgeSelecting"));
     step2Variant = "warning"; step2Dot = "?";
     step2Detail = t("stepTransactionSelecting");
-  } else if (caseState === "confirming") {
+  } else if (caseState === CASE_STATES.CONFIRMING) {
     badge = badgeHtml("warning", t("badgeConfirming"));
     step2Variant = "warning"; step2Dot = "?";
     step2Detail = t("stepTransactionAwaitingConfirm");
-  } else if (caseState === "awaiting_explanation") {
+  } else if (caseState === CASE_STATES.AWAITING_EXPLANATION) {
     badge = badgeHtml("warning", t("badgeExplaining"));
     step2Variant = "done"; step2Dot = "✓";
     step2Detail = transactionFound();
     step3Variant = "warning"; step3Dot = "?";
     step3Detail = t("stepPolicyExplaining");
-  } else if (caseState === "resolved_auto") {
+  } else if (caseState === CASE_STATES.RESOLVED_AUTO) {
     badge = badgeHtml("success", t("badgeResolved"));
     step2Variant = "done"; step2Dot = "✓";
     step2Detail = transactionFound();
     step3Variant = "done"; step3Dot = "✓";
     step3Detail = t("stepPolicyResolved");
-  } else if (caseState === "escalated") {
+  } else if (caseState === CASE_STATES.ESCALATED) {
     badge = badgeHtml("info", t("badgeEscalated"));
-    if (status.matched_transaction_id) {
+    // With an escalation object, only the charge the customer identified (the
+    // stored match may be an unconfirmed proposal, plan.md AD-5).
+    const escalatedCharge = state.escalation ? state.escalation.charge : null;
+    if (escalatedCharge) {
+      step2Variant = "done"; step2Dot = "✓";
+      step2Detail = t("stepTransactionFound", chargeLabel(escalatedCharge));
+    } else if (!state.escalation && status && status.matched_transaction_id) {
       step2Variant = "done"; step2Dot = "✓";
       step2Detail = transactionFound();
     } else {
@@ -515,16 +883,16 @@ function renderPanel() {
   html += verifyStepHtml(step2Variant, step2Dot, t("stepTransaction"), step2Detail);
   html += verifyStepHtml(step3Variant, step3Dot, t("stepPolicy"), step3Detail);
 
-  if (caseState === "resolved_auto" && status.resolution_reference) {
+  if (caseState === CASE_STATES.RESOLVED_AUTO && status.resolution_reference) {
     html += `<p><span class="verified-chip">${escapeHtml(t("verifiedChip", status.resolution_reference))}</span></p>`;
   }
-  if (caseState === "escalated") {
+  if (caseState === CASE_STATES.ESCALATED) {
     html += renderPersonaToggle() + renderPersonaView();
   }
 
   panelContent.innerHTML = html;
 
-  if (caseState === "escalated") {
+  if (caseState === CASE_STATES.ESCALATED) {
     document.querySelectorAll(".persona-toggle button").forEach((btn) => {
       btn.addEventListener("click", () => {
         state.personaView = btn.dataset.view;
@@ -545,40 +913,91 @@ function renderPersonaToggle() {
 
 function renderPersonaView() {
   if (state.personaView === "client") {
+    if (state.escalation) return escalationDetailsHtml();
     return `<p class="client-summary">${escapeHtml(t("actionCardEscalatedBody"))}</p>`;
   }
   return renderHandoffCard();
 }
 
+function humanizeKey(key) {
+  const words = key.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function factLabel(key) {
+  return t("handoffFields")[key] || humanizeKey(key);
+}
+
+const AMOUNT_FACTS = new Set(["amount", "reported_amount"]);
+const DATE_FACTS = new Set(["date", "reported_date"]);
+const CODED_FACTS = new Set([
+  "dispute_reason", "customer_confirmation", "charge_confirmed", "explanation_specific", "explanation_consistent",
+]);
+
+function factValue(key, value, facts) {
+  if (AMOUNT_FACTS.has(key)) return formatAmount(Number(value), facts.currency);
+  if (DATE_FACTS.has(key)) return formatDay(value);
+  if (key === "category") return categoryLabel(value);
+  if (CODED_FACTS.has(key)) return t("handoffValues")[value] || String(value);
+  return String(value);
+}
+
+function hasAmount(facts) {
+  return Object.keys(facts).some((key) => AMOUNT_FACTS.has(key));
+}
+
+function isShownFact(facts) {
+  const currencyInAmount = hasAmount(facts);
+  return ([key]) => !(key === "currency" && currencyInAmount);
+}
+
+function factListHtml(facts) {
+  const rows = Object.entries(facts).filter(isShownFact(facts)).map(factRowHtml(facts));
+  return `<dl class="fact-list">${rows.join("")}</dl>`;
+}
+
+function factRowHtml(facts) {
+  return ([key, value]) => `<div><dt>${escapeHtml(factLabel(key))}</dt><dd>${escapeHtml(factValue(key, value, facts))}</dd></div>`;
+}
+
+function handoffSectionHtml(label, body, tag = null) {
+  const tagHtml = tag ? ` <span class="verify-tag verify-tag--${tag.kind}">${escapeHtml(tag.text)}</span>` : "";
+  return `<div class="handoff-card__section"><div class="label">${escapeHtml(label)}${tagHtml}</div>${body}</div>`;
+}
+
+function listSectionHtml(labelKey, items, listClass = "") {
+  const classAttr = listClass ? ` class="${listClass}"` : "";
+  return handoffSectionHtml(t(labelKey), `<ul${classAttr}>${listItemsHtml(items)}</ul>`);
+}
+
+function hasEntries(obj) {
+  return Boolean(obj) && Object.keys(obj).length > 0;
+}
+
+function handoffSections(handoff) {
+  const sections = [];
+  if (handoff.request_summary) sections.push(handoffSectionHtml(t("handoffRequest"), `<p>${escapeHtml(handoff.request_summary)}</p>`));
+  if (hasEntries(handoff.verified_facts)) {
+    sections.push(handoffSectionHtml(t("handoffFacts"), factListHtml(handoff.verified_facts), { kind: "record", text: t("handoffFactsTag") }));
+  }
+  if (hasEntries(handoff.customer_reported)) {
+    sections.push(handoffSectionHtml(t("handoffReported"), factListHtml(handoff.customer_reported), { kind: "unverified", text: t("handoffReportedTag") }));
+  }
+  if (hasEntries(handoff.facts)) sections.push(handoffSectionHtml(t("handoffLegacyFacts"), factListHtml(handoff.facts)));
+  if (handoff.policy_reason_count) sections.push(handoffSectionHtml(t("handoffPolicy"), `<p>${escapeHtml(t("handoffPolicyCount", handoff.policy_reason_count))}</p>`));
+  if (handoff.actions_taken?.length) sections.push(listSectionHtml("handoffActions", handoff.actions_taken, "action-log"));
+  if (handoff.evidence?.length) sections.push(listSectionHtml("handoffEvidence", handoff.evidence));
+  if (handoff.open_questions?.length) sections.push(listSectionHtml("handoffQuestions", handoff.open_questions, "checklist"));
+  return sections.join("");
+}
+
 function renderHandoffCard() {
-  const handoff = state.caseStatus.handoff;
+  const handoff = state.caseStatus ? state.caseStatus.handoff : null;
   if (!handoff) return "";
-
-  const factsRows = Object.entries(handoff.facts || {})
-    .map(([k, v]) => `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(String(v))}</td></tr>`)
-    .join("");
-
   return `
     <div class="handoff-card">
       <div class="handoff-card__header">${t("handoffTitle")}</div>
-      <div class="handoff-card__body">
-        <div class="handoff-card__section">
-          <div class="label">${t("handoffFacts")}</div>
-          <table class="fact-table"><tbody>${factsRows}</tbody></table>
-        </div>
-        <div class="handoff-card__section">
-          <div class="label">${t("handoffActions")}</div>
-          <ul class="action-log">${listItemsHtml(handoff.actions_taken)}</ul>
-        </div>
-        <div class="handoff-card__section">
-          <div class="label">${t("handoffEvidence")}</div>
-          <ul>${listItemsHtml(handoff.evidence)}</ul>
-        </div>
-        <div class="handoff-card__section">
-          <div class="label">${t("handoffQuestions")}</div>
-          <ul class="checklist">${listItemsHtml(handoff.open_questions)}</ul>
-        </div>
-      </div>
+      <div class="handoff-card__body">${handoffSections(handoff)}</div>
     </div>
   `;
 }

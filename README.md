@@ -49,7 +49,9 @@ awaiting_explanation (Milestone 9)
       |
       v
 app/llm.py::generate_response()       <- LLM, NLG only, grounded in build_prompt_context()'s
-                                          closed allowlist (never raw DB rows/PII)
+                                          closed allowlist (never raw DB rows/PII); typed turns
+                                          only: a button or menu tap is answered with the
+                                          validated templates, with no model call (AD-9)
 ```
 
 **Why this split:** the challenge requires permissions/policy enforced *in code*, not in a model
@@ -57,6 +59,28 @@ prompt. The LLM never decides whether to auto-resolve or escalate — it only ex
 entities from free text and phrases the (code-decided) outcome in natural language. See
 `.workspace/features/dispute-agent/plan.md` (Architecture Decisions AD-1 through AD-11) for the
 full rationale, alternatives considered, and the three-experts/Codex adversarial review record.
+
+**Register.** The demo customer is Colombian, so every Spanish text addresses them as "usted", in
+neutral, professional Latin American Spanish (Portuguese uses "você" without slang): the fixed
+replies, the UI and login strings, and the prompts the model reads. `app/register.py` holds closed
+lists of voseo, tuteo and colloquial forms; `tests/test_register.py` sweeps every customer-facing
+text with them, and every model reply is checked at runtime: one with voseo or slang ("mirá",
+"contame", "dale") is replaced by that step's template and logged as `nlg_reply_replaced`.
+
+**Escalation notice.** When a case goes to a person the customer gets a fixed notice built in code,
+never by the model: the charge (merchant, amount, date) only when the customer identified it, the
+reason in their language, the case number and "le contactaremos en un plazo de hasta 3 días
+hábiles", plus the fact that this chat no longer adds information to the case. The reason is one of
+nine closed values (`case_model.EscalationReason`), chosen at the step that escalates and stored in
+`cases.escalation_reason` in the same compare-and-set that moves the case to `escalated`; every
+policy, fraud, amount or limit outcome is the same "needs a person's review", so no threshold, score
+or rule name reaches the customer. The reply carries the same values in `escalation`, and the chat's
+"Caso derivado" card and the client panel render from it (case number first, then a two-step
+timeline: handed off, then "Le contactamos" within the deadline). **The deadline is a demo
+assumption** (`policy.ESCALATION_CONTACT_BUSINESS_DAYS = 3`; this simulated bank has no real contact
+process), sized from the dataset: for "Cargo no reconocido" complaints (n = 12,297) the first
+response took a median of 37 h and a p90 of 58 h, so 3 business days covers the p90 once a weekend
+is in the way. It promises contact, not a resolution.
 
 ## Dispute policy: the evidence decides, not the claim (AD-13)
 
@@ -118,7 +142,7 @@ uvicorn app.main:app --reload --port 8000
 # data/demo_users.json after step 2)
 
 # 5. Tests, lint, eval harness
-pytest                              # 225 tests
+pytest                              # 666 tests
 ruff check .
 python -m eval.run_eval             # -> data/eval_report.json (see "Evaluation results" below)
 ```
@@ -144,20 +168,27 @@ dataset is in USD (there is no MXN transaction at all), a data finding in its ow
 
 | Scenario | How to trigger it | Outcome |
 |---|---|---|
-| Automated resolution (typed) | "No reconozco un cargo de 38.500 pesos del 14 de junio", then explain ("no uso Uber hace meses, tengo la tarjeta conmigo") | Confident match (Uber) -> the agent names merchant/amount/date and asks (`confirming`, with "Sí, es ese" / "No es ese" buttons) -> "yes" -> `awaiting_explanation` -> the unrecognized-charge evidence check passes (online purchase, no other Uber charges) -> `resolved_auto`: provisional credit, card blocked (simulated), back-office review, reference |
-| Automated resolution (picked) | "Se me perdió un monto, mostrame mis cargos" -> tap Uber or Cine Premium, then explain | The customer's own charges as cards (`selecting`); tapping one is the customer's explicit identification (the AD-12 confirmation) -> explanation -> policy -> `resolved_auto`. A second unrecognized charge in the same 90 days goes to a person |
+| Automated resolution (typed) | "No reconozco un cargo de 38.500 pesos del 14 de junio" (PT: "Não reconheço uma cobrança de 38.500 pesos do dia 14 de junho"), then explain ("no uso Uber hace meses, tengo la tarjeta conmigo") | Confident match (Uber), the same in Spanish and Portuguese: "pesos" without a country is not a stated currency, so the search uses the customer's own currency (COP) instead of the model's guess (it guessed COP in Spanish and MXN in Portuguese) -> the agent names merchant/amount/date and asks (`confirming`, with "Sí, es ese" / "No es ese" buttons) -> "yes" -> `awaiting_explanation` -> the unrecognized-charge evidence check passes (online purchase, no other Uber charges) -> `resolved_auto`: provisional credit, card blocked (simulated), back-office review, reference |
+| Automated resolution (picked) | Tap "Ver mis últimos cargos" (or type "Se me perdió un monto, mostrame mis cargos") -> tap Uber or Cine Premium, then explain | The customer's own charges as cards (`selecting`); tapping one is the customer's explicit identification (the AD-12 confirmation) -> explanation -> policy -> `resolved_auto`. A second unrecognized charge in the same 90 days goes to a person |
 | Ambiguous: duplicated charge | "Me cobraron dos veces un taxi de 27 mil" -> tap either taxi -> "tomé un solo taxi y me lo cobraron dos veces" | Two matches (AD-11 Row 3) -> only those two cards are shown -> the customer picks one -> the twin is verified in the data -> `resolved_auto`, one of the two reversed (no card block). Disputing the other one afterwards escalates |
-| Ineligible on the evidence | Tap Farmacia Salud / Super Ahorro / Gasolinera Express (POS), or say a taxi was "not recognized" | However convincing the explanation: card-present purchase, or an existing relationship with the merchant -> `escalated` with the policy reasons and the model's neutral summary in the handoff |
-| Ambiguous: not in the list | A list shown after a detail ("fue el 14 de junio") -> "No está en la lista" | `escalated` with the charges shown as evidence and an open question for the agent. With no detail yet, the agent asks for one instead of escalating |
+| Ineligible on the evidence | Tap Farmacia Salud / Super Ahorro / Gasolinera Express (POS), or say a taxi was "not recognized" | However convincing the explanation: card-present purchase, or an existing relationship with the merchant -> `escalated` with the policy reasons (their own `policy_reasons` field) and the model's neutral summary (under what the customer reported) in the handoff; the customer gets the notice naming the charge, "necesita la revisión de una persona", the case number and the 3-business-day deadline |
+| Ambiguous: not in the list | A list shown after a detail ("fue el 14 de junio") -> "No está en la lista" | `escalated` with the charges shown as evidence and an open question for the agent; the notice names no charge (none was identified) and says it could not be identified. With no detail yet, the agent asks for one instead of escalating |
 | Unsupported request | "¿Cuál es mi saldo?" | Declines and says what this channel does; no guess, no state change |
-| Human escalation (policy) | "No reconozco una compra en Tienda Online Global", or tap Boutique Moda / Tienda Don José | Fails AD-11 (fraud score 91 / ~610 USD / Pending) -> `escalated` with a structured handoff (facts, actions, evidence, open questions) |
-| Human escalation (request) | Give a detail the agent cannot match (e.g. "fue el 22/04/2024"), then "Hablar con una persona" | The agent tries first: asking for a person before that gets the charge list and a "let me try first" reply. The button only appears once the customer gave details and the agent could not resolve them (nothing matched, a rejected proposal, or a round with nothing new). Each deferral spends a clarification round, so a customer who insists without details reaches a person on the third request |
+| Human escalation (policy) | "No reconozco una compra en Tienda Online Global", or tap Boutique Moda / Tienda Don José | Fails AD-11 (fraud score 91 / ~610 USD / Pending) -> `escalated` with a structured handoff (request summary, facts verified from the charge record, what the customer reported, policy reasons, actions, evidence, open questions); the customer's notice names the charge and "necesita la revisión de una persona", never the score or the threshold |
+| Human escalation (request) | "Quiero hablar con una persona", then again "Quiero hablar con una persona" (or the "Hablar con una persona" button) | The agent tries once per request: the first request keeps the case where it is (the charge list, the pending confirmation, or the question about what happened), spends no clarification round and ends the reply with "Si aun así prefiere hablar con una persona, vuelva a pedirlo o use el botón «Hablar con una persona»", and the button appears. The second request, typed or tapped, escalates with the notice (reason "usted pidió hablar con una persona"). A request that comes with details tries them first and counts as that one deferral, unless the details already send the case to a person by policy (then the policy reason, no offer). If the agent already could not match the customer's details (e.g. "fue el 22/04/2024") or used its rounds, the button is already there and the first request escalates. In the explanation step a typed request is detected (short texts by the extraction call, longer ones by the assessment) and never counted as an explanation |
+| Second claim in the same chat | After any closed case (`resolved_auto` or `escalated`): tap "Reportar otro cargo" / "Contestar outra cobrança", or just type the next complaint (e.g. "No reconozco una compra en Tienda Online Global" after the Uber resolution) | A divider "Nuevo reclamo · caso anterior REF-... (resuelto)" marks the new claim, the case panel goes back to "Esperando reporte" and the message goes out without a `case_id`, so the server opens a new case. The closed case is never reopened or changed (state, reference, credit); its "Verificación del sistema" / "Caso derivado" card appears once, only on the turn that closed it |
 
 A turn that brings a new detail (amount, date, merchant) never spends a clarification round; after
 two rounds with nothing new, or more than 6 free-text reports in one case, the case escalates
 (greetings and button taps do not count). A greeting gets an introduction of what the agent can do.
 A transaction is credited at most once: disputing an already-credited charge again, in any case,
-goes to a person with the earlier case as evidence (checked in code and enforced by a unique index). Everything works in Spanish and Portuguese (toggle in the chat header); see
+goes to a person with the earlier case as evidence (checked in code and enforced by a unique index).
+While a turn is in flight the chat shows a typing bubble with a step-aware caption ("Buscando sus
+movimientos…", "Revisando su explicación…"), switching to "Está tardando más de lo habitual" after
+10 s, announced to screen readers through a separate `role=status` region; buttons, Enter and Send
+cannot post a second message meanwhile, and typed text is kept. A failed or timed-out (25 s) send
+shows "No se pudo obtener respuesta" with a "Reintentar" button that re-sends the same turn (same
+`turn_id`), so the server replays the turn instead of applying it twice. Everything works in Spanish and Portuguese (toggle in the chat header); see
 "Known limitations" for what the Portuguese toggle does and does not validate.
 
 ## Evaluation results
@@ -183,23 +214,28 @@ other gating conditions in `tests/test_policy_not_overridden.py`).
 
 **Conversation/system eval** (`eval/run_eval.py`): ⚠️ **explicitly OFFLINE/SIMULATED**, not a
 measured-production result. The harness runs scripted multi-turn conversations against a
-deterministic mocked LLM client so every run is reproducible. 26 cases: 6 required scenarios
+deterministic mocked LLM client so every run is reproducible. 29 cases: 6 required scenarios
 (typed resolution, picked resolution, duplicated charge picked, not in list after details, policy
 escalation, human request after an unmatched detail) × 2 languages, 7 adversarial/failure-mode
 fixtures (missing data, prompt injection, LLM outage, mixed-language input, a tampered tap on a
 charge that was not offered, re-disputing an already-credited charge, asking for a person before
-giving any detail) and 7 `policy_abuse` cases (AD-13: card-present "unrecognized" charge, a
+giving any detail), a currency-parity case in Spanish and Portuguese ("38.500 pesos" with the
+extraction mocked as COP in Spanish and MXN in Portuguese: both must reach `confirming`) and 8 `policy_abuse` cases (AD-13: card-present "unrecognized" charge, a
 merchant the customer already uses, a duplicate with no twin, a merchant dispute, an injection in
 the explanation, a second unrecognized credit in the window, the other half of an already-reversed
-duplicate pair), all with the assessment model mocked as convinced. Each scenario runs against its
+duplicate pair, a charge a person already has after an explanation retried in a new case), all with the assessment model mocked as convinced. Each scenario runs against its
 own app database:
 
-- **Unsafe outcomes: 0 / 26.**
-- Safe automated resolution rate: 0.23 (6/26; the mix is mostly escalation/adversarial by design).
-- Containment rate: 0.26 (6/23 concluded cases).
-- Pipeline latency (excludes real LLM network time): p50 0.21s, p95 0.40s.
-- Estimated cost (Haiku 4.5 list pricing, not measured billing): ~$0.0015/attempted case,
-  ~$0.0063/successful resolution.
+- **Unsafe outcomes: 0 / 29.**
+- By language (`by_language`): Spanish 22 cases, 22 safe (3 resolved, 16 escalated); Portuguese 7
+  cases, 7 safe (3 resolved, 3 escalated). The adversarial and policy-abuse cases run in Spanish only
+  (except the currency-parity case), so the Portuguese sample is smaller.
+- Safe automated resolution rate: 0.21 (6/29; the mix is mostly escalation/adversarial by design).
+- Containment rate: 0.24 (6/25 concluded cases).
+- Pipeline latency (excludes real LLM network time): p50 0.24s, p95 0.42s.
+- Real Claude Haiku 4.5 turn latency (manual runs, 2026-09-30): the explanation turn that resolves took 1.3-6.6 s (median 3.2 s over 8 ES/PT runs; 3.1-17.8 s before the resolution message became a validated template), while a first typed report, which makes two model calls, took 6-22 s (the "38.500 pesos" report, 3 runs per language: 4.1-21.2 s, median 8.9 s). Button and menu taps ("Ver mis últimos cargos", a tapped charge, "Sí, es ese", "No es ese", "No está en la lista", "Hablar con una persona") make no model call and were answered in 0.05-0.14 s (a tapped charge ~1 s, local policy and classifier work), down from 1.2-12.2 s when each paid an NLG call (3 runs each, 2026-09-30). Escalation and first-request-for-a-person turns write their reply from a fixed template (the notice, the deferral and the offer), with no NLG call: a policy escalation from a typed report took 4.0-5.9 s (its only model call is the extraction), a typed request for a person 1.1-6.2 s (its only model call is the extraction, or the explanation check while a charge is being explained), and the same moves from a button or a tapped charge 0.1-0.9 s (manual runs, 2026-09-30). Every turn's model calls share a 20 s budget and the chat shows a typing indicator, then a retry option at 25 s.
+- Estimated cost (Haiku 4.5 list pricing, not measured billing): ~$0.0012/attempted case,
+  ~$0.0060/successful resolution.
 
 The real-model behavior is checked separately: the Playwright walkthrough and manual runs go
 through Claude Haiku 4.5 end to end, and bugs they surfaced (fenced JSON, a currency lost between
@@ -211,7 +247,8 @@ turns, over-strict fact checks on natural wordings) are pinned by regression tes
   runs against Claude Haiku 4.5, and the walkthrough plus manual sessions exercise it end to end,
   but `eval/run_eval.py` uses a mocked client for reproducibility, so its latency/cost figures
   exclude the real model. Without a key the app still degrades gracefully: every LLM failure
-  forces escalation with a deterministic fallback message (verified live, not just in tests).
+  forces escalation with the deterministic escalation notice, whose reason is a technical problem
+  (verified live, not just in tests).
 - **The demo customer's history is partly synthetic.** 6 of the 14 charges are real dataset rows;
   8 are team-generated to cover every scenario and are labeled as such in the fixture
   (`_is_synthetic`, `_source_file = 'synthetic'`). The dataset window is a snapshot ending
@@ -232,9 +269,24 @@ turns, over-strict fact checks on natural wordings) are pinned by regression tes
   `SHOW_DEMO_CREDENTIALS=0` to hide it on any deployment that is not a labeled demo.
 - **Portuguese support is simulated via the LLM's general multilingual capability.** The dataset
   contains zero Portuguese rows — no training or held-out evaluation claim is made for Portuguese
-  specifically. The structured handoff record's `actions_taken`/`open_questions` text (deterministic,
-  code-generated, not LLM output) stays in Spanish regardless of the toggle — an internal
-  agent-facing audit artifact, not customer-facing content.
+  specifically. The structured handoff record's text (request summary, actions, open questions:
+  deterministic, code-generated, not LLM output) stays in Spanish regardless of the toggle, an internal
+  agent-facing audit artifact, not customer-facing content; the Vista Interna labels its sections and
+  fields in the chosen language.
+- **Language parity is checked on the flows we know, not proven in general.** The same report once
+  took different paths in Spanish and Portuguese because the model guessed a different currency for
+  "pesos" (COP vs MXN). Now a currency counts only when the customer names it (a deterministic check
+  on the text, `app/llm.py::stated_currency`), and a mocked test plus 3 real runs per language pin
+  the same state. Other wordings may still differ between languages; the eval reports results by
+  language, but its Portuguese sample is 7 cases against 22 in Spanish.
+- **Real-model latency varies a lot.** A first typed report makes two model calls and took 4-22 s
+  in manual runs (median 8.9 s for the "38.500 pesos" report); the slowest turns sit close to the
+  chat's 25 s retry. The model calls of a turn share a 20 s budget and a timed-out turn is replayed,
+  not applied twice.
+- **Cases stored before the currency fix keep an inferred currency.** Earlier versions saved the
+  profile's currency as if the customer had said it, and handoffs had a different shape. Those rows
+  live only in a local `data/app.db`; they are not migrated (the Vista Interna still renders the old
+  handoff shape, and `/api/case` leaves out their open questions, where the policy reasons used to be).
 - **Single-host deployment, no load/concurrency testing.** Designed for sequential demo/judge
   traffic on one machine — stated explicitly, not silently assumed away.
 - **The rolling-aggregate classifier feature (AD-6 stretch goal) was not attempted**, per the
@@ -260,7 +312,7 @@ app/            FastAPI backend — auth, state machine, policy, LLM boundary, c
 etl/            Offline ETL: extraction, quality checks, fixture generation, classifier training
 eval/           Eval harness (Milestone 5)
 static/         Frontend (vanilla HTML/CSS/JS, no build step — AD-1)
-tests/          pytest suite (225 tests)
+tests/          pytest suite (666 tests)
 support.py      Shared test/eval mock helpers (no pytest dependency — used by eval/ too)
 docs/           Challenge requirements digest
 data/           Local ETL artifacts, fixture, trained model (gitignored — never commit raw data)

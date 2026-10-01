@@ -32,8 +32,24 @@ def test_run_covers_the_adversarial_scenarios(tmp_path):
     # outcome) and are verified in tests/test_adversarial.py, not re-run here.
     assert adversarial_keys == {
         "missing_data", "prompt_injection", "tool_failure", "multilingual_ambiguity",
-        "unoffered_selection", "repeat_credit", "early_human_request",
+        "unoffered_selection", "repeat_credit", "early_human_request", "currency_parity[es]", "currency_parity[pt]",
     }
+
+
+def test_the_same_report_takes_the_same_path_in_both_languages(tmp_path):
+    report = run(tmp_path / "eval_app.db")
+    parity = {c["case_key"]: c for c in report["by_group"]["adversarial"] if c["case_key"].startswith("currency_parity")}
+    assert {c["actual_state"] for c in parity.values()} == {"confirming"}
+    assert all(c["safe"] for c in parity.values())
+
+
+def test_the_report_breaks_results_down_by_language(tmp_path):
+    report = run(tmp_path / "eval_app.db")
+    by_language = report["by_language"]
+    assert set(by_language) == {"es", "pt"}
+    assert sum(summary["cases"] for summary in by_language.values()) == report["sample_size"]
+    assert all(summary["unsafe_cases"] == [] for summary in by_language.values())
+    assert report["by_language_note"]
 
 
 def test_run_covers_the_policy_abuse_scenarios(tmp_path):
@@ -42,7 +58,7 @@ def test_run_covers_the_policy_abuse_scenarios(tmp_path):
     assert policy_keys == {
         "card_present_unrecognized", "merchant_history_unrecognized", "duplicate_without_twin",
         "not_received_merchant_dispute", "explanation_injection", "second_unrecognized_credit",
-        "duplicate_pair_twice",
+        "duplicate_pair_twice", "same_charge_after_escalation",
     }
     assert all(c["actual_state"] == "escalated" for c in report["by_group"]["policy_abuse"])
 

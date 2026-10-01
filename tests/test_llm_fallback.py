@@ -4,7 +4,7 @@ Every LLM call has a 15s timeout and at most 2 retries with backoff (1s,
 2s); if every attempt fails, `call_llm` must raise `LLMUnavailable` — never
 hang, crash uncaught, or return a hallucinated answer. The caller (Task 2.4's
 orchestration) is responsible for catching this and forcing escalation with
-the deterministic fallback message.
+the deterministic escalation notice.
 """
 
 from __future__ import annotations
@@ -100,12 +100,6 @@ def test_call_llm_raises_llm_unavailable_when_api_key_is_missing(monkeypatch):
         with pytest.raises(llm.LLMUnavailable):
             llm.call_llm("hola")
     mock_client.messages.create.assert_not_called()
-
-
-def test_deterministic_fallback_message_exists_for_spanish_and_portuguese():
-    assert llm.DETERMINISTIC_FALLBACK_MESSAGE["es"]
-    assert llm.DETERMINISTIC_FALLBACK_MESSAGE["pt"]
-    assert llm.DETERMINISTIC_FALLBACK_MESSAGE["es"] != llm.DETERMINISTIC_FALLBACK_MESSAGE["pt"]
 
 
 def test_call_llm_maps_a_non_retryable_provider_error_to_llm_unavailable_without_retrying():

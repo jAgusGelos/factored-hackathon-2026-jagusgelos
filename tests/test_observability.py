@@ -71,7 +71,7 @@ def test_escalation_log_event_reconstructs_the_same_handoff_the_case_record_show
     extraction = {"amount": 500.0, "currency": "USD", "date": "2026-06-10", "merchant_hint": None, "wants_human": False}
 
     with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(extraction)):
-        reply = handle_message(SESSION, None, "Tengo un cargo que no reconozco", db_path=app_db)
+        reply = handle_message(SESSION, None, "Tengo un cargo de 500 USD que no reconozco", db_path=app_db)
 
     assert reply["state"] == "escalated"
 
@@ -89,7 +89,7 @@ def test_every_event_for_a_conversation_shares_one_correlation_id_per_turn(app_d
     extraction = {"amount": 500.0, "currency": "USD", "date": "2026-06-10", "merchant_hint": None, "wants_human": False}
 
     with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(extraction)):
-        reply = handle_message(SESSION, None, "Tengo un cargo que no reconozco", db_path=app_db)
+        reply = handle_message(SESSION, None, "Tengo un cargo de 500 USD que no reconozco", db_path=app_db)
 
     con = sqlite3.connect(str(app_db))
     con.row_factory = sqlite3.Row
@@ -111,7 +111,7 @@ def test_case_evaluated_breadcrumb_and_case_escalated_detail_are_both_logged(app
     extraction = {"amount": 500.0, "currency": "USD", "date": "2026-06-10", "merchant_hint": None, "wants_human": False}
 
     with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(extraction)):
-        reply = handle_message(SESSION, None, "Tengo un cargo que no reconozco", db_path=app_db)
+        reply = handle_message(SESSION, None, "Tengo un cargo de 500 USD que no reconozco", db_path=app_db)
 
     breadcrumbs = _events_for_case(app_db, reply["case_id"], "case_evaluated")
     details = _events_for_case(app_db, reply["case_id"], "case_escalated")

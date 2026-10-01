@@ -134,7 +134,7 @@ def test_end_to_end_evaluate_case_escalates_when_the_live_classifier_call_predic
 
     assert evaluation.state == CaseState.ESCALATED
     assert evaluation.handoff is not None
-    assert any("Critical" in r for r in evaluation.handoff.open_questions)
+    assert any("Critical" in r for r in evaluation.handoff.policy_reasons)
 
 
 def test_end_to_end_evaluate_case_still_auto_resolves_when_classifier_is_unavailable(fixture_con):

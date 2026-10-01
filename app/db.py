@@ -5,7 +5,7 @@ offline ETL artifact that never ships to the deployed runtime (AD-2), and the
 sanitized demo fixture is its own read-only DuckDB file
 (`config.FIXTURE_DB_PATH`, built by `etl/build_fixture.py`). This SQLite file
 (`config.APP_DB_PATH`) holds what the running app writes: sessions (AD-4),
-cases, messages and audit events.
+cases, messages, audit events and the idempotent chat turns.
 
 Using SQLite (not an in-memory dict) for sessions is a deliberate AD-4 choice:
 it must survive a process restart mid-demo.
@@ -17,6 +17,7 @@ import logging
 import sqlite3
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from app import config
@@ -51,12 +52,15 @@ CREATE TABLE IF NOT EXISTS cases (
     credit_key TEXT,
     credited_amount_usd REAL,
     credited_at TEXT,
+    escalation_reason TEXT,
     predicted_priority TEXT,
     resolution_reference TEXT,
     handoff_json TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+-- The same-charge lookups (cases.credited_case_for_transaction and friends).
+CREATE INDEX IF NOT EXISTS idx_cases_customer_transaction ON cases (customer_id, matched_transaction_id);
 
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -85,6 +89,20 @@ CREATE TABLE IF NOT EXISTS events (
     payload_json TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+-- One row per client-generated turn id (AD-4): pending while reply_json is
+-- NULL, complete once the reply the client got is stored. Keyed per customer,
+-- so one customer's id can never reach another customer's reply.
+CREATE TABLE IF NOT EXISTS chat_turns (
+    customer_id TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    case_id TEXT,
+    reply_json TEXT,
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    failed_at TEXT,
+    PRIMARY KEY (customer_id, turn_id)
+);
 """
 
 
@@ -110,6 +128,10 @@ _ADDED_COLUMNS = {
         ("credit_key", "TEXT"),
         ("credited_amount_usd", "REAL"),
         ("credited_at", "TEXT"),
+        ("escalation_reason", "TEXT"),
+    ),
+    "chat_turns": (
+        ("failed_at", "TEXT"),
     ),
 }
 
@@ -136,11 +158,29 @@ def _add_missing_columns(con: sqlite3.Connection) -> None:
                 con.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
 
+# A completed chat turn's reply is kept this long for replays of a client retry.
+COMPLETED_TURN_RETENTION = timedelta(days=1)
+
+
+def _expire_old_turns(con: sqlite3.Connection) -> None:
+    """Drops old reply payloads but keeps the (customer_id, turn_id) row as an
+    expired tombstone (`completed_at` set, no reply): a late reuse of that
+    turn_id is answered with the case's current state, never processed a
+    second time. Rows are never deleted: a deleted row would let that
+    turn_id run again.
+    """
+    con.execute(
+        "UPDATE chat_turns SET reply_json = NULL WHERE reply_json IS NOT NULL AND completed_at < ?",
+        [(datetime.now(UTC) - COMPLETED_TURN_RETENTION).isoformat()],
+    )
+
+
 def init_db(db_path: Path) -> None:
     con = get_connection(db_path)
     try:
         con.executescript(SCHEMA)
         _add_missing_columns(con)
+        _expire_old_turns(con)
         for name, index in (
             ("idx_cases_one_credit_per_transaction", _ONE_CREDIT_PER_TRANSACTION),
             ("idx_cases_one_credit_per_key", _ONE_CREDIT_PER_KEY),

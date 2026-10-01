@@ -9,10 +9,9 @@ from __future__ import annotations
 import uuid
 from dataclasses import replace
 
-from app import cases, handoffs, llm, replies
+from app import cases, handoffs, replies
 from app.case_model import CaseState
 from app.case_turn import ChatReply, Turn, finish_escalated, reply_for_lost_race
-from app.charge_search import iso_day
 from app.policy import DisputeReason, credit_key, effective_amount_usd
 from app.transactions import TransactionCandidate
 
@@ -69,7 +68,9 @@ def finish_resolved(
     except cases.DuplicateCreditError:
         credited_in = _case_that_credited(turn, matched, grant)
         turn.log_event("credit_already_granted", {"credit_key": grant.key, "credited_in_case": credited_in})
-        return finish_escalated(turn, handoffs.already_credited(report, matched, credited_in), report)
+        return finish_escalated(turn, handoffs.already_credited(
+            report, matched, credited_in, how_identified=handoffs.ChargeIdentification.EXPLANATION,
+        ), report)
     if not claimed:
         current = cases.get_case(turn.case.case_id, db_path=turn.db_path)
         if current.state == turn.case.state and current.matched_transaction_id == turn.case.matched_transaction_id:
@@ -85,23 +86,9 @@ def finish_resolved(
             "currency": matched.currency, "resolution_reference": reference, "reason": reason,
         },
     )
-    context = llm.build_prompt_context(
-        case_state=CaseState.RESOLVED_AUTO, language=turn.language,
-        candidate_amount=matched.amount, candidate_currency=matched.currency,
-        candidate_date=iso_day(matched), candidate_merchant_name=matched.merchant_name,
-        resolution_reference=reference, dispute_reason=reason,
-    )
-    fallback = replies.resolved(reference, reason, turn.language)
-    reply = turn.generate_reply(context, fallback=fallback)
-    if reference not in reply:
-        # A resolution message without the case reference is useless to the
-        # customer; never send one, whatever the model wrote.
-        turn.log_event("resolution_reply_replaced", {"reason": "reference_missing"})
-        reply = fallback
-    elif not replies.states_required_disclosures(reply, reason, turn.language):
-        turn.log_event("resolution_reply_replaced", {"reason": "disclosures_missing"})
-        reply = fallback
-    return turn.reply(CaseState.RESOLVED_AUTO, reply)
+    # A fixed template, not a model call: it must carry the reference and every
+    # disclosure word for word, and it saves the turn a sequential LLM call.
+    return turn.reply(CaseState.RESOLVED_AUTO, replies.resolved(reference, reason, turn.language))
 
 
 def _case_that_credited(turn: Turn, matched: TransactionCandidate, grant: cases.CreditGrant) -> str:

@@ -15,11 +15,13 @@ from unittest.mock import patch
 import pytest
 
 from app import cases
-from app.llm import _EXTRACTION_SYSTEM_PROMPT, _RESPONSE_SYSTEM_PROMPT
+from app.case_model import EscalationReason
+from app.llm import _EXTRACTION_SYSTEM_PROMPT, _RESPONSE_SYSTEM_PROMPT, Language
 from app.state_machine import CaseState, handle_message
 from tests.support import (
     AUTO_RESOLVE_CHARGE,
     FRAUD_SCORE_CHARGE,
+    assert_escalation_notice,
     charge_extraction,
     demo_session,
     mock_anthropic_client,
@@ -60,7 +62,12 @@ def test_pt_toggle_reaches_the_expected_state(real_fixture_app_db, charge, expec
 
     assert reply["state"] == expected_state
     _only_portuguese_prompts(captured)
-    assert _RESPONSE_SYSTEM_PROMPT["pt"] in captured
+    if expected_state == CaseState.ESCALATED:
+        # The escalation notice is a template: no response prompt at all.
+        assert _RESPONSE_SYSTEM_PROMPT["pt"] not in captured
+        assert_escalation_notice(reply, EscalationReason.NEEDS_REVIEW, charge_named=True, language=Language.PT)
+    else:
+        assert _RESPONSE_SYSTEM_PROMPT["pt"] in captured
     assert cases.get_case(reply["case_id"], db_path=real_fixture_app_db).language == "pt"
 
 

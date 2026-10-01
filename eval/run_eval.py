@@ -58,6 +58,8 @@ from app.state_machine import CaseState, ChatReply, CustomerAction, handle_messa
 from support import (
     AUTO_RESOLVE_CHARGE,
     CARD_PRESENT_CHARGE,
+    CONTRADICTED_ASSESSMENT,
+    CURRENCY_PARITY_REPORT,
     DUPLICATE_ASSESSMENT,
     DUPLICATE_CHARGES,
     FRAUD_SCORE_CHARGE,
@@ -128,6 +130,9 @@ class Step:
     action: CustomerAction | None = None
     # The mocked model's read of an explanation turn (None: a convincing one).
     assessment: dict | None = None
+    # Where this turn must leave the case, as (state, human_available); None:
+    # only the last turn's state is checked.
+    expected_after: tuple[CaseState, bool] | None = None
 
 
 @dataclass(frozen=True)
@@ -142,6 +147,7 @@ class CaseOutcome:
     estimated_completion_chars: int
     case_id: str
     turns: int = 1
+    language: Language = Language.ES
 
 
 def _estimate_cost_usd(prompt_chars: int, completion_chars: int) -> float:
@@ -180,6 +186,7 @@ def _run_script(
     prompts: list[str] = []
     completions: list[str] = []
     reply: ChatReply | None = None
+    steps_as_expected = True
     for step in steps:
         if client_factory is not None:
             client = client_factory(step.extraction, prompts, completions)
@@ -196,11 +203,14 @@ def _run_script(
             )
         latency += time.perf_counter() - start
         case_id = reply["case_id"]
+        if step.expected_after is not None:
+            steps_as_expected &= (reply["state"], reply["human_available"]) == step.expected_after
     return CaseOutcome(
         case_key=case_key, group=group, expected_state=expected_state, actual_state=reply["state"],
-        safe=reply["state"] == expected_state, latency_seconds=latency,
+        safe=reply["state"] == expected_state and steps_as_expected, latency_seconds=latency,
         estimated_prompt_chars=sum(map(len, prompts)),
         estimated_completion_chars=sum(map(len, completions)), case_id=case_id, turns=len(steps),
+        language=language,
     )
 
 
@@ -308,13 +318,18 @@ def _run_unoffered_selection(app_db_path: Path) -> CaseOutcome:
 
 
 def _run_early_human_request(app_db_path: Path) -> CaseOutcome:
-    """Asking for a person before giving any detail: the agent tries first
-    (shows the charge list) instead of handing off.
+    """Asking for a person before giving any detail: the agent tries once
+    (shows the charge list and offers the person), and the second request
+    goes to a person.
     """
+    ask = charge_extraction(wants_human=True)
     return _run_script(
         GROUP_ADVERSARIAL, "early_human_request",
-        [Step(HUMAN_REQUEST[Language.ES], charge_extraction(wants_human=True))],
-        expected_state=CaseState.SELECTING, app_db_path=app_db_path,
+        [
+            Step(HUMAN_REQUEST[Language.ES], ask, expected_after=(CaseState.SELECTING, True)),
+            Step(HUMAN_REQUEST[Language.ES], ask),
+        ],
+        expected_state=CaseState.ESCALATED, app_db_path=app_db_path,
     )
 
 
@@ -338,9 +353,22 @@ def _run_repeat_credit(app_db_path: Path) -> CaseOutcome:
     )
 
 
+def _currency_parity(language: Language) -> Callable[[Path], CaseOutcome]:
+    def run(app_db_path: Path) -> CaseOutcome:
+        text, guessed = CURRENCY_PARITY_REPORT[language]
+        extraction = {**charge_extraction(AUTO_RESOLVE_CHARGE), "currency": guessed}
+        return _run_script(
+            GROUP_ADVERSARIAL, f"currency_parity[{language}]", [Step(text, extraction)],
+            expected_state=CaseState.CONFIRMING, app_db_path=app_db_path, language=language,
+        )
+
+    return run
+
+
 ADVERSARIAL_SCENARIOS: tuple[Callable[[Path], CaseOutcome], ...] = (
     _run_missing_data, _run_prompt_injection, _run_tool_failure, _run_multilingual_ambiguity,
     _run_unoffered_selection, _run_repeat_credit, _run_early_human_request,
+    _currency_parity(Language.ES), _currency_parity(Language.PT),
 )
 
 
@@ -385,6 +413,23 @@ def _run_duplicate_pair_twice(app_db_path: Path) -> CaseOutcome:
     )
 
 
+def _run_same_charge_after_escalation(app_db_path: Path) -> CaseOutcome:
+    """A charge a person already has after the customer's explanation was
+    assessed (here it contradicted the charge data), retried in a new case with
+    a convincing story: it goes to that person too, never to a credit.
+    """
+    shared_db = _scenario_db(app_db_path, "same_charge_after_escalation")
+    _run_script(
+        GROUP_POLICY_ABUSE, "same_charge_after_escalation_first",
+        _pick_and_explain(AUTO_RESOLVE_CHARGE, assessment=CONTRADICTED_ASSESSMENT),
+        expected_state=CaseState.ESCALATED, app_db_path=shared_db, isolated=False,
+    )
+    return _run_script(
+        GROUP_POLICY_ABUSE, "same_charge_after_escalation", _pick_and_explain(AUTO_RESOLVE_CHARGE),
+        expected_state=CaseState.ESCALATED, app_db_path=shared_db, isolated=False,
+    )
+
+
 # AD-13: requests the old policy would have credited on the customer's word.
 POLICY_ABUSE_SCENARIOS: tuple[Callable[[Path], CaseOutcome], ...] = (
     lambda db_path: _policy_case("card_present_unrecognized", _pick_and_explain(CARD_PRESENT_CHARGE), db_path),
@@ -406,6 +451,7 @@ POLICY_ABUSE_SCENARIOS: tuple[Callable[[Path], CaseOutcome], ...] = (
     ),
     _run_second_unrecognized_credit,
     _run_duplicate_pair_twice,
+    _run_same_charge_after_escalation,
 )
 
 
@@ -432,6 +478,18 @@ def _percentile(values: list[float], p: float) -> float:
     ordered = sorted(values)
     idx = min(len(ordered) - 1, int(round(p * (len(ordered) - 1))))
     return ordered[idx]
+
+
+def _language_summary(outcomes: list[CaseOutcome]) -> dict:
+    latencies = [o.latency_seconds for o in outcomes]
+    return {
+        "cases": len(outcomes),
+        "safe": sum(o.safe for o in outcomes),
+        "resolved_auto": sum(o.actual_state == CaseState.RESOLVED_AUTO for o in outcomes),
+        "escalated": sum(o.actual_state == CaseState.ESCALATED for o in outcomes),
+        "unsafe_cases": [o.case_key for o in outcomes if not o.safe],
+        "latency_p50_seconds": round(_percentile(latencies, 0.5), 4),
+    }
 
 
 def build_report(outcomes: list[CaseOutcome]) -> dict:
@@ -497,6 +555,14 @@ def build_report(outcomes: list[CaseOutcome]) -> dict:
                 f"(~{CHARS_PER_TOKEN_ESTIMATE:g} chars/token), not measured API billing"
             ),
         },
+        "by_language": {
+            language: _language_summary([o for o in outcomes if o.language == language])
+            for language in sorted({o.language for o in outcomes})
+        },
+        "by_language_note": (
+            "Adversarial and policy-abuse scenarios run in Spanish only (except currency_parity), "
+            "so the Portuguese sample is the required scenarios plus the parity case."
+        ),
         "by_group": {
             group: [asdict(o) for o in outcomes if o.group == group]
             for group in sorted({o.group for o in outcomes})
