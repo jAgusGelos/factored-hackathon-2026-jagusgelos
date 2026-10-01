@@ -42,6 +42,7 @@ from support import (
     REAL_FIXTURE_PATH,
     REPO_ROOT,
     SECOND_ONLINE_CHARGE,
+    STATEMENT,
     app_db_rows,
     charge_extraction,
     charge_report,
@@ -66,6 +67,7 @@ __all__ = [
     "OPENING",
     "NOT_RECEIVED_ASSESSMENT",
     "SECOND_ONLINE_CHARGE",
+    "STATEMENT",
     "app_db_rows",
     "clean_assessment",
     "clean_ctx",
@@ -89,6 +91,8 @@ __all__ = [
     "mocked_turn",
     "reach_confirming",
     "reach_explaining",
+    "assert_asks_for_statement",
+    "finish_statement",
 ]
 
 STATIC = REPO_ROOT / "static"
@@ -138,6 +142,23 @@ def assert_escalation_notice(
     assert (("El cargo es" if language == Language.ES else "A cobrança é") in text) == charge_named
     if charge_named:
         assert escalation["charge"]["merchant"] in text
+
+
+def assert_asks_for_statement(reply: dict, language: Language = Language.ES) -> None:
+    """The escalation is held: the reply asks for the customer's statement
+    and nothing is handed off yet.
+    """
+    assert reply["state"] == CaseState.AWAITING_STATEMENT
+    assert reply["reply"] == replies.ASK_FOR_STATEMENT[Language(language)]
+    assert reply["escalation"] is None
+
+
+def finish_statement(session, app_db, reply: dict, text: str = STATEMENT, *, language="es", **kwargs) -> dict:
+    """The statement step after a reply that asked for it: `text` as the
+    customer's account, and the reply that hands the case off.
+    """
+    assert_asks_for_statement(reply, language)
+    return mocked_turn(session, app_db, text, reply["case_id"], language=language, **kwargs)
 
 
 def mocked_turn(session, app_db, text, case_id=None, *, extraction=None, language="es", client=None, **kwargs):

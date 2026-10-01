@@ -26,6 +26,10 @@ States (stored per case; every transition is a compare-and-set):
   awaiting_explanation   -> escalated      (not convincing, or a reason a person must handle)
   confirming      -> selecting      (customer says it is not that charge)
   confirming      -> escalated      (customer asks for a human)
+  any of the above -> awaiting_statement -> escalated
+                  (every escalation except a technical failure first asks the
+                   customer what happened and why they want the refund, unless
+                   they already explained the charge: `app/statement.py`)
 
 `selecting` (Milestone 8) replaces the free-text "tell me the amount and date"
 question: the customer is shown their OWN charges (`app/charge_search.py`) and
@@ -68,7 +72,7 @@ import duckdb
 from app import cases, classifier, config, handoffs, llm, replies, turns
 from app.auth import Session
 from app.case_model import (
-    NON_TERMINAL_STATES,
+    OPEN_STATES,
     TERMINAL_STATES,
     CaseEvaluation,
     CaseState,
@@ -117,6 +121,7 @@ from app.policy import (
     evaluate_resolution,
     match_amount_tolerance,
 )
+from app.statement import handle_statement
 from app.transactions import (
     CustomerProfile,
     TransactionCandidate,
@@ -344,7 +349,7 @@ def _unlocks_handoff(report: ReportedCharge, search: ChargeSearch, *, spend_roun
 
 def _offer(
     turn: Turn, search: ChargeSearch, report: ReportedCharge, *, spend_round: bool,
-    human_deferred: bool = False, expected_states: tuple[str, ...] = NON_TERMINAL_STATES,
+    human_deferred: bool = False, expected_states: tuple[str, ...] = OPEN_STATES,
 ) -> ChatReply:
     """Shows the customer their own charges to pick from (AD-11 Row 3's
     clarification, as a list instead of a free-text question). A round is
@@ -386,7 +391,7 @@ def _offer(
 
 
 def _offer_recent_charges(
-    turn: Turn, report: ReportedCharge, *, expected_states: tuple[str, ...] = NON_TERMINAL_STATES,
+    turn: Turn, report: ReportedCharge, *, expected_states: tuple[str, ...] = OPEN_STATES,
 ) -> ChatReply:
     """The customer asked to see their charges: a request, not a failed
     attempt, so no round is spent.
@@ -396,7 +401,7 @@ def _offer_recent_charges(
 
 def _ask_for_details(
     turn: Turn, report: ReportedCharge, *, spend_round: bool,
-    expected_states: tuple[str, ...] = NON_TERMINAL_STATES, human_deferred: bool = False,
+    expected_states: tuple[str, ...] = OPEN_STATES, human_deferred: bool = False,
 ) -> ChatReply:
     """Only for a customer with no outgoing charges to list at all."""
     lost = transition(
@@ -451,7 +456,12 @@ def _handle_human_request(turn: Turn) -> ChatReply:
                 customer_reason=EscalationReason.HUMAN_REQUESTED, charge=_proposed_charge(turn),
             ))
         explained = _charge_being_explained(turn)
-        return escalate(turn, handoffs.human_request(turn.report, explained), charge=explained)
+        # Only an explanation already on the case is an account of what
+        # happened; without one the statement step asks first.
+        return escalate(
+            turn, handoffs.human_request(turn.report, explained), charge=explained,
+            account_given=case.state == CaseState.AWAITING_EXPLANATION and bool(case.explanation_text),
+        )
     turn = replace(turn, human_requested=True)
     state = CaseState(case.state)
     if state in (CaseState.AWAITING_EXPLANATION, CaseState.CONFIRMING):
@@ -759,6 +769,11 @@ def _run_turn(
 def _route(
     turn: Turn, text: str, selected_transaction_id: str | None, action: CustomerAction | None,
 ) -> ChatReply:
+    # Before the human button: in this state a request for a person is part
+    # of the statement step, never a new HUMAN_REQUESTED escalation. A tapped
+    # charge falls through to `_handle_selection`, which refuses it.
+    if turn.case.state == CaseState.AWAITING_STATEMENT and selected_transaction_id is None:
+        return handle_statement(turn, text, action)
     if action == CustomerAction.HUMAN:
         return _handle_human_request(turn)
     if selected_transaction_id is not None:

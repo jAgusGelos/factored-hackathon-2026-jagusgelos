@@ -137,9 +137,11 @@ def handle_explanation(
     """
     case = turn.case
     matched = get_own_transaction(turn.session, case.matched_transaction_id) if case.matched_transaction_id else None
-    if matched is None:
-        return escalate(turn, handoffs.unidentified_charge(turn.report, case))
     explanation = f"{case.explanation_text}\n{text}" if case.explanation_text else text
+    if matched is None:
+        return escalate(
+            turn, handoffs.unidentified_charge(turn.report, case), account_given=bool(explanation.strip()),
+        )
     too_short = _too_short(explanation)
     # Only when the assessment will not run (it reads `wants_human` itself):
     # at most one model call per turn, inside the shared turn budget.
@@ -175,7 +177,7 @@ def handle_explanation(
                 report, matched, decision.reason_to_escalate, assessment, too_short=too_short,
                 customer_reason=_customer_reason(assessment, decision),
             ),
-            report,
+            report, account_given=True,
         )
     # The explanation raised no red flag; the evidence check for the reason it
     # names decides (a persuasive story alone never credits anything).
@@ -191,7 +193,7 @@ def handle_explanation(
         **evaluation.handoff.customer_reported, **handoffs.explanation_reported(assessment, too_short=too_short),
     }
     handoff = replace(evaluation.handoff, customer_reported=reported)
-    return finish_escalated(turn, replace(evaluation, handoff=handoff), report)
+    return finish_escalated(turn, replace(evaluation, handoff=handoff), report, account_given=True)
 
 
 # The dispute reasons a person handles, as the customer is told them.

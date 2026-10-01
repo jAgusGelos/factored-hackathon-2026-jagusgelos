@@ -126,6 +126,19 @@ ASK_FOR_EXPLANATION = {
     ),
 }
 
+# The statement step (`app/statement.py`): asked before an escalation that is
+# already decided, so it never promises the account changes the outcome.
+ASK_FOR_STATEMENT = {
+    Language.ES: (
+        "Antes de derivar su caso, cuénteme qué pasó y por qué solicita la devolución. La persona "
+        "que lo revise usará esta información."
+    ),
+    Language.PT: (
+        "Antes de encaminhar seu caso, conte o que aconteceu e por que solicita o reembolso. A "
+        "pessoa que for revisar vai usar essas informações."
+    ),
+}
+
 _EXPLANATION_FOLLOWUP = {
     Language.ES: {
         None: (

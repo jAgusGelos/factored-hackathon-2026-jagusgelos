@@ -20,6 +20,7 @@ from tests.support import (
     CURRENCY_PARITY_REPORT,
     charge_extraction,
     demo_session,
+    finish_statement,
     logged_events,
     mock_anthropic_client,
     mocked_turn,
@@ -110,7 +111,8 @@ def test_a_request_for_a_person_without_details_records_no_currency(real_fixture
     ask = {Language.ES: "Quiero hablar con una persona", Language.PT: "Quero falar com uma pessoa"}[language]
     human = charge_extraction(wants_human=True)
     first = mocked_turn(session, real_fixture_app_db, ask, language=language, extraction=human)
-    reply = mocked_turn(session, real_fixture_app_db, ask, first["case_id"], language=language, extraction=human)
+    asked = mocked_turn(session, real_fixture_app_db, ask, first["case_id"], language=language, extraction=human)
+    reply = finish_statement(session, real_fixture_app_db, asked, language=language)
     assert reply["state"] == CaseState.ESCALATED
     handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
     assert "currency" not in str(handoff)

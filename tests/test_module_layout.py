@@ -1,6 +1,7 @@
 """The split of the conversation code (`case_turn` <- `credit` <- `explanation`
-<- `state_machine`) stays acyclic, and the explanation step can only get its
-policy verdict from the caller.
+<- `state_machine`, and `case_turn` <- `statement` <- `state_machine`) stays
+acyclic, and the explanation step can only get its policy verdict from the
+caller.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import pytest
 from app import explanation
 from tests.support import REPO_ROOT
 
-LAYERS = ("app.case_turn", "app.credit", "app.explanation", "app.state_machine", "app.main")
+LAYERS = ("app.case_turn", "app.credit", "app.explanation", "app.statement", "app.state_machine", "app.main")
 
 
 @pytest.mark.parametrize("order", [LAYERS, tuple(reversed(LAYERS))], ids=["bottom_up", "top_down"])
@@ -37,13 +38,15 @@ def _imported_modules(module_file: str) -> set[str]:
     return imported
 
 
-@pytest.mark.parametrize("module_file", ["app/case_turn.py", "app/credit.py", "app/explanation.py"])
+@pytest.mark.parametrize(
+    "module_file", ["app/case_turn.py", "app/credit.py", "app/explanation.py", "app/statement.py"],
+)
 def test_the_step_modules_never_import_the_state_machine(module_file):
     assert "app.state_machine" not in _imported_modules(module_file)
 
 
 def test_the_case_turn_module_imports_no_step_module():
-    assert not {"app.credit", "app.explanation"} & _imported_modules("app/case_turn.py")
+    assert not {"app.credit", "app.explanation", "app.statement"} & _imported_modules("app/case_turn.py")
 
 
 def test_the_policy_verdict_is_a_required_keyword_argument():

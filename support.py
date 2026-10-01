@@ -47,7 +47,7 @@ REAL_DEMO_USERS_PATH = REPO_ROOT / "data" / "demo_users.json"
 __all__ = [
     "AUTO_RESOLVE_CHARGE", "CARD_PRESENT_CHARGE", "CONTRADICTED_ASSESSMENT", "CONVINCING_ASSESSMENT", "DEMO_USERNAME", "DUPLICATE_ASSESSMENT",
     "DUPLICATE_CHARGES", "EXPLANATION", "FRAUD_SCORE_CHARGE", "NOT_RECEIVED_ASSESSMENT", "OVER_LIMIT_CHARGE",
-    "REAL_DEMO_USERS_PATH", "REAL_FIXTURE_PATH", "REPO_ROOT", "SECOND_ONLINE_CHARGE", "app_db_rows", "charge_extraction",
+    "REAL_DEMO_USERS_PATH", "REAL_FIXTURE_PATH", "REPO_ROOT", "SECOND_ONLINE_CHARGE", "STATEMENT", "app_db_rows", "charge_extraction",
     "charge_report", "demo_session", "event_sequence", "logged_events", "mock_anthropic_client", "session_for",
 ]
 
@@ -107,6 +107,8 @@ CONTRADICTED_ASSESSMENT = {
 }
 OPENING = "Tengo un cargo que no reconozco"
 EXPLANATION = "No uso Uber hace meses, tengo la tarjeta conmigo y ayer vi el cargo en la app del banco"
+# The customer's statement before a handoff (app/statement.py).
+STATEMENT = "No reconozco este cargo, nunca compré en ese comercio y tengo la tarjeta conmigo"
 
 
 def app_db_rows(app_db: Path, sql: str, params: Sequence[object] = ()) -> list[tuple]:

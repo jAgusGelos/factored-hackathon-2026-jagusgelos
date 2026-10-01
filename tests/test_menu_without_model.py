@@ -23,6 +23,8 @@ from tests.support import (
     EXPLANATION,
     FRAUD_SCORE_CHARGE,
     OPENING,
+    STATEMENT,
+    assert_asks_for_statement,
     assert_escalation_notice,
     charge_extraction,
     demo_session,
@@ -42,6 +44,15 @@ def _turn(session, app_db, text, case_id=None, *, extraction=None, **kwargs):
     with patch("app.llm.anthropic.Anthropic", return_value=client):
         reply = handle_message(session, case_id, text, db_path=app_db, **kwargs)
     return reply, client.messages.create.call_count
+
+
+def _hand_off(session, app_db, asked):
+    """A tap that escalates now asks for the customer's statement (no model
+    call); the typed statement that follows is its own turn, with its own client.
+    """
+    assert_asks_for_statement(asked)
+    reply, _ = _turn(session, app_db, STATEMENT, asked["case_id"])
+    return reply
 
 
 def _show_charges(session, app_db):
@@ -151,14 +162,15 @@ def test_the_human_button_is_answered_without_the_model(session, real_fixture_ap
     deferred, deferred_calls = _turn(
         session, real_fixture_app_db, "Hablar con una persona", listed["case_id"], action=CustomerAction.HUMAN,
     )
-    escalated, escalated_calls = _turn(
+    asked, asked_calls = _turn(
         session, real_fixture_app_db, "Hablar con una persona", listed["case_id"], action=CustomerAction.HUMAN,
     )
 
-    assert (deferred_calls, escalated_calls) == (0, 0)
+    assert (deferred_calls, asked_calls) == (0, 0)
     assert deferred["state"] == CaseState.SELECTING
     assert deferred["reply"] == f"{replies.HUMAN_DEFERRED['es']} {replies.HUMAN_OFFER['es']}"
     assert deferred["human_available"] is True
+    escalated = _hand_off(session, real_fixture_app_db, asked)
     assert escalated["state"] == CaseState.ESCALATED
     assert_escalation_notice(escalated, EscalationReason.HUMAN_REQUESTED, charge_named=False)
 
@@ -211,9 +223,10 @@ def _escalated_by_a_tap(session, app_db):
 
 
 def test_tapping_a_charge_that_fails_the_policy_escalates_without_the_model(session, real_fixture_app_db):
-    reply, calls = _escalated_by_a_tap(session, real_fixture_app_db)
+    asked, calls = _escalated_by_a_tap(session, real_fixture_app_db)
 
     assert calls == 0
+    reply = _hand_off(session, real_fixture_app_db, asked)
     assert reply["state"] == CaseState.ESCALATED
     assert_escalation_notice(reply, EscalationReason.NEEDS_REVIEW, charge_named=True)
 
@@ -221,18 +234,20 @@ def test_tapping_a_charge_that_fails_the_policy_escalates_without_the_model(sess
 def test_not_in_the_list_after_a_detail_escalates_without_the_model(session, real_fixture_app_db):
     listed, _ = _turn(session, real_fixture_app_db, "fue el 14 de junio", extraction=charge_extraction(date="2026-06-14"))
 
-    reply, calls = _turn(
+    asked, calls = _turn(
         session, real_fixture_app_db, "No está en la lista", listed["case_id"],
         action=CustomerAction.NONE_OF_THESE,
     )
 
     assert calls == 0
+    reply = _hand_off(session, real_fixture_app_db, asked)
     assert reply["state"] == CaseState.ESCALATED
     assert_escalation_notice(reply, EscalationReason.CHARGE_NOT_IDENTIFIED, charge_named=False)
 
 
 def test_the_show_charges_button_on_a_closed_case_gets_the_closed_case_reply(session, real_fixture_app_db):
-    escalated, _ = _escalated_by_a_tap(session, real_fixture_app_db)
+    asked, _ = _escalated_by_a_tap(session, real_fixture_app_db)
+    escalated = _hand_off(session, real_fixture_app_db, asked)
 
     reply, calls = _turn(
         session, real_fixture_app_db, "Ver mis últimos cargos", escalated["case_id"],

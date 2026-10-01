@@ -4,7 +4,8 @@ the handoff in the same compare-and-set and ends the reply with the offer; the
 second request (typed or the button) escalates with HUMAN_REQUESTED, in every
 non-terminal state. A request that comes with details escalating by policy
 escalates for that reason, and a case the agent already unlocked silently
-escalates on the first request.
+escalates on the first request. Each of those escalations first asks for the
+customer's statement (statement-before-handoff) and is handed off after it.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from tests.support import (
     assert_escalation_notice,
     charge_extraction,
     demo_session,
+    finish_statement,
     logged_events,
     mock_anthropic_client,
     mocked_turn,
@@ -53,6 +55,14 @@ def _ask(session, app_db, case_id, *, language="es", via="text", text=None):
         session, app_db, text, case_id, language=language, extraction=charge_extraction(wants_human=True),
         mock={"confirmation_answer": "human"},
     )
+
+
+def _handed_off(session, app_db, asked, *, language="es"):
+    """The request asked for the statement (with no offer to ask again); the
+    reply that hands the case off after it.
+    """
+    assert replies.HUMAN_OFFER[language] not in asked["reply"]
+    return finish_statement(session, app_db, asked, language=language)
 
 
 def _case(case_id, app_db):
@@ -98,7 +108,8 @@ def test_the_first_request_defers_with_the_offer_and_the_second_escalates(real_f
     assert stored.handoff_unlocked is True
     assert [e["offer"] for e in logged_events(real_fixture_app_db, "human_request_deferred")] == [True]
 
-    second = _ask(session, real_fixture_app_db, first["case_id"], via=second_via, text=first_text)
+    asked = _ask(session, real_fixture_app_db, first["case_id"], via=second_via, text=first_text)
+    second = _handed_off(session, real_fixture_app_db, asked)
 
     assert second["state"] == CaseState.ESCALATED
     assert _case(first["case_id"], real_fixture_app_db).escalation_reason == EscalationReason.HUMAN_REQUESTED
@@ -119,7 +130,7 @@ def test_the_first_request_in_clarifying_defers_with_the_offer(real_fixture_app_
     assert first["reply"] == f"{replies.ASK_FOR_DETAILS['es']} {replies.HUMAN_OFFER['es']}"
     assert _case(asked["case_id"], real_fixture_app_db).clarification_rounds == rounds_before
 
-    second = _ask(session, real_fixture_app_db, asked["case_id"], via="button")
+    second = _handed_off(session, real_fixture_app_db, _ask(session, real_fixture_app_db, asked["case_id"], via="button"))
     assert_escalation_notice(second, EscalationReason.HUMAN_REQUESTED, charge_named=False)
 
 
@@ -133,7 +144,7 @@ def test_a_request_with_details_tries_them_once_then_escalates(real_fixture_app_
     assert first["human_available"] is True
     assert _case(first["case_id"], real_fixture_app_db).clarification_rounds == 0
 
-    second = _ask(session, real_fixture_app_db, first["case_id"])
+    second = _handed_off(session, real_fixture_app_db, _ask(session, real_fixture_app_db, first["case_id"]))
     assert_escalation_notice(second, EscalationReason.HUMAN_REQUESTED, charge_named=False)
 
 
@@ -144,7 +155,8 @@ def test_the_offer_and_the_escalation_in_portuguese(real_fixture_app_db):
     assert first["state"] == CaseState.SELECTING
     assert first["reply"] == f"{replies.HUMAN_DEFERRED['pt']} {replies.HUMAN_OFFER['pt']}"
 
-    second = _ask(session, real_fixture_app_db, first["case_id"], language="pt")
+    asked = _ask(session, real_fixture_app_db, first["case_id"], language="pt")
+    second = _handed_off(session, real_fixture_app_db, asked, language="pt")
     assert_escalation_notice(second, EscalationReason.HUMAN_REQUESTED, charge_named=False, language=Language.PT)
 
 
@@ -211,7 +223,8 @@ def test_a_short_request_while_explaining_is_detected_and_not_counted_as_an_expl
     assert stored.explanation_text is None and stored.explanation_attempts == 0
     assert logged_events(real_fixture_app_db, "human_request_detected") == [{"via": "extract"}]
 
-    second = _ask(session, real_fixture_app_db, case_id, text=SHORT_ASK)
+    # No explanation on the case yet: the statement is asked first.
+    second = _handed_off(session, real_fixture_app_db, _ask(session, real_fixture_app_db, case_id, text=SHORT_ASK))
     assert_escalation_notice(second, EscalationReason.HUMAN_REQUESTED, charge_named=True)
     assert second["escalation"]["charge"]["transaction_id"] == AUTO_RESOLVE_CHARGE
 
@@ -230,7 +243,8 @@ def test_a_long_request_while_explaining_is_detected_by_the_assessment(real_fixt
     assert stored.explanation_text is None and stored.explanation_attempts == 0
     assert logged_events(real_fixture_app_db, "human_request_detected") == [{"via": "assessment"}]
 
-    second = mocked_turn(session, real_fixture_app_db, LONG_ASK, case_id, mock={"assessment": asks})
+    asked = mocked_turn(session, real_fixture_app_db, LONG_ASK, case_id, mock={"assessment": asks})
+    second = _handed_off(session, real_fixture_app_db, asked)
     assert_escalation_notice(second, EscalationReason.HUMAN_REQUESTED, charge_named=True)
 
 
@@ -285,8 +299,9 @@ def test_a_short_answer_after_a_first_explanation_makes_one_model_call(real_fixt
 
 def test_a_first_request_with_details_that_escalate_by_policy_gets_the_policy_reason(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
-    reply = mocked_turn(session, real_fixture_app_db, "quiero una persona, no reconozco este cargo",
+    asked = mocked_turn(session, real_fixture_app_db, "quiero una persona, no reconozco este cargo",
                         extraction=charge_extraction(FRAUD_SCORE_CHARGE, wants_human=True))
+    reply = _handed_off(session, real_fixture_app_db, asked)
 
     assert reply["state"] == CaseState.ESCALATED
     assert _case(reply["case_id"], real_fixture_app_db).escalation_reason != EscalationReason.HUMAN_REQUESTED
@@ -300,7 +315,7 @@ def test_after_a_silent_unlock_the_first_request_escalates(real_fixture_app_db):
     unmatched = mocked_turn(session, real_fixture_app_db, "fue el 22/04/2024", extraction=charge_extraction(date="2024-04-22"))
     assert unmatched["human_available"] is True
 
-    reply = _ask(session, real_fixture_app_db, unmatched["case_id"])
+    reply = _handed_off(session, real_fixture_app_db, _ask(session, real_fixture_app_db, unmatched["case_id"]))
 
     assert_escalation_notice(reply, EscalationReason.HUMAN_REQUESTED, charge_named=False)
     assert not logged_events(real_fixture_app_db, "human_request_deferred")
@@ -311,6 +326,6 @@ def test_once_the_rounds_are_used_the_first_request_escalates(real_fixture_app_d
     case_id = _selecting(session, real_fixture_app_db, "es")
     assert cases.update_case(case_id, state=CaseState.SELECTING, clarification_rounds=2, db_path=real_fixture_app_db)
 
-    reply = _ask(session, real_fixture_app_db, case_id)
+    reply = _handed_off(session, real_fixture_app_db, _ask(session, real_fixture_app_db, case_id))
 
     assert_escalation_notice(reply, EscalationReason.HUMAN_REQUESTED, charge_named=False)

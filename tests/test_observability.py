@@ -19,7 +19,7 @@ import pytest
 from app import cases, config, db
 from app.auth import Session
 from app.state_machine import handle_message
-from tests.support import mock_anthropic_client
+from tests.support import finish_statement, mock_anthropic_client
 
 SESSION = Session(customer_id="CLI-1", expires_at=datetime.now(UTC) + timedelta(hours=1))
 
@@ -71,7 +71,10 @@ def test_escalation_log_event_reconstructs_the_same_handoff_the_case_record_show
     extraction = {"amount": 500.0, "currency": "USD", "date": "2026-06-10", "merchant_hint": None, "wants_human": False}
 
     with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(extraction)):
-        reply = handle_message(SESSION, None, "Tengo un cargo de 500 USD que no reconozco", db_path=app_db)
+        asked = handle_message(SESSION, None, "Tengo un cargo de 500 USD que no reconozco", db_path=app_db)
+    # The escalation is handed off (and logged) on the statement turn.
+    assert _events_for_case(app_db, asked["case_id"], "case_escalated") == []
+    reply = finish_statement(SESSION, app_db, asked)
 
     assert reply["state"] == "escalated"
 
@@ -111,7 +114,8 @@ def test_case_evaluated_breadcrumb_and_case_escalated_detail_are_both_logged(app
     extraction = {"amount": 500.0, "currency": "USD", "date": "2026-06-10", "merchant_hint": None, "wants_human": False}
 
     with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(extraction)):
-        reply = handle_message(SESSION, None, "Tengo un cargo de 500 USD que no reconozco", db_path=app_db)
+        asked = handle_message(SESSION, None, "Tengo un cargo de 500 USD que no reconozco", db_path=app_db)
+    reply = finish_statement(SESSION, app_db, asked)
 
     breadcrumbs = _events_for_case(app_db, reply["case_id"], "case_evaluated")
     details = _events_for_case(app_db, reply["case_id"], "case_escalated")

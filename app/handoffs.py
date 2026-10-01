@@ -321,6 +321,22 @@ def reverification_failed(
     )
 
 
+class StatementStatus(StrEnum):
+    """How the statement step ended (`customer_reported["statement_status"]`)."""
+
+    GIVEN = "given"
+    DECLINED = "declined"
+    SUMMARY_UNAVAILABLE = "summary_unavailable"
+
+
+def with_statement(handoff: dict, *, status: StatementStatus) -> dict:
+    """A pending handoff (`case_turn.PendingEscalation.handoff`) with the
+    statement step's outcome in `customer_reported`. Every other field is
+    the pending one, untouched: the statement never changes the decision.
+    """
+    return {**handoff, "customer_reported": {**handoff["customer_reported"], "statement_status": str(status)}}
+
+
 def service_failure(
     action: str, report: ReportedCharge, charge: TransactionCandidate | None = None,
 ) -> HandoffRecord:

@@ -29,7 +29,7 @@ import pytest
 from app import cases, db
 from app import transactions as txns_module
 from app.auth import Session
-from app.case_model import EscalationReason, ReportedCharge
+from app.case_model import NON_TERMINAL_STATES, OPEN_STATES, EscalationReason, ReportedCharge
 from app.policy import DisputeReason
 from app.state_machine import CaseState, evaluate_case, handle_message
 from app.transactions import (
@@ -367,3 +367,9 @@ def test_a_stored_dispute_reason_reads_back_as_the_same_reason(tmp_path, reason)
 
     stored = cases.get_case(case.case_id, db_path=app_db)
     assert ReportedCharge.from_case(stored).reason is reason
+
+
+def test_a_case_waiting_for_the_statement_is_open_but_only_the_statement_step_moves_it():
+    assert CaseState.AWAITING_STATEMENT in NON_TERMINAL_STATES
+    assert CaseState.AWAITING_STATEMENT not in OPEN_STATES
+    assert set(OPEN_STATES) == set(NON_TERMINAL_STATES) - {CaseState.AWAITING_STATEMENT}

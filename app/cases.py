@@ -77,6 +77,18 @@ class Case:
     # The charges last shown to the customer to pick from; a selection is only
     # ever accepted if it is one of these (and it is re-checked as their own).
     offered_transaction_ids: tuple[str, ...] = ()
+    # An escalation decided in code but not yet handed off: the case waits in
+    # `awaiting_statement` for the customer's own account first. Holds the
+    # handoff, the reason and a snapshot of the charge the notice names, so
+    # finishing it never re-decides or re-reads anything.
+    pending_escalation: dict | None = None
+    # The customer's statement so far (their own words, app db only, like
+    # `explanation_text`; the handoff carries the model's summary and facts).
+    statement_text: str | None = None
+    # The validated statement facts merged across statement turns.
+    statement_facts: dict | None = None
+    statement_followups: int = 0
+    statement_declines: int = 0
 
 
 @dataclass(frozen=True)
@@ -121,7 +133,20 @@ def _row_to_case(row: sqlite3.Row) -> Case:
         credit_key=row["credit_key"],
         escalation_reason=row["escalation_reason"],
         offered_transaction_ids=tuple(json.loads(row["offered_transaction_ids"] or "[]")),
+        pending_escalation=_json_or_none(row["pending_escalation_json"]),
+        statement_text=row["statement_text"],
+        statement_facts=_json_or_none(row["statement_facts_json"]),
+        statement_followups=row["statement_followups"],
+        statement_declines=row["statement_declines"],
     )
+
+
+def _json_or_none(value: str | None) -> dict | None:
+    return json.loads(value) if value else None
+
+
+def _dumps_or_none(value: dict | None) -> str | None:
+    return json.dumps(value, ensure_ascii=False) if value is not None else None
 
 
 def get_case(case_id: str, *, db_path: Path | None = None) -> Case | None:
@@ -186,6 +211,11 @@ def update_case(
     expected_matched_transaction_id: str | None = None,
     credit: CreditGrant | None = None,
     escalation_reason: str | None = None,
+    pending_escalation: dict | None = None,
+    append_statement: str | None = None,
+    statement_facts: dict | None = None,
+    add_statement_followup: bool = False,
+    add_statement_decline: bool = False,
     db_path: Path | None = None,
 ) -> bool:
     """A compare-and-set: returns False (and writes nothing) when the case no
@@ -238,18 +268,27 @@ def update_case(
                     credited_amount_usd = COALESCE(?, credited_amount_usd),
                     credited_at = COALESCE(?, credited_at),
                     escalation_reason = COALESCE(?, escalation_reason),
+                    pending_escalation_json = COALESCE(?, pending_escalation_json),
+                    statement_text = CASE WHEN ? IS NULL THEN statement_text
+                        ELSE COALESCE(statement_text || char(10), '') || ? END,
+                    statement_facts_json = COALESCE(?, statement_facts_json),
+                    statement_followups = statement_followups + ?,
+                    statement_declines = statement_declines + ?,
                     updated_at = ?
                 WHERE case_id = ?{guards}
                 """,
                 [
                     state, reported_amount, reported_currency, reported_date, reported_merchant,
                     *matched_params, resolution_reference,
-                    json.dumps(handoff, ensure_ascii=False) if handoff is not None else None,
+                    _dumps_or_none(handoff),
                     json.dumps(list(offered_transaction_ids)) if offered_transaction_ids is not None else None,
                     clarification_rounds, 1 if add_clarification_round else 0,
                     1 if unlock_handoff else 0,
                     dispute_reason, append_explanation, append_explanation, 1 if add_explanation_attempt else 0,
-                    *credit_params, escalation_reason, now.isoformat(), case_id, *guard_params,
+                    *credit_params, escalation_reason, _dumps_or_none(pending_escalation),
+                    append_statement, append_statement, _dumps_or_none(statement_facts),
+                    1 if add_statement_followup else 0, 1 if add_statement_decline else 0,
+                    now.isoformat(), case_id, *guard_params,
                 ],
             )
             con.commit()

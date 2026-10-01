@@ -20,7 +20,12 @@ from app import auth, cases, config, db
 from app.auth import Session
 from app.case_model import EscalationReason
 from app.state_machine import CaseState, handle_message
-from tests.support import EXPLANATION, assert_escalation_notice, mock_anthropic_client
+from tests.support import (
+    EXPLANATION,
+    assert_escalation_notice,
+    finish_statement,
+    mock_anthropic_client,
+)
 
 SESSION = Session(customer_id="CLI-1", expires_at=datetime.now(UTC) + timedelta(hours=1))
 OTHER_SESSION = Session(customer_id="CLI-OTHER", expires_at=datetime.now(UTC) + timedelta(hours=1))
@@ -150,7 +155,8 @@ def test_prompt_injection_in_customer_message_has_no_effect_on_the_policy_decisi
     con.close()
 
     with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(extraction)):
-        reply = handle_message(SESSION, None, injection_text, db_path=app_db)
+        asked = handle_message(SESSION, None, injection_text, db_path=app_db)
+    reply = finish_statement(SESSION, app_db, asked)
 
     assert reply["state"] == CaseState.ESCALATED  # policy gates it — no $10,000 refund, no auto-resolve
     case = cases.get_case(reply["case_id"], db_path=app_db)
