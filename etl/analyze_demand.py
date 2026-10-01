@@ -27,13 +27,13 @@ import json
 import logging
 import math
 import statistics
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import duckdb
 
-from etl.demand_labels import Kind
-from etl.demand_report_render import reason_row, render_charts, render_markdown
+from etl.demand_labels import Kind, reason_row
+from etl.demand_report_render import render_charts, render_markdown
 from etl.extract import DATA_DIR, DEFAULT_WAREHOUSE_PATH, REPO_ROOT
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -52,8 +52,6 @@ EVAL_REPORT_SOURCE = "data/eval_report.json"
 
 SCHEMA_VERSION = 1
 
-
-
 SECONDS_PER_HOUR = 3600
 HOURS_UNIT = "calendar hours from creation_date"
 
@@ -64,11 +62,13 @@ FOCUS_SUBCATEGORY = "Cargo no reconocido"
 CONTACT_WINDOW_HOURS = 72
 CLOSED_STATUSES = ("Resolved", "Closed")
 
-# A category's weekly demand is "flat" when its share of all complaints is in
-# this band (5 categories: 20% each) and its weekly coefficient of variation is
-# within this multiple of the Poisson expectation 1/sqrt(mean weekly count).
-FLAT_SHARE_BAND = (0.19, 0.21)
+# A category's weekly demand is "flat" when its share of all complaints is
+# within this distance of an even split (1 / number of categories) and its
+# weekly coefficient of variation is within this multiple of the Poisson
+# expectation 1/sqrt(mean weekly count). A heuristic, not a seasonality test.
+FLAT_SHARE_TOLERANCE = 0.01
 FLAT_CV_TOLERANCE = 1.25
+MIN_FULL_WEEKS_FOR_CV = 2
 
 ANCHOR_CONTACT_REASON = "Transaccional"
 UPPER_ANCHOR_CONTACT_REASON = "Queja"
@@ -82,9 +82,8 @@ PROJECTION_PREREQUISITE = (
     "automation share can be claimed."
 )
 
-# AD-6 allowlist: the only keys the committed snapshot may hold. `latency_seconds`
-# is added to the plan's list because cost block A quotes the agent's pipeline time.
-# The eval's free-text notes are left out: the report never quotes them.
+# AD-6 allowlist: the only keys the committed snapshot may hold. The eval's
+# free-text notes are left out: the report never quotes them.
 SNAPSHOT_KEYS = {
     "source": None,
     "disclosure": None,
@@ -103,7 +102,7 @@ def _share(part: int | float, whole: int | float) -> float | None:
     return round(part / whole, 4) if whole else None
 
 
-def _hours(value: float | None) -> float | None:
+def _round_hours(value: float | None) -> float | None:
     return None if value is None else round(value, 1)
 
 
@@ -197,7 +196,7 @@ def weekly_demand(con: duckdb.DuckDBPyConnection) -> dict:
     counts: dict[date, dict[str | None, int]] = {}
     for week, category, c in rows:
         counts.setdefault(week, {})[category] = c
-    week_starts = sorted(counts)
+    week_starts = _week_range(min(counts), max(counts)) if counts else []
 
     weeks = []
     for i, week in enumerate(week_starts):
@@ -207,12 +206,13 @@ def weekly_demand(con: duckdb.DuckDBPyConnection) -> dict:
         weeks.append({
             "week_start": week.isoformat(),
             "partial": partial,
-            "total": sum(counts[week].values()),
-            "by_category": {c: counts[week].get(c, 0) for c in categories},
+            "total": sum(counts.get(week, {}).values()),
+            "by_category": {c: counts.get(week, {}).get(c, 0) for c in categories},
         })
 
     total = sum(w["total"] for w in weeks)
     full = [w for w in weeks if not w["partial"]]
+    share_band = _flat_share_band(len(categories))
     return {
         "kind": Kind.MEASURED,
         "n": total,
@@ -220,25 +220,40 @@ def weekly_demand(con: duckdb.DuckDBPyConnection) -> dict:
         "full_weeks": len(full),
         "partial_weeks": len(weeks) - len(full),
         "flat_rule": {
-            "share_band": list(FLAT_SHARE_BAND),
+            "share_band": list(share_band),
             "cv_tolerance_vs_poisson": FLAT_CV_TOLERANCE,
         },
-        "variability": [_category_variability(category, weeks, total) for category in categories],
+        "variability": [
+            _category_variability(category, weeks, total, share_band) for category in categories
+        ],
         "weeks": weeks,
     }
 
 
-def _category_variability(category: str, weeks: list[dict], total: int) -> dict:
+def _week_range(first: date, last: date) -> list[date]:
+    """Every Monday from `first` to `last`, so a week with no complaints counts as 0."""
+    return [first + timedelta(weeks=i) for i in range((last - first).days // 7 + 1)]
+
+
+def _flat_share_band(category_count: int) -> tuple[float, float]:
+    even = 1 / category_count if category_count else 0.0
+    return round(even - FLAT_SHARE_TOLERANCE, 4), round(even + FLAT_SHARE_TOLERANCE, 4)
+
+
+def _category_variability(
+    category: str, weeks: list[dict], total: int, share_band: tuple[float, float],
+) -> dict:
     """Share over all weeks; coefficient of variation over full weeks only."""
     series = [w["by_category"][category] for w in weeks if not w["partial"]]
     share = _share(sum(w["by_category"][category] for w in weeks), total)
     mean = statistics.fmean(series) if series else 0.0
-    cv = statistics.pstdev(series) / mean if mean else None
+    measurable = len(series) >= MIN_FULL_WEEKS_FOR_CV and mean > 0
+    cv = statistics.pstdev(series) / mean if measurable else None
     expected = 1 / math.sqrt(mean) if mean else None
     flat = (
         cv is not None
         and share is not None
-        and FLAT_SHARE_BAND[0] <= share <= FLAT_SHARE_BAND[1]
+        and share_band[0] <= share <= share_band[1]
         and cv <= FLAT_CV_TOLERANCE * expected
     )
     return {
@@ -272,8 +287,8 @@ def _elapsed_hours_by_category(con: duckdb.DuckDBPyConnection, end_column: str) 
                 "total": total,
                 "n": n,
                 "coverage": _share(n, total),
-                "p50": _hours(p50),
-                "p90": _hours(p90),
+                "p50": _round_hours(p50),
+                "p90": _round_hours(p90),
             }
             for category, total, n, p50, p90 in rows
         ],
@@ -307,7 +322,7 @@ def focus_first_response(con: duckdb.DuckDBPyConnection) -> dict:
         [FOCUS_SUBCATEGORY],
     ).fetchall()
     histogram = con.execute(
-        f"SELECT floor(h)::INTEGER AS hour, count(*) FROM ({hours_sql}) WHERE h IS NOT NULL "
+        f"SELECT ceil(h)::INTEGER AS hour_end, count(*) FROM ({hours_sql}) WHERE h IS NOT NULL "
         "GROUP BY 1 ORDER BY 1",
         [FOCUS_SUBCATEGORY],
     ).fetchall()
@@ -318,9 +333,9 @@ def focus_first_response(con: duckdb.DuckDBPyConnection) -> dict:
         "total": total,
         "n": n,
         "coverage": _share(n, total),
-        "p50": _hours(p50),
-        "p90": _hours(p90),
-        "max_hours": {"value": _hours(max_h), "n": n, "kind": Kind.MEASURED},
+        "p50": _round_hours(p50),
+        "p90": _round_hours(p90),
+        "max_hours": {"value": _round_hours(max_h), "n": n, "kind": Kind.MEASURED},
         "missing_first_response": {
             "value": total - n,
             "n": total,
@@ -338,7 +353,7 @@ def focus_first_response(con: duckdb.DuckDBPyConnection) -> dict:
                 "says nothing about them."
             ),
         },
-        "histogram_1h": [{"hour": hour, "count": c} for hour, c in histogram],
+        "histogram_1h": [{"hour_end": hour_end, "count": c} for hour_end, c in histogram],
     }
 
 
@@ -496,16 +511,27 @@ def cost_blocks(snapshot: dict, focus: dict, call_center_block: dict) -> dict:
             "pricing_source": cost["pricing_source"],
             "disclosure": snapshot["disclosure"],
         },
-        "projection": _projection(anchor_seconds, resolution),
+        "projection": _projection(
+            anchor_seconds, resolution, snapshot.get(OPTIONAL_SNAPSHOT_KEY),
+        ),
     }
 
 
-def _projection(anchor_seconds: float, resolution: dict) -> dict:
+def _baseline_note(finding: dict | None) -> str:
+    if finding is None:
+        return "Baseline: no real-data match evidence is available, so no share is credited."
+    return (
+        f"Evidence-based baseline: {finding['real_matches_found']} real amount and date match "
+        f"in a sample of {finding['sample_size']:,} real complaints (eval snapshot)."
+    )
+
+
+def _projection(anchor_seconds: float, resolution: dict, finding: dict | None) -> dict:
     """Block D: hourly rate x automation share sensitivity over the anchor handle time."""
     shares = [
         {
             "value": 0.0, "n": None, "kind": Kind.ASSUMED, "label": "baseline",
-            "note": "Evidence-based baseline: real complaint-to-transaction linkage is near zero.",
+            "note": _baseline_note(finding),
         },
         {
             "value": resolution["rate"], "n": resolution["of_attempted"],
@@ -591,7 +617,43 @@ def read_snapshot(path: Path) -> dict:
             f"Eval cost snapshot not found at {path}. Run `python -m eval.run_eval` and then "
             "`python -m etl.analyze_demand --refresh-eval-snapshot`."
         )
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        snapshot = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Eval cost snapshot at {path} is not valid JSON: {exc}") from exc
+    missing = _missing_snapshot_fields(snapshot)
+    if missing:
+        raise ValueError(
+            f"Eval cost snapshot at {path} lacks {missing}. Regenerate it with "
+            "`python -m etl.analyze_demand --refresh-eval-snapshot`."
+        )
+    return snapshot
+
+
+def _missing_snapshot_fields(snapshot: dict) -> list[str]:
+    """Dotted names of the allowlisted keys and sub-fields the snapshot lacks;
+    only the real-data finding may be absent as a whole.
+    """
+    missing = []
+    for key, fields in SNAPSHOT_KEYS.items():
+        value = snapshot.get(key)
+        if value is None:
+            if key != OPTIONAL_SNAPSHOT_KEY:
+                missing.append(key)
+            continue
+        if fields is None:
+            continue
+        if not isinstance(value, dict):
+            missing.append(key)
+            continue
+        missing += [f"{key}.{field}" for field in fields if field not in value]
+    return missing
+
+
+def _allowlisted(value, fields: tuple[str, ...] | None):
+    if fields is None or not isinstance(value, dict):
+        return value
+    return {field: value[field] for field in fields if field in value}
 
 
 def refresh_snapshot(eval_report_path: Path, snapshot_path: Path) -> dict:
@@ -607,18 +669,13 @@ def refresh_snapshot(eval_report_path: Path, snapshot_path: Path) -> dict:
         **report,
         OPTIONAL_SNAPSHOT_KEY: (report.get("escalation_quality") or {}).get(OPTIONAL_SNAPSHOT_KEY),
     }
-    missing = [
-        key for key in SNAPSHOT_KEYS
-        if key not in ("source", OPTIONAL_SNAPSHOT_KEY) and source.get(key) is None
-    ]
-    if missing:
-        raise ValueError(f"Eval report at {eval_report_path} lacks required keys: {missing}")
     snapshot: dict = {"source": EVAL_REPORT_SOURCE}
     for key, fields in SNAPSHOT_KEYS.items():
-        if key == "source" or source.get(key) is None:
-            continue
-        value = source[key]
-        snapshot[key] = value if fields is None else {f: value[f] for f in fields if f in value}
+        if key != "source" and source.get(key) is not None:
+            snapshot[key] = _allowlisted(source[key], fields)
+    missing = _missing_snapshot_fields(snapshot)
+    if missing:
+        raise ValueError(f"Eval report at {eval_report_path} lacks {missing}")
     _write_json(snapshot, snapshot_path)
     return snapshot
 
@@ -639,6 +696,10 @@ def run(
     snapshot_path: Path = DEFAULT_SNAPSHOT_PATH,
 ) -> dict:
     snapshot = read_snapshot(snapshot_path)
+    if not warehouse_path.exists():
+        raise FileNotFoundError(
+            f"Warehouse not found at {warehouse_path}. Run `python -m etl.extract` first."
+        )
     con = duckdb.connect(str(warehouse_path), read_only=True)
     try:
         report = build_report(con, snapshot)
@@ -657,8 +718,10 @@ def _write_charts(report: dict, out_dir: Path) -> None:
         if exc.name != "matplotlib":
             raise
         logger.warning(
-            "matplotlib is not installed; charts skipped. "
-            "Install it with `pip install -r requirements-analysis.txt`."
+            "matplotlib is not installed; charts skipped, so any PNGs already in %s are NOT "
+            "updated and may not match the new report. Install it with "
+            "`pip install -r requirements-analysis.txt` and rerun.",
+            out_dir,
         )
         return
     for path in paths:
@@ -676,7 +739,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.refresh_eval_snapshot:
             refresh_snapshot(DEFAULT_EVAL_REPORT_PATH, DEFAULT_SNAPSHOT_PATH)
         run(snapshot_path=DEFAULT_SNAPSHOT_PATH)
-    except (FileNotFoundError, ValueError) as exc:
+    except (FileNotFoundError, ValueError, duckdb.Error) as exc:
         logger.error("%s", exc)
         return 1
     return 0

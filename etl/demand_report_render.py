@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from etl.demand_labels import KIND_MEANINGS, Kind
+from etl.demand_labels import KIND_MEANINGS, Kind, reason_row
 
 CALL_REASONS_CHART = "call_reasons.png"
 FIRST_RESPONSE_CHART = "first_response_cargo_no_reconocido.png"
@@ -28,6 +28,11 @@ WINDOW_COLOR = "#C44E52"
 
 NOT_AVAILABLE = "n/a"
 ISO_DATE_LENGTH = len("YYYY-MM-DD")
+# Per-currency medians count as "of similar size" when the largest is within
+# this fraction of the smallest; real amounts in ARS, COP, MXN and USD differ
+# by orders of magnitude.
+SIMILAR_MEDIANS_TOLERANCE = 0.10
+RARE_MATCH_RATE = 0.01
 
 
 def _pct(share: float | None) -> str:
@@ -55,14 +60,27 @@ def _seconds(value: float | None) -> str:
     return NOT_AVAILABLE if value is None else f"{value:.0f} s"
 
 
+def _usd_value(value: float | None) -> str:
+    return NOT_AVAILABLE if value is None else f"USD {value}"
+
+
 def _key(value: str | None) -> str:
     return "(missing)" if value is None else value
 
 
+def _cell(text: str) -> str:
+    """Keeps a data value from breaking out of its markdown table cell."""
+    return text.replace("\\", "\\\\").replace("|", "\\|").replace("\n", " ")
+
+
 def _table(header: list[str], rows: list[list[str]]) -> str:
     lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
-    lines += ["| " + " | ".join(row) + " |" for row in rows]
+    lines += ["| " + " | ".join(_cell(cell) for cell in row) + " |" for row in rows]
     return "\n".join(lines)
+
+
+def _all_flat(weekly: dict) -> bool:
+    return all(v["flat"] for v in weekly["variability"])
 
 
 def _distribution_table(block: dict, label: str) -> str:
@@ -70,23 +88,20 @@ def _distribution_table(block: dict, label: str) -> str:
     return _table([label, "Complaints", "Share"], rows)
 
 
-def reason_row(call_center_block: dict, reason: str) -> dict:
-    for row in call_center_block["reasons"]:
-        if row["contact_reason"] == reason:
-            return row
-    raise ValueError(f"contact reason {reason!r} not found in call_center_interactions")
-
-
 def _flatness_finding(weekly: dict) -> str:
     variability = weekly["variability"]
     not_flat = [v["category"] for v in variability if not v["flat"]]
-    verdict = (
-        "No variation beyond Poisson noise detected in this window."
-        if not not_flat
-        else "Not flat by the stated rule: " + ", ".join(not_flat) + "."
-    )
+    if not_flat:
+        headline = "Complaint demand is not flat by category"
+        verdict = "Not flat by the flatness rule below: " + ", ".join(not_flat) + "."
+    else:
+        headline = "Complaint demand is flat by category"
+        verdict = (
+            "Every category passes the flatness rule below, a heuristic against Poisson noise, "
+            "not a seasonality test."
+        )
     return (
-        "**Complaint demand is flat by category** (measured). Each of the "
+        f"**{headline}** (measured). Each of the "
         f"{len(variability)} categories holds {_pct_range([v['share'] for v in variability])} "
         f"of {_num(weekly['n'])} complaints, and the weekly coefficient of variation over "
         f"{weekly['full_weeks']} full weeks is {_pct_range([v['cv'] for v in variability])} "
@@ -101,7 +116,8 @@ def _call_center_finding(report: dict) -> str:
     anchor = reason_row(center, handle["anchor_seconds"]["contact_reason"])
     upper = reason_row(center, handle["upper_anchor_seconds"]["contact_reason"])
     return (
-        f"**The call center is where demand varies** (measured). Over {_num(center['n'])} "
+        "**Call-center contact reasons are far from uniform** (measured). "
+        f"Over {_num(center['n'])} "
         f"contacts ({_day(center['window']['start'])} to {_day(center['window']['end'])}), "
         f"contact-reason shares range from {_pct(center['share_spread']['min'])} to "
         f"{_pct(center['share_spread']['max'])}. \"{anchor['contact_reason']}\" is "
@@ -132,6 +148,21 @@ def _first_response_finding(focus: dict) -> str:
     )
 
 
+def _similar_medians(amounts: dict) -> bool:
+    medians = [r["median_amount"] for r in amounts["rows"] if r["median_amount"] is not None]
+    return len(medians) > 1 and max(medians) <= min(medians) * (1 + SIMILAR_MEDIANS_TOLERANCE)
+
+
+def _currency_sentence(amounts: dict) -> str:
+    if not _similar_medians(amounts):
+        return "amounts are never summed across currencies."
+    return (
+        f"the claimed-amount medians of all {len(amounts['rows'])} currencies are within "
+        f"{_pct(SIMILAR_MEDIANS_TOLERANCE)} of each other, which real amounts in those "
+        "currencies would not be, so amounts are never summed across currencies."
+    )
+
+
 def _data_quality_finding(quality: dict) -> str:
     before = quality["resolution_before_first_response"]
     closed = quality["closed_without_resolution_date"]
@@ -141,15 +172,23 @@ def _data_quality_finding(quality: dict) -> str:
         f"of {_num(before['n'])} complaints have a resolution before their first response; "
         f"{_num(closed['value'])} of {_num(closed['n'])} {'/'.join(closed['statuses'])} "
         f"complaints have no resolution date; {_pct(link['value'])} of {_num(link['n'])} "
-        "complaints link to a call-center interaction; and the claimed-amount medians are of "
-        "similar size in every currency, which real amounts would not be, so amounts are "
-        "never summed across currencies."
+        "complaints link to a call-center interaction; and "
+        + _currency_sentence(quality["claimed_amount_by_currency"])
     )
 
 
+def _rare_match(match: dict | None) -> bool:
+    return match is not None and bool(match["n"]) and match["value"] / match["n"] < RARE_MATCH_RATE
+
+
 def _eval_match_finding(match: dict) -> str:
+    headline = (
+        "Real complaints rarely match a real transaction"
+        if _rare_match(match)
+        else "Real complaint-to-transaction match"
+    )
     return (
-        f"**Real complaints rarely match a real transaction** (measured, quoted from the "
+        f"**{headline}** (measured, quoted from the "
         f"eval snapshot): {_num(match['value'])} match in a sample of {_num(match['n'])} "
         f"complaints (source: {match['source']}). It is not recomputed here."
     )
@@ -168,14 +207,23 @@ def _findings(report: dict) -> str:
     return "\n".join(f"{i}. {text}" for i, text in enumerate(items, start=1))
 
 
-WHY_DISPUTES = f"""\
-*Label: {Kind.DESIGN_ARGUMENT}.* Volume does not single disputes out (finding 1), so the choice of
-workflow rests on a design argument, not on demand. An unrecognized-charge dispute can be checked
-in code against the customer's own transaction ledger and decided by an explicit, testable policy
-(`app/policy.py`): the agent either acts on evidence it can verify or hands the case to a person
-with that evidence attached. Branch service, app problems or service quality need a human
-judgment or a fix somewhere else. The measured support is the call-center load (finding 2) and the
-wait for a first response (finding 3)."""
+WHY_DISPUTES_ARGUMENT = """\
+An unrecognized-charge dispute can be checked in code against the customer's own transaction
+ledger and decided by an explicit, testable policy (`app/policy.py`): the agent either acts on
+evidence it can verify or hands the case to a person with that evidence attached. Branch service,
+app problems or service quality need a human judgment or a fix somewhere else. The measured
+support is the call-center load and the wait for a first response in the findings above."""
+
+
+def _why_disputes(report: dict) -> str:
+    volume = (
+        "Volume does not single disputes out (complaint demand is flat by category), so the "
+        "choice of workflow rests on a design argument, not on demand."
+        if _all_flat(report["demand"]["weekly"])
+        else "Volume alone is not the reason for the choice of workflow; it rests on a design "
+        "argument."
+    )
+    return f"*Label: {Kind.DESIGN_ARGUMENT}.* {volume}\n{WHY_DISPUTES_ARGUMENT}"
 
 
 def _does_not_tell_us(report: dict) -> str:
@@ -184,14 +232,24 @@ def _does_not_tell_us(report: dict) -> str:
     lines = [
         "Whether disputes cost more to handle than other complaints: "
         f"{_pct(link['value'])} of complaints link to a call, so call time is not dispute time.",
-        "Any real automation rate: the eval scenarios are constructed on purpose, and real "
-        "complaints almost never match a real transaction.",
-        f"Anything about the {_num(focus['missing_first_response']['value'])} \"{focus['subcategory']}\" "
+        "Any real automation rate: the eval scenarios are constructed on purpose"
+        + (
+            ", and real complaints almost never match a real transaction."
+            if _rare_match(report["eval"]["real_data_match"])
+            else "."
+        ),
+        f"Anything about the {_num(focus['missing_first_response']['value'])} "
+        f"\"{focus['subcategory']}\" "
         "complaints with no first response yet (censored).",
-        "Whether the 3-business-day contact promise is met: the data has calendar hours and "
+        "Whether the business-day contact promise is met: the data has calendar hours and "
         "recorded responses only.",
-        "Real monetary amounts: the per-currency medians are not consistent with exchange rates.",
-        "Seasonality beyond this window: \"no variation beyond Poisson noise\" is not \"no "
+        "Real monetary amounts"
+        + (
+            ": the per-currency medians are not consistent with exchange rates."
+            if _similar_medians(report["data_quality"]["claimed_amount_by_currency"])
+            else ": amounts are reported per currency only."
+        ),
+        "Seasonality: passing a flatness heuristic over this window is not evidence of \"no "
         "seasonality\".",
     ]
     return "\n".join(f"- {line}" for line in lines)
@@ -289,8 +347,8 @@ def _call_center_section(report: dict) -> str:
     )
     return "\n\n".join([
         "## Call center",
-        f"Measured over n = {_num(center['n'])} interactions, {center['window']['start']} to "
-        f"{center['window']['end']}. {center['note']}",
+        f"Measured over n = {_num(center['n'])} interactions, {_day(center['window']['start'])} "
+        f"to {_day(center['window']['end'])}. {center['note']}",
         table,
         f"![Median handle time by contact reason]({CALL_REASONS_CHART})",
     ])
@@ -300,7 +358,7 @@ def _projection_table(projection: dict) -> str:
     shares = projection["automation_shares"]
     cells = {(c["hourly_rate_usd"], c["automation_share"]): c["value"] for c in projection["cells"]}
     header = ["Hourly rate (assumed)"] + [
-        f"Share {s['value']:.4g} ({s['label']}, {s['kind']})" for s in shares
+        f"Share {s['value']} ({s['label']}, {s['kind']})" for s in shares
     ]
     rows = [
         [f"USD {rate['value']}"] + [
@@ -314,7 +372,8 @@ def _projection_table(projection: dict) -> str:
 def _time_to_first_action_block(first: dict) -> str:
     agent, human = first["agent_pipeline_p50_seconds"], first["human_first_response_p50_hours"]
     return (
-        f"- Agent pipeline p50: {agent['value']} s ({agent['kind']}, n = {agent['n']} eval "
+        f"- Agent pipeline p50: {NOT_AVAILABLE if agent['value'] is None else agent['value']} s "
+        f"({agent['kind']}, n = {agent['n']} eval "
         f"scenarios). {agent['note']}\n"
         f"- Human first response p50 for \"{human['subcategory']}\": {_hours(human['value'])} "
         f"({human['kind']}, n = {_num(human['n'])}, coverage {_pct(human['coverage'])})."
@@ -342,10 +401,10 @@ def _llm_cost_block(llm: dict) -> str:
     per_success_text = (
         "not defined (no successful resolution in the eval)"
         if per_success["value"] is None
-        else f"USD {per_success['value']}"
+        else _usd_value(per_success["value"])
     )
     return (
-        f"- Per attempted case: USD {attempted['value']} "
+        f"- Per attempted case: {_usd_value(attempted['value'])} "
         f"({attempted['kind']}, n = {attempted['n']}).\n"
         f"- Per successful resolution: {per_success_text} ({per_success['kind']}, "
         f"n = {per_success['n']} resolutions).\n"
@@ -357,7 +416,7 @@ def _llm_cost_block(llm: dict) -> str:
 
 def _share_note(share: dict) -> str:
     note = f" {share['note']}" if "note" in share else ""
-    return f"- Share {share['value']:.4g}: {share['kind']}, {share['label']}.{note}"
+    return f"- Share {share['value']}: {share['kind']}, {share['label']}.{note}"
 
 
 def _projection_block(projection: dict) -> list[str]:
@@ -458,7 +517,7 @@ def render_markdown(report: dict) -> str:
         "## TL;DR: findings",
         _findings(report),
         "## Why disputes",
-        WHY_DISPUTES,
+        _why_disputes(report),
         "## What this data does not tell us",
         _does_not_tell_us(report),
         _demand_section(report),
@@ -509,7 +568,8 @@ def _call_reasons_chart(plt, report: dict, path: Path) -> Path:
     ax.barh(labels, medians, color=PRIMARY_COLOR)
     for i, r in enumerate(reasons):
         ax.annotate(
-            f"  {r['contacts']:,} contacts, {_pct(r['resolved_on_contact_share'])} resolved on contact",
+            f"  {r['contacts']:,} contacts, "
+            f"{_pct(r['resolved_on_contact_share'])} resolved on contact",
             (r["median_handle_seconds"], i), va="center", fontsize=ANNOTATION_FONT_SIZE,
         )
     ax.set_xlim(0, max(medians, default=1) * BAR_LABEL_HEADROOM)
@@ -527,8 +587,8 @@ def _first_response_chart(plt, report: dict, path: Path) -> Path:
     focus = report["response_times"]["focus_first_response"]
     bins = focus["histogram_1h"]
     fig, ax = plt.subplots(figsize=CHART_SIZE_INCHES)
-    ax.bar([b["hour"] for b in bins], [b["count"] for b in bins], width=1.0, align="edge",
-           color=NEUTRAL_COLOR)
+    ax.bar([b["hour_end"] - 1 for b in bins], [b["count"] for b in bins], width=1.0,
+           align="edge", color=NEUTRAL_COLOR)
     window = focus["within_contact_window"]["window_hours"]
     markers = [
         (focus["p50"], f"median {_hours(focus['p50'])}", PRIMARY_COLOR),
@@ -538,7 +598,9 @@ def _first_response_chart(plt, report: dict, path: Path) -> Path:
     for x, label, color in markers:
         if x is not None:
             ax.axvline(x, color=color, linestyle="--", linewidth=MARKER_LINE_WIDTH, label=label)
-    ax.set_xlabel("Hours from complaint creation to first response")
+    ax.set_xlabel(
+        "Hours from complaint creation to first response (1-hour bins, upper edge included)"
+    )
     ax.set_ylabel("Complaints")
     ax.legend()
     ax.set_title(

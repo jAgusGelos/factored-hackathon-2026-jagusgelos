@@ -4,30 +4,29 @@ Data as of 2026-06-18T07:56:52. Every number is labeled measured, assumed, simul
 
 ## TL;DR: findings
 
-1. **Complaint demand is flat by category** (measured). Each of the 5 categories holds 19.7% to 20.2% of 67,095 complaints, and the weekly coefficient of variation over 156 full weeks is 9.5% to 10.9% against 10.7% to 10.9% expected from Poisson noise. No variation beyond Poisson noise detected in this window.
-2. **The call center is where demand varies** (measured). Over 19,677 contacts (2026-05-18 to 2026-06-18), contact-reason shares range from 3.0% to 34.6%. "Transaccional" is 34.6% of contacts and 23.7% of handle seconds, with a median of 202 s and 91.7% resolved on contact; "Queja" takes 425 s with 43.3% resolved on contact. This sizes the opportunity; it does not show that disputes are the worst process, because no key joins a complaint to a call.
+1. **Complaint demand is flat by category** (measured). Each of the 5 categories holds 19.7% to 20.2% of 67,095 complaints, and the weekly coefficient of variation over 156 full weeks is 9.5% to 10.9% against 10.7% to 10.9% expected from Poisson noise. Every category passes the flatness rule below, a heuristic against Poisson noise, not a seasonality test.
+2. **Call-center contact reasons are far from uniform** (measured). Over 19,677 contacts (2026-05-18 to 2026-06-18), contact-reason shares range from 3.0% to 34.6%. "Transaccional" is 34.6% of contacts and 23.7% of handle seconds, with a median of 202 s and 91.7% resolved on contact; "Queja" takes 425 s with 43.3% resolved on contact. This sizes the opportunity; it does not show that disputes are the worst process, because no key joins a complaint to a call.
 3. **"Cargo no reconocido" waits 37.0 h for a first response** (measured): median 37.0 h and p90 58.0 h over n = 7,567 of 12,297 complaints (61.5% coverage). 4,730 have no first response (3,648 Open, 618 Escalated, 241 In Process, 111 Rejected, 95 Resolved, 17 Closed). The observed maximum is 72.0 h; 100.0% of recorded first responses came within 72 calendar hours.
-4. **Data quality limits what can be claimed** (measured). 492 of 14,631 complaints have a resolution before their first response; 772 of 16,121 Resolved/Closed complaints have no resolution date; 0.0% of 67,095 complaints link to a call-center interaction; and the claimed-amount medians are of similar size in every currency, which real amounts would not be, so amounts are never summed across currencies.
+4. **Data quality limits what can be claimed** (measured). 492 of 14,631 complaints have a resolution before their first response; 772 of 16,121 Resolved/Closed complaints have no resolution date; 0.0% of 67,095 complaints link to a call-center interaction; and the claimed-amount medians of all 4 currencies are within 10.0% of each other, which real amounts in those currencies would not be, so amounts are never summed across currencies.
 5. **Real complaints rarely match a real transaction** (measured, quoted from the eval snapshot): 1 match in a sample of 2,000 complaints (source: etl/build_fixture.py development, Milestone 1, 2026-09-28). It is not recomputed here.
 
 ## Why disputes
 
-*Label: design-argument.* Volume does not single disputes out (finding 1), so the choice of
-workflow rests on a design argument, not on demand. An unrecognized-charge dispute can be checked
-in code against the customer's own transaction ledger and decided by an explicit, testable policy
-(`app/policy.py`): the agent either acts on evidence it can verify or hands the case to a person
-with that evidence attached. Branch service, app problems or service quality need a human
-judgment or a fix somewhere else. The measured support is the call-center load (finding 2) and the
-wait for a first response (finding 3).
+*Label: design-argument.* Volume does not single disputes out (complaint demand is flat by category), so the choice of workflow rests on a design argument, not on demand.
+An unrecognized-charge dispute can be checked in code against the customer's own transaction
+ledger and decided by an explicit, testable policy (`app/policy.py`): the agent either acts on
+evidence it can verify or hands the case to a person with that evidence attached. Branch service,
+app problems or service quality need a human judgment or a fix somewhere else. The measured
+support is the call-center load and the wait for a first response in the findings above.
 
 ## What this data does not tell us
 
 - Whether disputes cost more to handle than other complaints: 0.0% of complaints link to a call, so call time is not dispute time.
 - Any real automation rate: the eval scenarios are constructed on purpose, and real complaints almost never match a real transaction.
 - Anything about the 4,730 "Cargo no reconocido" complaints with no first response yet (censored).
-- Whether the 3-business-day contact promise is met: the data has calendar hours and recorded responses only.
+- Whether the business-day contact promise is met: the data has calendar hours and recorded responses only.
 - Real monetary amounts: the per-currency medians are not consistent with exchange rates.
-- Seasonality beyond this window: "no variation beyond Poisson noise" is not "no seasonality".
+- Seasonality: passing a flatness heuristic over this window is not evidence of "no seasonality".
 
 ## Demand
 
@@ -109,7 +108,7 @@ Note: Share of RECORDED first responses within 72 calendar hours. Cases with no 
 
 ## Call center
 
-Measured over n = 19,677 interactions, 2026-05-18T08:00:16 to 2026-06-18T07:58:13. First-contact handle time across all contact reasons. Not dispute-specific: there is no join key from complaints to interactions.
+Measured over n = 19,677 interactions, 2026-05-18 to 2026-06-18. First-contact handle time across all contact reasons. Not dispute-specific: there is no join key from complaints to interactions.
 
 | Contact reason | Contacts | Share | Median handle | n (handle) | Share of handle seconds | Resolved on contact |
 |---|---|---|---|---|---|---|
@@ -149,13 +148,13 @@ Four separate blocks. They measure different things, so they are never divided i
 
 *Label: projection.* Formula: expected human handle cost per case (USD) = (1 - automation share) x anchor handle hours x hourly rate, with the 202 s anchor from block B. Each cell is the expected human handle cost of one case, not a total over any period.
 
-| Hourly rate (assumed) | Share 0 (baseline, assumed) | Share 0.2069 (scenario-suite outcome, not a population estimate, simulated) | Share 0.5 (illustrative, assumed) |
+| Hourly rate (assumed) | Share 0.0 (baseline, assumed) | Share 0.2069 (scenario-suite outcome, not a population estimate, simulated) | Share 0.5 (illustrative, assumed) |
 |---|---|---|---|
 | USD 5 | USD 0.2806 | USD 0.2225 | USD 0.1403 |
 | USD 10 | USD 0.5611 | USD 0.4450 | USD 0.2806 |
 | USD 20 | USD 1.1222 | USD 0.8900 | USD 0.5611 |
 
-- Share 0: assumed, baseline. Evidence-based baseline: real complaint-to-transaction linkage is near zero.
+- Share 0.0: assumed, baseline. Evidence-based baseline: 1 real amount and date match in a sample of 2,000 real complaints (eval snapshot).
 - Share 0.2069: simulated, scenario-suite outcome, not a population estimate. 6 of 29 constructed eval scenarios ended in a safe automated resolution.
 - Share 0.5: assumed, illustrative.
 
@@ -182,5 +181,5 @@ Medians per currency, never summed across currencies. Medians of similar size in
 - Generated by `python -m etl.analyze_demand` from `data/warehouse.duckdb` (rows: `complaints` 67,095, `customers` 150,000, `call_center_interactions` 19,677) and `docs/analysis/inputs/eval_cost_snapshot.json`. Do not edit this file by hand.
 - Data as of 2026-06-18T07:56:52 (latest complaint creation date).
 - `demand-report.json` is the source of truth; this page and both charts are rendered from it.
-- Labels: measured (computed from the warehouse), assumed (an input with no data behind it), simulated (from the offline eval), projection (arithmetic over the others), design-argument (reasoning, not a number).
+- Labels: measured (measured on real data, here or in the cited source), assumed (an input with no data behind it), simulated (from the offline eval), projection (arithmetic over the others), design-argument (reasoning, not a number).
 - Refresh the eval inputs after `python -m eval.run_eval` with `python -m etl.analyze_demand --refresh-eval-snapshot`.

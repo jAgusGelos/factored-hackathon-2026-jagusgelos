@@ -220,7 +220,7 @@ def test_focus_first_response_counts_censored_cases(con):
     assert focus["missing_first_response"]["by_status"] == [{"status": "Open", "count": 1}]
     assert focus["within_contact_window"]["value"] == 0.6667
     assert focus["histogram_1h"] == [
-        {"hour": 10, "count": 1}, {"hour": 20, "count": 1}, {"hour": 80, "count": 1},
+        {"hour_end": 10, "count": 1}, {"hour_end": 20, "count": 1}, {"hour_end": 80, "count": 1},
     ]
 
 
@@ -320,10 +320,40 @@ def test_refresh_copies_only_the_allowlist(tmp_path):
 
 def test_committed_snapshot_keys_are_the_allowlist():
     snapshot = json.loads(ad.DEFAULT_SNAPSHOT_PATH.read_text())
-    assert set(snapshot) <= set(ad.SNAPSHOT_KEYS)
+    assert set(snapshot) == set(ad.SNAPSHOT_KEYS)
     for key, fields in ad.SNAPSHOT_KEYS.items():
-        if fields is not None and key in snapshot:
-            assert set(snapshot[key]) <= set(fields), key
+        if fields is not None:
+            assert set(snapshot[key]) == set(fields), key
+
+
+def test_refresh_rejects_eval_report_missing_a_nested_field(tmp_path):
+    latency = {"p50": SNAPSHOT["latency_seconds"]["p50"]}
+    source = tmp_path / "eval_report.json"
+    source.write_text(json.dumps({**SNAPSHOT, "latency_seconds": latency}))
+    with pytest.raises(ValueError, match=r"latency_seconds\.p95"):
+        ad.refresh_snapshot(source, tmp_path / "snapshot.json")
+    assert not (tmp_path / "snapshot.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        ("{not json", "not valid JSON"),
+        (json.dumps({k: v for k, v in SNAPSHOT.items() if k != "latency_seconds"}),
+         "latency_seconds"),
+    ],
+)
+def test_invalid_snapshot_is_rejected_with_its_path(tmp_path, content, message):
+    path = tmp_path / "snapshot.json"
+    path.write_text(content)
+    with pytest.raises(ValueError, match=message) as excinfo:
+        ad.read_snapshot(path)
+    assert str(path) in str(excinfo.value)
+
+
+def test_missing_warehouse_raises_with_extract_hint(snapshot_path, tmp_path):
+    with pytest.raises(FileNotFoundError, match="python -m etl.extract"):
+        ad.run(tmp_path / "missing.duckdb", tmp_path / "out", snapshot_path)
 
 
 def test_run_is_byte_identical(warehouse, snapshot_path, tmp_path):
@@ -357,6 +387,52 @@ def test_markdown_sections_and_labels(report):
     assert "USD" not in tldr
     assert re.findall(r"^\d+\. ", tldr, re.MULTILINE) == ["1. ", "2. ", "3. ", "4. ", "5. "]
     assert "n = 3 of 4" in tldr
+    # The fixture's two categories are not an even split, so nothing may call demand flat.
+    assert "**Complaint demand is not flat by category**" in tldr
+    assert "Volume does not single disputes out" not in markdown
+
+
+def test_flat_headline_and_currency_claim_follow_the_json(report):
+    for variability in report["demand"]["weekly"]["variability"]:
+        variability["flat"] = True
+    amounts = report["data_quality"]["claimed_amount_by_currency"]["rows"]
+    for row in amounts:
+        row["median_amount"] = 100.0
+    markdown = render.render_markdown(report)
+    assert "**Complaint demand is flat by category**" in _tldr(markdown)
+    assert "Volume does not single disputes out" in markdown
+    assert "within 10.0% of each other" in _tldr(markdown)
+
+
+def test_weekly_gap_weeks_count_as_zero(tmp_path):
+    db_path = tmp_path / "gaps.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("CREATE TABLE complaints (creation_date TIMESTAMP, category VARCHAR)")
+    con.executemany(
+        "INSERT INTO complaints VALUES (?, 'Fees')",
+        [("2024-01-01 10:00:00",), ("2024-01-21 10:00:00",)],
+    )
+    weekly = ad.weekly_demand(con)
+    con.close()
+    assert [(w["week_start"], w["total"]) for w in weekly["weeks"]] == [
+        ("2024-01-01", 1), ("2024-01-08", 0), ("2024-01-15", 1),
+    ]
+    fees = weekly["variability"][0]
+    assert fees["full_weeks"] == 3 and fees["cv"] is not None
+
+
+def test_cv_needs_two_full_weeks(tmp_path):
+    db_path = tmp_path / "one_week.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("CREATE TABLE complaints (creation_date TIMESTAMP, category VARCHAR)")
+    con.executemany(
+        "INSERT INTO complaints VALUES (?, 'Fees')",
+        [("2024-01-01 10:00:00",), ("2024-01-07 10:00:00",)],
+    )
+    weekly = ad.weekly_demand(con)
+    con.close()
+    assert weekly["full_weeks"] == 1
+    assert weekly["variability"][0]["cv"] is None and weekly["variability"][0]["flat"] is False
 
 
 def _png_size(path: Path) -> tuple[int, int]:

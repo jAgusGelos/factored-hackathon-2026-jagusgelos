@@ -1,5 +1,6 @@
-"""The `kind` labels of the demand report, shared by the builder
-(`etl/analyze_demand.py`) and the renderer (`etl/demand_report_render.py`).
+"""The demand report's `kind` labels and lookups over the report dict, shared
+by the builder (`etl/analyze_demand.py`) and the renderer
+(`etl/demand_report_render.py`), which cannot import each other.
 """
 
 from __future__ import annotations
@@ -18,9 +19,16 @@ class Kind(StrEnum):
 KINDS = frozenset(Kind)
 
 KIND_MEANINGS = {
-    Kind.MEASURED: "computed from the warehouse",
+    Kind.MEASURED: "measured on real data, here or in the cited source",
     Kind.ASSUMED: "an input with no data behind it",
     Kind.SIMULATED: "from the offline eval",
     Kind.PROJECTION: "arithmetic over the others",
     Kind.DESIGN_ARGUMENT: "reasoning, not a number",
 }
+
+
+def reason_row(call_center_block: dict, reason: str) -> dict:
+    for row in call_center_block["reasons"]:
+        if row["contact_reason"] == reason:
+            return row
+    raise ValueError(f"contact reason {reason!r} not found in the call-center block")

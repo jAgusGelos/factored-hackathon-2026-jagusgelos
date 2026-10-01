@@ -2284,283 +2284,283 @@
       },
       "histogram_1h": [
         {
-          "hour": 3,
+          "hour_end": 3,
           "count": 11
         },
         {
-          "hour": 4,
+          "hour_end": 4,
           "count": 15
         },
         {
-          "hour": 5,
+          "hour_end": 5,
           "count": 16
         },
         {
-          "hour": 6,
+          "hour_end": 6,
           "count": 17
         },
         {
-          "hour": 7,
+          "hour_end": 7,
           "count": 32
         },
         {
-          "hour": 8,
+          "hour_end": 8,
           "count": 41
         },
         {
-          "hour": 9,
+          "hour_end": 9,
           "count": 54
         },
         {
-          "hour": 10,
+          "hour_end": 10,
           "count": 47
         },
         {
-          "hour": 11,
+          "hour_end": 11,
           "count": 51
         },
         {
-          "hour": 12,
+          "hour_end": 12,
           "count": 61
         },
         {
-          "hour": 13,
+          "hour_end": 13,
           "count": 72
         },
         {
-          "hour": 14,
+          "hour_end": 14,
           "count": 90
         },
         {
-          "hour": 15,
+          "hour_end": 15,
           "count": 78
         },
         {
-          "hour": 16,
+          "hour_end": 16,
           "count": 120
         },
         {
-          "hour": 17,
+          "hour_end": 17,
           "count": 90
         },
         {
-          "hour": 18,
+          "hour_end": 18,
           "count": 125
         },
         {
-          "hour": 19,
+          "hour_end": 19,
           "count": 125
         },
         {
-          "hour": 20,
+          "hour_end": 20,
           "count": 107
         },
         {
-          "hour": 21,
+          "hour_end": 21,
           "count": 119
         },
         {
-          "hour": 22,
+          "hour_end": 22,
           "count": 135
         },
         {
-          "hour": 23,
+          "hour_end": 23,
           "count": 136
         },
         {
-          "hour": 24,
+          "hour_end": 24,
           "count": 165
         },
         {
-          "hour": 25,
+          "hour_end": 25,
           "count": 167
         },
         {
-          "hour": 26,
+          "hour_end": 26,
           "count": 147
         },
         {
-          "hour": 27,
+          "hour_end": 27,
           "count": 162
         },
         {
-          "hour": 28,
+          "hour_end": 28,
           "count": 157
         },
         {
-          "hour": 29,
+          "hour_end": 29,
           "count": 152
         },
         {
-          "hour": 30,
+          "hour_end": 30,
           "count": 172
         },
         {
-          "hour": 31,
+          "hour_end": 31,
           "count": 188
         },
         {
-          "hour": 32,
+          "hour_end": 32,
           "count": 151
         },
         {
-          "hour": 33,
+          "hour_end": 33,
           "count": 169
         },
         {
-          "hour": 34,
+          "hour_end": 34,
           "count": 166
         },
         {
-          "hour": 35,
+          "hour_end": 35,
           "count": 160
         },
         {
-          "hour": 36,
+          "hour_end": 36,
           "count": 170
         },
         {
-          "hour": 37,
+          "hour_end": 37,
           "count": 152
         },
         {
-          "hour": 38,
+          "hour_end": 38,
           "count": 158
         },
         {
-          "hour": 39,
+          "hour_end": 39,
           "count": 170
         },
         {
-          "hour": 40,
+          "hour_end": 40,
           "count": 173
         },
         {
-          "hour": 41,
+          "hour_end": 41,
           "count": 186
         },
         {
-          "hour": 42,
+          "hour_end": 42,
           "count": 149
         },
         {
-          "hour": 43,
+          "hour_end": 43,
           "count": 140
         },
         {
-          "hour": 44,
+          "hour_end": 44,
           "count": 164
         },
         {
-          "hour": 45,
+          "hour_end": 45,
           "count": 127
         },
         {
-          "hour": 46,
+          "hour_end": 46,
           "count": 180
         },
         {
-          "hour": 47,
+          "hour_end": 47,
           "count": 144
         },
         {
-          "hour": 48,
+          "hour_end": 48,
           "count": 161
         },
         {
-          "hour": 49,
+          "hour_end": 49,
           "count": 155
         },
         {
-          "hour": 50,
+          "hour_end": 50,
           "count": 145
         },
         {
-          "hour": 51,
+          "hour_end": 51,
           "count": 151
         },
         {
-          "hour": 52,
+          "hour_end": 52,
           "count": 163
         },
         {
-          "hour": 53,
+          "hour_end": 53,
           "count": 138
         },
         {
-          "hour": 54,
+          "hour_end": 54,
           "count": 123
         },
         {
-          "hour": 55,
+          "hour_end": 55,
           "count": 116
         },
         {
-          "hour": 56,
+          "hour_end": 56,
           "count": 102
         },
         {
-          "hour": 57,
+          "hour_end": 57,
           "count": 102
         },
         {
-          "hour": 58,
+          "hour_end": 58,
           "count": 88
         },
         {
-          "hour": 59,
+          "hour_end": 59,
           "count": 89
         },
         {
-          "hour": 60,
+          "hour_end": 60,
           "count": 91
         },
         {
-          "hour": 61,
+          "hour_end": 61,
           "count": 88
         },
         {
-          "hour": 62,
+          "hour_end": 62,
           "count": 78
         },
         {
-          "hour": 63,
+          "hour_end": 63,
           "count": 72
         },
         {
-          "hour": 64,
+          "hour_end": 64,
           "count": 72
         },
         {
-          "hour": 65,
+          "hour_end": 65,
           "count": 46
         },
         {
-          "hour": 66,
+          "hour_end": 66,
           "count": 39
         },
         {
-          "hour": 67,
+          "hour_end": 67,
           "count": 42
         },
         {
-          "hour": 68,
+          "hour_end": 68,
           "count": 34
         },
         {
-          "hour": 69,
+          "hour_end": 69,
           "count": 21
         },
         {
-          "hour": 70,
+          "hour_end": 70,
           "count": 18
         },
         {
-          "hour": 71,
+          "hour_end": 71,
           "count": 12
         },
         {
-          "hour": 72,
+          "hour_end": 72,
           "count": 10
         }
       ]
@@ -2790,7 +2790,7 @@
           "n": null,
           "kind": "assumed",
           "label": "baseline",
-          "note": "Evidence-based baseline: real complaint-to-transaction linkage is near zero."
+          "note": "Evidence-based baseline: 1 real amount and date match in a sample of 2,000 real complaints (eval snapshot)."
         },
         {
           "value": 0.2069,
