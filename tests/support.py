@@ -52,6 +52,7 @@ from support import (
     logged_events,
     mock_anthropic_client,
     session_for,
+    statement_down_client,
 )
 
 __all__ = [
@@ -85,6 +86,7 @@ __all__ = [
     "demo_session",
     "mock_anthropic_client",
     "session_for",
+    "statement_down_client",
     "requires_real_fixture",
     "STATIC",
     "chat_js_language_block",

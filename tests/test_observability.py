@@ -16,10 +16,17 @@ from unittest.mock import patch
 import duckdb
 import pytest
 
-from app import cases, config, db
+from app import cases, config, db, llm
 from app.auth import Session
+from app.case_model import CustomerAction
 from app.state_machine import handle_message
-from tests.support import finish_statement, mock_anthropic_client
+from tests.support import (
+    STATEMENT,
+    event_sequence,
+    finish_statement,
+    mock_anthropic_client,
+    statement_down_client,
+)
 
 SESSION = Session(customer_id="CLI-1", expires_at=datetime.now(UTC) + timedelta(hours=1))
 
@@ -123,3 +130,45 @@ def test_case_evaluated_breadcrumb_and_case_escalated_detail_are_both_logged(app
     assert len(breadcrumbs) == 1
     assert breadcrumbs[0]["payload"]["state"] == "escalated"
     assert len(details) == 1
+
+
+_STATEMENT_ENDINGS = {
+    "given": (
+        [dict(text=STATEMENT)],
+        ["handoff_statement_requested", "handoff_statement_available", "case_escalated"],
+    ),
+    "declined": (
+        [dict(text="Hablar con una persona", action=CustomerAction.HUMAN)] * 2,
+        ["handoff_statement_requested", "handoff_statement_declined", "handoff_statement_insisted",
+         "handoff_statement_declined", "case_escalated"],
+    ),
+    "summary_unavailable": (
+        [dict(text=STATEMENT, client=statement_down_client({}))],
+        ["handoff_statement_requested", "handoff_statement_unavailable", "case_escalated"],
+    ),
+}
+
+
+@pytest.mark.parametrize("ending", list(_STATEMENT_ENDINGS))
+def test_the_statement_step_can_be_reconstructed_from_the_events(app_db, ending):
+    turns, expected = _STATEMENT_ENDINGS[ending]
+    extraction = {"amount": 500.0, "currency": "USD", "date": "2026-06-10", "merchant_hint": None, "wants_human": False}
+    with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(extraction)):
+        asked = handle_message(SESSION, None, "Tengo un cargo de 500 USD que no reconozco", db_path=app_db)
+
+    reply = asked
+    for turn in turns:
+        turn = dict(turn)
+        client = turn.pop("client", None) or mock_anthropic_client(extraction)
+        with patch("app.llm.anthropic.Anthropic", return_value=client), patch.object(llm.time, "sleep"):
+            reply = handle_message(SESSION, asked["case_id"], turn.pop("text"), db_path=app_db, **turn)
+
+    case = cases.get_case(reply["case_id"], db_path=app_db)
+    statement_events = [e for e in event_sequence(app_db, case.case_id) if e.startswith("handoff_statement") or e == "case_escalated"]
+    assert statement_events == expected
+    assert case.handoff["customer_reported"]["statement_status"] == ending
+    assert _events_for_case(app_db, case.case_id, "case_escalated")[0]["payload"] == case.handoff
+    for event in statement_events[:-1]:
+        for logged in _events_for_case(app_db, case.case_id, event):
+            assert logged["payload"]["pending_escalation_reason"] == "needs_review"
+            assert STATEMENT not in json.dumps(logged["payload"], ensure_ascii=False)

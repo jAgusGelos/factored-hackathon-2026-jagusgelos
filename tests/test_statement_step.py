@@ -9,7 +9,6 @@ import json
 import uuid
 from unittest.mock import patch
 
-import anthropic
 import duckdb
 import pytest
 
@@ -31,6 +30,7 @@ from tests.support import (
     mock_anthropic_client,
     mocked_turn,
     session_for,
+    statement_down_client,
 )
 
 COP_CHARGE = clean_txn(amount=38500.0, currency="COP", amount_usd=9.6, merchant_name="Uber")
@@ -347,23 +347,10 @@ def test_a_refusal_after_the_follow_up_hands_off_the_account_already_given(sessi
     assert logged_events(app_db, "handoff_statement_insisted") == []
 
 
-def _timing_out_statement():
-    client = mock_anthropic_client(charge_extraction())
-    answer = client.messages.create.side_effect
-
-    def create(**kwargs):
-        if llm.STATEMENT_MARKER in kwargs["system"]:
-            raise anthropic.APITimeoutError(request=None)
-        return answer(**kwargs)
-
-    client.messages.create.side_effect = create
-    return client
-
-
 def test_an_unavailable_assessment_hands_off_with_the_pending_reason(session, app_db):
     held, _ = _held(session, app_db)
 
-    reply = mocked_turn(session, app_db, STATEMENT, held["case_id"], client=_timing_out_statement())
+    reply = mocked_turn(session, app_db, STATEMENT, held["case_id"], client=statement_down_client(charge_extraction()))
 
     assert reply["state"] == CaseState.ESCALATED
     assert reply["escalation"]["reason"] == replies.escalation_summary(

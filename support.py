@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import anthropic
 import duckdb
 
 from app.auth import Session, create_session, get_session, verify_credentials
@@ -49,6 +50,7 @@ __all__ = [
     "DUPLICATE_CHARGES", "EXPLANATION", "FRAUD_SCORE_CHARGE", "GIVEN_STATEMENT", "NOT_RECEIVED_ASSESSMENT", "OVER_LIMIT_CHARGE",
     "REAL_DEMO_USERS_PATH", "REAL_FIXTURE_PATH", "REPO_ROOT", "SECOND_ONLINE_CHARGE", "STATEMENT", "app_db_rows", "charge_extraction",
     "charge_report", "demo_session", "event_sequence", "logged_events", "mock_anthropic_client", "session_for",
+    "statement_down_client",
 ]
 
 
@@ -91,6 +93,29 @@ def mock_anthropic_client(
         return response
 
     client = MagicMock()
+    client.messages.create.side_effect = create
+    return client
+
+
+def statement_down_client(
+    extraction_payload: dict,
+    *,
+    captured_prompts: list[str] | None = None,
+    captured_completions: list[str] | None = None,
+) -> MagicMock:
+    """`mock_anthropic_client` whose statement assessment always times out,
+    so the statement step hands off as `summary_unavailable`.
+    """
+    client = mock_anthropic_client(
+        extraction_payload, captured_prompts=captured_prompts, captured_completions=captured_completions,
+    )
+    answer = client.messages.create.side_effect
+
+    def create(**kwargs):
+        if STATEMENT_MARKER in kwargs["system"]:
+            raise anthropic.APITimeoutError(request=MagicMock())
+        return answer(**kwargs)
+
     client.messages.create.side_effect = create
     return client
 

@@ -37,6 +37,8 @@ const STRINGS = {
     stepTransactionAwaitingConfirm: "Cargo encontrado, pendiente de su confirmación",
     badgeExplaining: "Esperando su explicación",
     stepPolicyExplaining: "Falta que nos cuente qué pasó con el cargo",
+    badgeStatement: "Esperando su relato",
+    stepPolicyStatement: "Antes de derivar, falta que nos cuente qué pasó",
     badgeResolved: "Resuelto",
     badgeEscalated: "Escalado",
     verifiedChip: (ref) => `✓ Referencia ${ref}`,
@@ -79,11 +81,18 @@ const STRINGS = {
       explanation_assessment: "Evaluación de la explicación", customer_message: "Mensaje del cliente",
       reported_amount: "Monto reportado", reported_date: "Fecha reportada", reported_merchant: "Comercio reportado",
       matched_transaction_id: "Transacción identificada",
+      statement_status: "Relato del cliente", statement_summary: "Relato (resumen del modelo)",
+      denies_purchase: "Niega haber hecho la compra", merchant_known: "Conoce el comercio",
+      card_possession: "Tiene la tarjeta consigo", how_noticed: "Cómo lo notó", noticed_on: "Cuándo lo notó",
+      other_suspicious_activity: "Otros movimientos que no reconoce",
     },
     handoffValues: {
       unrecognized: "No reconoce el cargo", duplicate: "Cargo duplicado", not_received: "No recibió el producto",
       wrong_amount: "Monto incorrecto", card_lost_stolen: "Tarjeta perdida o robada", unclear: "No está claro",
       yes: "Sí", no: "No", human: "Pidió una persona", sí: "Sí",
+      given: "Contado", declined: "Prefirió no contarlo", summary_unavailable: "Resumen no disponible",
+      app_alert: "Alerta o app del banco", statement: "Resumen de cuenta", sms_or_email: "SMS o correo",
+      other: "Otro",
     },
     sessionLoadError: "No se pudo cargar la sesión.",
     logoutFailed: "No se pudo cerrar sesión.",
@@ -92,6 +101,7 @@ const STRINGS = {
     waitSearching: "Buscando sus movimientos…",
     waitConfirming: "Revisando el cargo…",
     waitExplanation: "Revisando su explicación…",
+    waitStatement: "Registrando su relato…",
     waitSlow: "Está tardando más de lo habitual. Seguimos procesando su mensaje.",
     turnError: "No se pudo obtener respuesta. Puede reintentar el envío.",
     retry: "Reintentar",
@@ -135,6 +145,8 @@ const STRINGS = {
     stepTransactionAwaitingConfirm: "Cobrança encontrada, aguardando sua confirmação",
     badgeExplaining: "Aguardando sua explicação",
     stepPolicyExplaining: "Falta você contar o que aconteceu com a cobrança",
+    badgeStatement: "Aguardando seu relato",
+    stepPolicyStatement: "Antes de encaminhar, falta você contar o que aconteceu",
     badgeResolved: "Resolvido",
     badgeEscalated: "Escalado",
     verifiedChip: (ref) => `✓ Referência ${ref}`,
@@ -176,11 +188,18 @@ const STRINGS = {
       explanation_assessment: "Avaliação da explicação", customer_message: "Mensagem do cliente",
       reported_amount: "Valor informado", reported_date: "Data informada", reported_merchant: "Estabelecimento informado",
       matched_transaction_id: "Transação identificada",
+      statement_status: "Relato do cliente", statement_summary: "Relato (resumo do modelo)",
+      denies_purchase: "Nega ter feito a compra", merchant_known: "Conhece o estabelecimento",
+      card_possession: "Está com o cartão", how_noticed: "Como percebeu", noticed_on: "Quando percebeu",
+      other_suspicious_activity: "Outras movimentações que não reconhece",
     },
     handoffValues: {
       unrecognized: "Não reconhece a cobrança", duplicate: "Cobrança duplicada", not_received: "Não recebeu o produto",
       wrong_amount: "Valor incorreto", card_lost_stolen: "Cartão perdido ou roubado", unclear: "Não está claro",
       yes: "Sim", no: "Não", human: "Pediu uma pessoa", sí: "Sim",
+      given: "Contado", declined: "Preferiu não contar", summary_unavailable: "Resumo indisponível",
+      app_alert: "Alerta ou app do banco", statement: "Extrato", sms_or_email: "SMS ou e-mail",
+      other: "Outro",
     },
     sessionLoadError: "Não foi possível carregar a sessão.",
     logoutFailed: "Não foi possível encerrar a sessão.",
@@ -188,6 +207,7 @@ const STRINGS = {
     waitSearching: "Buscando suas movimentações…",
     waitConfirming: "Verificando a cobrança…",
     waitExplanation: "Analisando sua explicação…",
+    waitStatement: "Registrando seu relato…",
     waitSlow: "Está demorando mais que o normal. Continuamos processando sua mensagem.",
     turnError: "Não foi possível obter resposta. Você pode tentar enviar novamente.",
     retry: "Tentar novamente",
@@ -228,6 +248,7 @@ const CASE_STATES = Object.freeze({
   SELECTING: "selecting",
   CONFIRMING: "confirming",
   AWAITING_EXPLANATION: "awaiting_explanation",
+  AWAITING_STATEMENT: "awaiting_statement",
   RESOLVED_AUTO: "resolved_auto",
   ESCALATED: "escalated",
 });
@@ -241,6 +262,7 @@ const WAIT_CAPTION_KEYS = Object.freeze({
   [CASE_STATES.CLARIFYING]: "waitSearching",
   [CASE_STATES.CONFIRMING]: "waitConfirming",
   [CASE_STATES.AWAITING_EXPLANATION]: "waitExplanation",
+  [CASE_STATES.AWAITING_STATEMENT]: "waitStatement",
 });
 
 const TURN_OUTCOMES = Object.freeze({
@@ -851,6 +873,10 @@ function renderPanel() {
     step2Detail = transactionFound();
     step3Variant = "warning"; step3Dot = "?";
     step3Detail = t("stepPolicyExplaining");
+  } else if (caseState === CASE_STATES.AWAITING_STATEMENT) {
+    badge = badgeHtml("warning", t("badgeStatement"));
+    step3Variant = "warning"; step3Dot = "?";
+    step3Detail = t("stepPolicyStatement");
   } else if (caseState === CASE_STATES.RESOLVED_AUTO) {
     badge = badgeHtml("success", t("badgeResolved"));
     step2Variant = "done"; step2Dot = "✓";
@@ -929,9 +955,11 @@ function factLabel(key) {
 }
 
 const AMOUNT_FACTS = new Set(["amount", "reported_amount"]);
-const DATE_FACTS = new Set(["date", "reported_date"]);
+const DATE_FACTS = new Set(["date", "reported_date", "noticed_on"]);
 const CODED_FACTS = new Set([
   "dispute_reason", "customer_confirmation", "charge_confirmed", "explanation_specific", "explanation_consistent",
+  "statement_status", "denies_purchase", "merchant_known", "card_possession", "how_noticed",
+  "other_suspicious_activity",
 ]);
 
 function factValue(key, value, facts) {
