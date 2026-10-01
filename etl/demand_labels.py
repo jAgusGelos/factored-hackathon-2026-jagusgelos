@@ -33,3 +33,7 @@ def reason_row(call_center_block: dict, reason: str) -> dict:
         if row["contact_reason"] == reason:
             return row
     raise ValueError(f"contact reason {reason!r} not found in the call-center block")
+
+
+def match_noun(count: int) -> str:
+    return "match" if count == 1 else "matches"

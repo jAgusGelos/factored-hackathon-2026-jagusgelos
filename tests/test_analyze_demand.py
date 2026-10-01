@@ -374,6 +374,9 @@ def test_refresh_rejects_eval_report_missing_a_nested_field(tmp_path):
         (json.dumps({**SNAPSHOT, "real_data_match_rate_finding": {
             "sample_size": 2000, "real_matches_found": 2001, "source": "test"}}),
          "real_matches_found <= sample_size"),
+        (json.dumps({**SNAPSHOT, "sample_size": 0, "safe_automated_resolution_rate": {
+            "count": 0, "of_attempted": 0, "rate": 0.5}}),
+         "of_attempted > 0"),
     ],
 )
 def test_invalid_snapshot_is_rejected_with_its_path(tmp_path, content, message):
@@ -605,3 +608,29 @@ def test_chart_failure_leaves_the_previous_report_untouched(
     with pytest.raises(RuntimeError, match="chart failure"):
         ad.run(warehouse_path=warehouse, out_dir=out, snapshot_path=snapshot_path)
     assert {path.name: path.read_bytes() for path in out.iterdir()} == before
+
+
+def test_rate_check_uses_the_eval_rounding(tmp_path):
+    rate = {"count": 1, "of_attempted": 32, "rate": round(1 / 32, 4)}
+    path = tmp_path / "snapshot.json"
+    path.write_text(json.dumps({**SNAPSHOT, "sample_size": 32, "safe_automated_resolution_rate": rate}))
+    assert snap.read_snapshot(path)["safe_automated_resolution_rate"] == rate
+
+
+def test_eval_with_no_successful_resolution_still_refreshes(con, tmp_path):
+    not_defined = "not defined (0 successful resolutions)"
+    eval_report = {
+        **{k: v for k, v in SNAPSHOT.items() if k != snap.OPTIONAL_SNAPSHOT_KEY},
+        "safe_automated_resolution_rate": {"count": 0, "of_attempted": 29, "rate": 0.0},
+        "estimated_cost_usd": {
+            **SNAPSHOT["estimated_cost_usd"], "per_successful_resolution": not_defined,
+        },
+    }
+    source = tmp_path / "eval_report.json"
+    source.write_text(json.dumps(eval_report))
+    snapshot = ad.refresh_snapshot(eval_report_path=source, snapshot_path=tmp_path / "s.json")
+    assert snapshot["estimated_cost_usd"]["per_successful_resolution"] == not_defined
+    per_success = ad.build_report(con, snapshot)["cost"]["agent_llm_cost_usd"][
+        "per_successful_resolution"
+    ]
+    assert per_success == {"value": None, "n": 0, "kind": "simulated"}

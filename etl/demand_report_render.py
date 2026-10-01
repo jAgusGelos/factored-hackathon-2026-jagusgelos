@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from etl.demand_labels import KIND_MEANINGS, Kind, reason_row
+from etl.demand_labels import KIND_MEANINGS, Kind, match_noun, reason_row
 from etl.demand_snapshot import REFRESH_COMMAND
 
 CALL_REASONS_CHART = "call_reasons.png"
@@ -200,7 +200,7 @@ def _eval_match_finding(match: dict) -> str:
     )
     return (
         f"**{headline}** (measured, quoted from the eval snapshot): {_num(match['value'])} "
-        f"amount and date {'match' if match['value'] == 1 else 'matches'} in a sample of "
+        f"amount and date {match_noun(match['value'])} in a sample of "
         f"{_num(match['n'])} complaints (source: "
         f"{match['source']}). The dataset generates complaints and transactions "
         "independently, so this describes the data available here, not a real bank."

@@ -34,7 +34,7 @@ from pathlib import Path
 
 import duckdb
 
-from etl.demand_labels import Kind, reason_row
+from etl.demand_labels import Kind, match_noun, reason_row
 from etl.demand_report_render import render_charts, render_markdown
 from etl.demand_snapshot import (
     EVAL_REPORT_SOURCE,
@@ -572,8 +572,10 @@ def _agent_llm_cost(snapshot: dict) -> dict:
 
 def _matches_phrase(finding: dict) -> str:
     matches = finding["real_matches_found"]
-    noun = "match" if matches == 1 else "matches"
-    return f"{matches:,} amount and date {noun} in a sample of {finding['sample_size']:,}"
+    return (
+        f"{matches:,} amount and date {match_noun(matches)} in a sample of "
+        f"{finding['sample_size']:,}"
+    )
 
 
 def _is_rare(finding: dict) -> bool:

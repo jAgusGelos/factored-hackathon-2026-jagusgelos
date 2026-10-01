@@ -9,12 +9,13 @@ import json
 import math
 from enum import StrEnum
 from pathlib import Path
+from typing import assert_never
 
 EVAL_REPORT_SOURCE = "data/eval_report.json"
 REFRESH_COMMAND = "python -m etl.analyze_demand --refresh-eval-snapshot"
 REFRESH_HINT = f" Regenerate it with `{REFRESH_COMMAND}`."
-# Allowed gap between a stored rate and count / of_attempted (4-dp rounding).
-RATE_ROUNDING_TOLERANCE = 5e-5
+# eval/run_eval.py stores rates as round(count / of_attempted, 4).
+RATE_DECIMALS = 4
 
 
 class FieldType(StrEnum):
@@ -68,7 +69,9 @@ def _is_valid(value, field_type: FieldType) -> bool:
         return is_number(value)
     if field_type is FieldType.NUMBER_OR_NONE:
         return value is None or is_number(value)
-    return isinstance(value, str) or is_number(value)
+    if field_type is FieldType.NUMBER_OR_TEXT:
+        return isinstance(value, str) or is_number(value)
+    assert_never(field_type)
 
 
 def _invalid_sub_fields(key: str, value, spec: dict[str, FieldType]) -> list[str]:
@@ -105,7 +108,9 @@ def _inconsistencies(snapshot: dict) -> list[str]:
     count, attempted = resolution["count"], resolution["of_attempted"]
     if not count <= attempted <= snapshot["sample_size"]:
         problems.append("count <= of_attempted <= sample_size")
-    elif attempted and abs(resolution["rate"] - count / attempted) > RATE_ROUNDING_TOLERANCE:
+    elif attempted == 0:
+        problems.append("of_attempted > 0")
+    elif round(count / attempted, RATE_DECIMALS) != resolution["rate"]:
         problems.append("rate == count / of_attempted")
     finding = snapshot.get(OPTIONAL_SNAPSHOT_KEY)
     if finding is not None and finding["real_matches_found"] > finding["sample_size"]:
