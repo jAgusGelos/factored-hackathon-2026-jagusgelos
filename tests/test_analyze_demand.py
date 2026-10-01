@@ -11,12 +11,14 @@ from pathlib import Path
 import duckdb
 import pytest
 
+from app import policy
 from etl import analyze_demand as ad
 from etl import demand_labels as labels
 from etl import demand_report_render as render
 from etl.demand_labels import KINDS
 
 H = 3600
+HOURS_PER_DAY = 24
 
 # (id, created, customer, category, subcategory, channel, origin_interaction,
 #  claimed_amount, currency, status, first response +h, resolution +h)
@@ -383,8 +385,42 @@ def test_run_without_matplotlib_still_writes_json_and_markdown(
     assert "charts skipped" in caplog.text
 
 
+def _committed_report() -> dict:
+    return json.loads((ad.DEFAULT_OUT_DIR / ad.REPORT_JSON_NAME).read_text())
+
+
 def test_committed_report_is_rendered_from_committed_json():
-    report = json.loads((ad.DEFAULT_OUT_DIR / ad.REPORT_JSON_NAME).read_text())
+    report = _committed_report()
     _assert_contract(report)
     markdown = (ad.DEFAULT_OUT_DIR / ad.REPORT_MD_NAME).read_text()
     assert markdown == render.render_markdown(report)
+
+
+def _focus_max_first_response_hours(report: dict) -> float:
+    return report["response_times"]["focus_first_response"]["max_hours"]["value"]
+
+
+def _contact_deadline_shortfall(report: dict) -> float | None:
+    """Regression guard, not a validation of the customer promise: returns the
+    longest recorded "Cargo no reconocido" first response when the escalation
+    deadline, read as calendar hours, is shorter than it, else None. 3 business
+    days always span at least 72 calendar hours. Complaints with no first
+    response (censored) are not in the maximum, so they are not checked.
+    """
+    max_hours = _focus_max_first_response_hours(report)
+    deadline_hours = policy.ESCALATION_CONTACT_BUSINESS_DAYS * HOURS_PER_DAY
+    return max_hours if deadline_hours < max_hours else None
+
+
+def test_escalation_deadline_covers_the_recorded_first_responses():
+    assert _contact_deadline_shortfall(_committed_report()) is None
+
+
+def test_shorter_escalation_deadline_is_reported(monkeypatch):
+    monkeypatch.setattr(policy, "ESCALATION_CONTACT_BUSINESS_DAYS", 2)
+    report = _committed_report()
+    assert _contact_deadline_shortfall(report) == _focus_max_first_response_hours(report)
+
+
+def test_contact_window_is_within_the_escalation_deadline():
+    assert ad.CONTACT_WINDOW_HOURS <= policy.ESCALATION_CONTACT_BUSINESS_DAYS * HOURS_PER_DAY
