@@ -780,7 +780,8 @@ _STATEMENT_SYSTEM_PROMPT = (
     f'"card_possession": <{_TRISTATE_CHOICES}>, "how_noticed": <{_HOW_NOTICED_CHOICES}>, '
     f'"noticed_on": <"YYYY-MM-DD"|null>, "other_suspicious_activity": <{_TRISTATE_CHOICES}>}}. '
     "summary: what the customer reports, from everything they said, as one neutral sentence in "
-    "Spanish, third person, at most 25 words, no names, numbers of documents, phone numbers, "
+    "correct Spanish (translate it when the customer wrote in Portuguese; never mix the two "
+    "languages), third person, at most 25 words, no names, numbers of documents, phone numbers, "
     "emails or other personal data, and no quotes; an empty string if they reported nothing. "
     "declines: true only if the LATEST message refuses or prefers not to tell what happened. "
     "wants_human: true only if the LATEST message asks to talk to a person instead of answering. "
