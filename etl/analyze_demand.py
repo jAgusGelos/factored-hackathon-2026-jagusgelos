@@ -55,8 +55,8 @@ REPORT_JSON_NAME = "demand-report.json"
 REPORT_MD_NAME = "demand-report.md"
 
 # Paths as they appear inside the report: repo-relative, never the machine's.
-WAREHOUSE_SOURCE = "data/warehouse.duckdb"
-SNAPSHOT_SOURCE = "docs/analysis/inputs/eval_cost_snapshot.json"
+WAREHOUSE_SOURCE = DEFAULT_WAREHOUSE_PATH.relative_to(REPO_ROOT).as_posix()
+SNAPSHOT_SOURCE = DEFAULT_SNAPSHOT_PATH.relative_to(REPO_ROOT).as_posix()
 
 SCHEMA_VERSION = 1
 
@@ -96,6 +96,7 @@ PROJECTION_PREREQUISITE = (
     "Real complaint-to-transaction linkage or a redesigned intake is required before any "
     "automation share can be claimed."
 )
+
 
 def _share(part: int | float, whole: int | float) -> float | None:
     return round(part / whole, 4) if whole else None
@@ -196,19 +197,7 @@ def weekly_demand(con: duckdb.DuckDBPyConnection) -> dict:
     for week, category, c in rows:
         counts.setdefault(week, {})[category] = c
     week_starts = _week_range(min(counts), max(counts)) if counts else []
-
-    weeks = []
-    for i, week in enumerate(week_starts):
-        partial = (i == 0 and first_day > week) or (
-            i == len(week_starts) - 1 and (last_day - week).days < 6
-        )
-        weeks.append({
-            "week_start": week.isoformat(),
-            "partial": partial,
-            "total": sum(counts.get(week, {}).values()),
-            "by_category": {c: counts.get(week, {}).get(c, 0) for c in categories},
-        })
-
+    weeks = _weekly_rows(week_starts, counts, categories, (first_day, last_day))
     total = sum(w["total"] for w in weeks)
     full = [w for w in weeks if not w["partial"]]
     share_band = _flat_share_band(len(categories))
@@ -229,6 +218,27 @@ def weekly_demand(con: duckdb.DuckDBPyConnection) -> dict:
         "all_flat": bool(variability) and all(v["flat"] for v in variability),
         "weeks": weeks,
     }
+
+
+def _weekly_rows(
+    week_starts: list[date],
+    counts: dict[date, dict[str | None, int]],
+    categories: list[str],
+    data_span: tuple[date, date],
+) -> list[dict]:
+    first_day, last_day = data_span
+    weeks = []
+    for i, week in enumerate(week_starts):
+        partial = (i == 0 and first_day > week) or (
+            i == len(week_starts) - 1 and (last_day - week).days < 6
+        )
+        weeks.append({
+            "week_start": week.isoformat(),
+            "partial": partial,
+            "total": sum(counts.get(week, {}).values()),
+            "by_category": {c: counts.get(week, {}).get(c, 0) for c in categories},
+        })
+    return weeks
 
 
 def _week_range(first: date, last: date) -> list[date]:
@@ -394,7 +404,7 @@ def call_center(con: duckdb.DuckDBPyConnection) -> dict:
             reason, reason_category, c, handle_n, median, handle_seconds, resolved_n, resolved,
         ) in rows
     ]
-    shares = [r["share"] for r in reasons]
+    shares = [r["share"] for r in reasons if r["share"] is not None]
     return {
         "kind": Kind.MEASURED,
         "n": total,
@@ -408,7 +418,7 @@ def call_center(con: duckdb.DuckDBPyConnection) -> dict:
     }
 
 
-def _share_spread(shares: list[float | None]) -> dict:
+def _share_spread(shares: list[float]) -> dict:
     """Uniform when every share is within FLAT_SHARE_TOLERANCE of an even split."""
     even = round(1 / len(shares), 4) if shares else None
     return {
@@ -500,30 +510,15 @@ def cost_blocks(snapshot: dict, focus: dict, call_center_block: dict) -> dict:
     """AD-5: four separately labeled blocks. No ratio between them, no savings
     figure and no total over a period: the blocks measure different things.
     """
-    sample_size = snapshot["sample_size"]
     resolution = snapshot["safe_automated_resolution_rate"]
-    cost = snapshot["estimated_cost_usd"]
     anchor = reason_row(call_center_block, ANCHOR_CONTACT_REASON)
     upper = reason_row(call_center_block, UPPER_ANCHOR_CONTACT_REASON)
     anchor_seconds = anchor["median_handle_seconds"]
     if anchor_seconds is None:
         raise ValueError(f"contact reason {ANCHOR_CONTACT_REASON!r} has no recorded handle time")
 
-    per_success = cost["per_successful_resolution"]
-    per_success_value = per_success if is_number(per_success) else None
-
     return {
-        "time_to_first_action": {
-            "agent_pipeline_p50_seconds": {
-                "value": snapshot["latency_seconds"]["p50"], "n": sample_size,
-                "kind": Kind.SIMULATED,
-                "note": "Offline eval pipeline time with a mocked LLM; excludes network time.",
-            },
-            "human_first_response_p50_hours": {
-                "value": focus["p50"], "n": focus["n"], "coverage": focus["coverage"],
-                "kind": Kind.MEASURED, "subcategory": FOCUS_SUBCATEGORY,
-            },
-        },
+        "time_to_first_action": _time_to_first_action(snapshot, focus),
         "human_first_contact_handle_time": {
             "anchor_seconds": {
                 "value": anchor_seconds, "n": anchor["handle_time_n"], "kind": Kind.MEASURED,
@@ -535,32 +530,67 @@ def cost_blocks(snapshot: dict, focus: dict, call_center_block: dict) -> dict:
             },
             "note": call_center_block["note"],
         },
-        "agent_llm_cost_usd": {
-            "per_attempted_case": {
-                "value": cost["per_attempted_case_mean"], "n": sample_size,
-                "kind": Kind.SIMULATED,
-            },
-            "per_successful_resolution": {
-                "value": per_success_value, "n": resolution["count"], "kind": Kind.SIMULATED,
-            },
-            "method": cost["method"],
-            "pricing_source": cost["pricing_source"],
-            "disclosure": snapshot["disclosure"],
-        },
+        "agent_llm_cost_usd": _agent_llm_cost(snapshot),
         "projection": _projection(
             anchor_seconds, resolution, snapshot.get(OPTIONAL_SNAPSHOT_KEY),
         ),
     }
 
 
+def _time_to_first_action(snapshot: dict, focus: dict) -> dict:
+    return {
+        "agent_pipeline_p50_seconds": {
+            "value": snapshot["latency_seconds"]["p50"], "n": snapshot["sample_size"],
+            "kind": Kind.SIMULATED,
+            "note": "Offline eval pipeline time with a mocked LLM; excludes network time.",
+        },
+        "human_first_response_p50_hours": {
+            "value": focus["p50"], "n": focus["n"], "coverage": focus["coverage"],
+            "kind": Kind.MEASURED, "subcategory": FOCUS_SUBCATEGORY,
+        },
+    }
+
+
+def _agent_llm_cost(snapshot: dict) -> dict:
+    cost = snapshot["estimated_cost_usd"]
+    per_success = cost["per_successful_resolution"]
+    return {
+        "per_attempted_case": {
+            "value": cost["per_attempted_case_mean"], "n": snapshot["sample_size"],
+            "kind": Kind.SIMULATED,
+        },
+        "per_successful_resolution": {
+            "value": per_success if is_number(per_success) else None,
+            "n": snapshot["safe_automated_resolution_rate"]["count"],
+            "kind": Kind.SIMULATED,
+        },
+        "method": cost["method"],
+        "pricing_source": cost["pricing_source"],
+        "disclosure": snapshot["disclosure"],
+    }
+
+
+def _matches_phrase(finding: dict) -> str:
+    matches = finding["real_matches_found"]
+    noun = "match" if matches == 1 else "matches"
+    return f"{matches:,} amount and date {noun} in a sample of {finding['sample_size']:,}"
+
+
+def _is_rare(finding: dict) -> bool:
+    sample = finding["sample_size"]
+    return bool(sample) and finding["real_matches_found"] / sample < RARE_MATCH_RATE
+
+
 def _baseline_note(finding: dict | None) -> str:
     if finding is None:
         return "Baseline: no complaint-to-transaction match evidence is available."
-    return (
-        f"Baseline: {finding['real_matches_found']} amount and date match in a sample of "
-        f"{finding['sample_size']:,} dataset complaints (eval snapshot). The dataset generates "
-        "complaints and transactions independently, so it gives no basis for any share above 0."
-    )
+    note = f"Baseline: {_matches_phrase(finding)} dataset complaints (eval snapshot)."
+    if _is_rare(finding):
+        note += (
+            " The dataset generates complaints and transactions independently, so it gives "
+            "no basis for any share above 0."
+        )
+    return note
 
 
 def _projection(anchor_seconds: float, resolution: dict, finding: dict | None) -> dict:
@@ -643,14 +673,13 @@ def build_report(con: duckdb.DuckDBPyConnection, snapshot: dict) -> dict:
 
 
 def _real_data_match(finding: dict) -> dict:
-    matches, sample = finding["real_matches_found"], finding["sample_size"]
     return {
-        "value": matches,
-        "n": sample,
+        "value": finding["real_matches_found"],
+        "n": finding["sample_size"],
         "kind": Kind.MEASURED,
         "source": finding["source"],
         "rare_threshold": RARE_MATCH_RATE,
-        "rare": bool(sample) and matches / sample < RARE_MATCH_RATE,
+        "rare": _is_rare(finding),
         "note": (
             "Quoted from the eval snapshot, not recomputed here. Measured on this synthetic "
             "dataset, which generates complaints and transactions independently; it says "
@@ -672,7 +701,7 @@ def _write_text(text: str, path: Path) -> None:
 
 
 def _write_json(payload: dict, path: Path) -> None:
-    _write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", path)
+    _write_text(json.dumps(payload, indent=2, ensure_ascii=False, allow_nan=False) + "\n", path)
 
 
 def run(

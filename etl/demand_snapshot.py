@@ -11,14 +11,20 @@ from enum import StrEnum
 from pathlib import Path
 
 EVAL_REPORT_SOURCE = "data/eval_report.json"
-REFRESH_HINT = " Regenerate it with `python -m etl.analyze_demand --refresh-eval-snapshot`."
+REFRESH_COMMAND = "python -m etl.analyze_demand --refresh-eval-snapshot"
+REFRESH_HINT = f" Regenerate it with `{REFRESH_COMMAND}`."
+# Allowed gap between a stored rate and count / of_attempted (4-dp rounding).
+RATE_ROUNDING_TOLERANCE = 5e-5
 
 
 class FieldType(StrEnum):
     TEXT = "text"
     COUNT = "count"
     RATE = "rate"
-    ANY = "any"
+    NUMBER = "number"
+    NUMBER_OR_NONE = "number-or-none"
+    # eval/run_eval.py writes a sentence instead of a number when nothing resolved.
+    NUMBER_OR_TEXT = "number-or-text"
 
 
 # The only keys and sub-fields the committed snapshot may hold, so no case id,
@@ -32,16 +38,16 @@ SNAPSHOT_SCHEMA: dict[str, FieldType | dict[str, FieldType]] = {
         "count": FieldType.COUNT, "of_attempted": FieldType.COUNT, "rate": FieldType.RATE,
     },
     "estimated_cost_usd": {
-        "per_attempted_case_mean": FieldType.ANY,
-        "per_successful_resolution": FieldType.ANY,
-        "pricing_source": FieldType.ANY,
-        "method": FieldType.ANY,
+        "per_attempted_case_mean": FieldType.NUMBER_OR_NONE,
+        "per_successful_resolution": FieldType.NUMBER_OR_TEXT,
+        "pricing_source": FieldType.TEXT,
+        "method": FieldType.TEXT,
     },
-    "latency_seconds": {"p50": FieldType.ANY, "p95": FieldType.ANY},
+    "latency_seconds": {"p50": FieldType.NUMBER, "p95": FieldType.NUMBER},
     "real_data_match_rate_finding": {
         "sample_size": FieldType.COUNT,
         "real_matches_found": FieldType.COUNT,
-        "source": FieldType.ANY,
+        "source": FieldType.TEXT,
     },
 }
 OPTIONAL_SNAPSHOT_KEY = "real_data_match_rate_finding"
@@ -58,13 +64,18 @@ def _is_valid(value, field_type: FieldType) -> bool:
         return isinstance(value, int) and not isinstance(value, bool) and value >= 0
     if field_type is FieldType.RATE:
         return is_number(value) and 0 <= value <= 1
-    return not isinstance(value, float) or math.isfinite(value)
+    if field_type is FieldType.NUMBER:
+        return is_number(value)
+    if field_type is FieldType.NUMBER_OR_NONE:
+        return value is None or is_number(value)
+    return isinstance(value, str) or is_number(value)
 
 
 def _invalid_sub_fields(key: str, value, spec: dict[str, FieldType]) -> list[str]:
     if not isinstance(value, dict):
         return [key]
-    return [
+    unknown = [f"{key}.{field}" for field in value if field not in spec]
+    return unknown + [
         f"{key}.{field}" for field, field_type in spec.items()
         if field not in value or not _is_valid(value[field], field_type)
     ]
@@ -74,7 +85,7 @@ def _invalid_fields(snapshot: dict) -> list[str]:
     """Dotted names of the allowlisted fields that are missing or unusable;
     only the real-data finding may be absent as a whole.
     """
-    invalid = []
+    invalid = [key for key in snapshot if key not in SNAPSHOT_SCHEMA]
     for key, spec in SNAPSHOT_SCHEMA.items():
         value = snapshot.get(key)
         if value is None:
@@ -87,12 +98,30 @@ def _invalid_fields(snapshot: dict) -> list[str]:
     return invalid
 
 
+def _inconsistencies(snapshot: dict) -> list[str]:
+    """Counts that exceed their denominators, or a rate that disagrees with them."""
+    problems = []
+    resolution = snapshot["safe_automated_resolution_rate"]
+    count, attempted = resolution["count"], resolution["of_attempted"]
+    if not count <= attempted <= snapshot["sample_size"]:
+        problems.append("count <= of_attempted <= sample_size")
+    elif attempted and abs(resolution["rate"] - count / attempted) > RATE_ROUNDING_TOLERANCE:
+        problems.append("rate == count / of_attempted")
+    finding = snapshot.get(OPTIONAL_SNAPSHOT_KEY)
+    if finding is not None and finding["real_matches_found"] > finding["sample_size"]:
+        problems.append("real_matches_found <= sample_size")
+    return problems
+
+
 def _validated(snapshot, description: str, hint: str = "") -> dict:
     if not isinstance(snapshot, dict):
         raise ValueError(f"{description} is not a JSON object.{hint}")
     invalid = _invalid_fields(snapshot)
     if invalid:
-        raise ValueError(f"{description} lacks or has unusable {invalid}.{hint}")
+        raise ValueError(f"{description} lacks, adds or has unusable {invalid}.{hint}")
+    problems = _inconsistencies(snapshot)
+    if problems:
+        raise ValueError(f"{description} breaks {problems}.{hint}")
     return snapshot
 
 
@@ -107,7 +136,7 @@ def read_snapshot(path: Path) -> dict:
     if not path.exists():
         raise FileNotFoundError(
             f"Eval cost snapshot not found at {path}. Run `python -m eval.run_eval` and then "
-            "`python -m etl.analyze_demand --refresh-eval-snapshot`."
+            f"`{REFRESH_COMMAND}`."
         )
     snapshot = _read_json(path, "Eval cost snapshot")
     return _validated(snapshot, f"Eval cost snapshot at {path}", REFRESH_HINT)

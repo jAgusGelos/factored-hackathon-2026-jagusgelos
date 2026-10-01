@@ -359,6 +359,21 @@ def test_refresh_rejects_eval_report_missing_a_nested_field(tmp_path):
         (json.dumps({**SNAPSHOT, "sample_size": 29.5}), "sample_size"),
         (json.dumps({**SNAPSHOT, "latency_seconds": {"p50": float("nan"), "p95": 0.4}}),
          r"latency_seconds\.p50"),
+        (json.dumps({**SNAPSHOT, "latency_seconds": {"p50": "bad", "p95": 0.4}}),
+         r"latency_seconds\.p50"),
+        (json.dumps({**SNAPSHOT, "unsafe_outcomes": {"cases": ["case-key"]}}),
+         "unsafe_outcomes"),
+        (json.dumps({**SNAPSHOT, "latency_seconds": {"p50": 0.2, "p95": 0.4, "cases": []}}),
+         r"latency_seconds\.cases"),
+        (json.dumps({**SNAPSHOT, "safe_automated_resolution_rate": {
+            "count": 30, "of_attempted": 29, "rate": 1.0}}),
+         "count <= of_attempted"),
+        (json.dumps({**SNAPSHOT, "safe_automated_resolution_rate": {
+            "count": 6, "of_attempted": 29, "rate": 0.5}}),
+         "rate == count / of_attempted"),
+        (json.dumps({**SNAPSHOT, "real_data_match_rate_finding": {
+            "sample_size": 2000, "real_matches_found": 2001, "source": "test"}}),
+         "real_matches_found <= sample_size"),
     ],
 )
 def test_invalid_snapshot_is_rejected_with_its_path(tmp_path, content, message):
@@ -572,3 +587,21 @@ def test_refresh_tolerates_a_malformed_escalation_block(tmp_path):
     source.write_text(json.dumps({**eval_report, "escalation_quality": ["x"]}))
     snapshot = ad.refresh_snapshot(eval_report_path=source, snapshot_path=tmp_path / "s.json")
     assert snap.OPTIONAL_SNAPSHOT_KEY not in snapshot
+
+
+def test_chart_failure_leaves_the_previous_report_untouched(
+    warehouse, snapshot_path, tmp_path, monkeypatch,
+):
+    out = tmp_path / "out"
+    ad.run(warehouse_path=warehouse, out_dir=out, snapshot_path=snapshot_path)
+    before = {path.name: path.read_bytes() for path in out.iterdir()}
+    (out / ad.REPORT_JSON_NAME).write_text("{}\n")
+    before[ad.REPORT_JSON_NAME] = b"{}\n"
+
+    def failing_charts(report, out_dir):
+        raise RuntimeError("chart failure")
+
+    monkeypatch.setattr(ad, "render_charts", failing_charts)
+    with pytest.raises(RuntimeError, match="chart failure"):
+        ad.run(warehouse_path=warehouse, out_dir=out, snapshot_path=snapshot_path)
+    assert {path.name: path.read_bytes() for path in out.iterdir()} == before
