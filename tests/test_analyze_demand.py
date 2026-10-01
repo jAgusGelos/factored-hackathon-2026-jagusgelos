@@ -634,3 +634,18 @@ def test_eval_with_no_successful_resolution_still_refreshes(con, tmp_path):
         "per_successful_resolution"
     ]
     assert per_success == {"value": None, "n": 0, "kind": "simulated"}
+
+
+def test_weekly_keeps_a_null_category_last(tmp_path):
+    con = duckdb.connect(str(tmp_path / "nulls.duckdb"))
+    con.execute("CREATE TABLE complaints (creation_date TIMESTAMP, category VARCHAR)")
+    con.executemany(
+        "INSERT INTO complaints VALUES (?, ?)",
+        [("2024-01-08 10:00:00", "Fees"), ("2024-01-09 10:00:00", None),
+         ("2024-01-15 10:00:00", "Fees"), ("2024-01-16 10:00:00", None)],
+    )
+    weekly = ad.weekly_demand(con)
+    con.close()
+    assert [v["category"] for v in weekly["variability"]] == ["Fees", None]
+    assert sum(v["share"] for v in weekly["variability"]) == 1.0
+    assert weekly["weeks"][0]["by_category"] == {"Fees": 1, None: 1}

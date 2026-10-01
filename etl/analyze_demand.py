@@ -192,7 +192,10 @@ def weekly_demand(con: duckdb.DuckDBPyConnection) -> dict:
     first_day, last_day = con.execute(
         "SELECT min(creation_date)::DATE, max(creation_date)::DATE FROM complaints"
     ).fetchone()
-    categories = sorted({c for _, c, _ in rows if c is not None})
+    present = {c for _, c, _ in rows}
+    categories = sorted(c for c in present if c is not None) + (
+        [None] if None in present else []
+    )
     counts: dict[date, dict[str | None, int]] = {}
     for week, category, c in rows:
         counts.setdefault(week, {})[category] = c
@@ -223,7 +226,7 @@ def weekly_demand(con: duckdb.DuckDBPyConnection) -> dict:
 def _weekly_rows(
     week_starts: list[date],
     counts: dict[date, dict[str | None, int]],
-    categories: list[str],
+    categories: list[str | None],
     data_span: tuple[date, date],
 ) -> list[dict]:
     first_day, last_day = data_span
@@ -252,7 +255,7 @@ def _flat_share_band(category_count: int) -> tuple[float, float]:
 
 
 def _category_variability(
-    category: str, weeks: list[dict], total: int, share_band: tuple[float, float],
+    category: str | None, weeks: list[dict], total: int, share_band: tuple[float, float],
 ) -> dict:
     """Share over all weeks; coefficient of variation over full weeks only."""
     series = [w["by_category"][category] for w in weeks if not w["partial"]]

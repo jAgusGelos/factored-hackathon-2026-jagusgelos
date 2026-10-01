@@ -91,7 +91,7 @@ def _distribution_table(block: dict, label: str) -> str:
 def _flatness_finding(weekly: dict) -> str:
     variability = weekly["variability"]
     if not weekly["all_flat"]:
-        not_flat = [v["category"] for v in variability if not v["flat"]]
+        not_flat = [_key(v["category"]) for v in variability if not v["flat"]]
         headline = "Complaint demand is not flat by category"
         verdict = "Not flat by the flatness rule below: " + (", ".join(not_flat) or NOT_AVAILABLE) + "."
     else:
@@ -275,7 +275,7 @@ def _demand_section(report: dict) -> str:
         ["Category", "Share", "Mean per week", "Weekly CV", "Poisson CV", "Flat"],
         [
             [
-                v["category"], _pct(v["share"]), f"{v['mean_weekly']:.1f}", _pct(v["cv"]),
+                _key(v["category"]), _pct(v["share"]), f"{v['mean_weekly']:.1f}", _pct(v["cv"]),
                 _pct(v["poisson_expected_cv"]), "yes" if v["flat"] else "no",
             ]
             for v in weekly["variability"]
