@@ -165,6 +165,7 @@ def charge_extraction(transaction_id: str | None = None, **overrides) -> dict:
     base = charge_report(transaction_id) if transaction_id else {"amount": None, "currency": None, "date": None}
     return {**base, "merchant_hint": None, "wants_human": False, **overrides}
 
+
 # The same report of the Uber charge, with the currency the real model
 # guessed for a bare "pesos" in each language (2026-09-30, 3 of 3 runs each).
 CURRENCY_PARITY_REPORT = {

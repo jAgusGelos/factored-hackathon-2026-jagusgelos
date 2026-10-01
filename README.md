@@ -142,7 +142,7 @@ uvicorn app.main:app --reload --port 8000
 # data/demo_users.json after step 2)
 
 # 5. Tests, lint, eval harness
-pytest                              # 662 tests
+pytest                              # 666 tests
 ruff check .
 python -m eval.run_eval             # -> data/eval_report.json (see "Evaluation results" below)
 ```
@@ -232,7 +232,7 @@ own app database:
   (except the currency-parity case), so the Portuguese sample is smaller.
 - Safe automated resolution rate: 0.21 (6/29; the mix is mostly escalation/adversarial by design).
 - Containment rate: 0.24 (6/25 concluded cases).
-- Pipeline latency (excludes real LLM network time): p50 0.24s, p95 0.44s.
+- Pipeline latency (excludes real LLM network time): p50 0.24s, p95 0.42s.
 - Real Claude Haiku 4.5 turn latency (manual runs, 2026-09-30): the explanation turn that resolves took 1.3-6.6 s (median 3.2 s over 8 ES/PT runs; 3.1-17.8 s before the resolution message became a validated template), while a first typed report, which makes two model calls, took 6-22 s (the "38.500 pesos" report, 3 runs per language: 4.1-21.2 s, median 8.9 s). Button and menu taps ("Ver mis últimos cargos", a tapped charge, "Sí, es ese", "No es ese", "No está en la lista", "Hablar con una persona") make no model call and were answered in 0.05-0.14 s (a tapped charge ~1 s, local policy and classifier work), down from 1.2-12.2 s when each paid an NLG call (3 runs each, 2026-09-30). Escalation and first-request-for-a-person turns write their reply from a fixed template (the notice, the deferral and the offer), with no NLG call: a policy escalation from a typed report took 4.0-5.9 s (its only model call is the extraction), a typed request for a person 1.1-6.2 s (its only model call is the extraction, or the explanation check while a charge is being explained), and the same moves from a button or a tapped charge 0.1-0.9 s (manual runs, 2026-09-30). Every turn's model calls share a 20 s budget and the chat shows a typing indicator, then a retry option at 25 s.
 - Estimated cost (Haiku 4.5 list pricing, not measured billing): ~$0.0012/attempted case,
   ~$0.0060/successful resolution.
@@ -286,7 +286,7 @@ turns, over-strict fact checks on natural wordings) are pinned by regression tes
 - **Cases stored before the currency fix keep an inferred currency.** Earlier versions saved the
   profile's currency as if the customer had said it, and handoffs had a different shape. Those rows
   live only in a local `data/app.db`; they are not migrated (the Vista Interna still renders the old
-  handoff shape).
+  handoff shape, and `/api/case` leaves out their open questions, where the policy reasons used to be).
 - **Single-host deployment, no load/concurrency testing.** Designed for sequential demo/judge
   traffic on one machine — stated explicitly, not silently assumed away.
 - **The rolling-aggregate classifier feature (AD-6 stretch goal) was not attempted**, per the
@@ -312,7 +312,7 @@ app/            FastAPI backend — auth, state machine, policy, LLM boundary, c
 etl/            Offline ETL: extraction, quality checks, fixture generation, classifier training
 eval/           Eval harness (Milestone 5)
 static/         Frontend (vanilla HTML/CSS/JS, no build step — AD-1)
-tests/          pytest suite (662 tests)
+tests/          pytest suite (666 tests)
 support.py      Shared test/eval mock helpers (no pytest dependency — used by eval/ too)
 docs/           Challenge requirements digest
 data/           Local ETL artifacts, fixture, trained model (gitignored — never commit raw data)
