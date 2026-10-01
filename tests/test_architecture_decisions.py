@@ -11,8 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from support import REPO_ROOT
-from tests.support import EM_DASH
+from tests.support import EM_DASH, REPO_ROOT
 
 DECISIONS_PATH = REPO_ROOT / "docs" / "architecture-decisions.md"
 FEATURES = (
@@ -85,7 +84,8 @@ def test_every_local_plan_decision_has_an_entry():
         pytest.skip(f"no local planning record under {WORKSPACE_ROOT / '.workspace'}")
     sections = _sections()
     for feature, decisions in plans.items():
-        assert set(decisions) <= set(_entries(sections[feature])), feature
+        missing = set(decisions) - set(_entries(sections[feature]))
+        assert not missing, f"{feature}: {sorted(missing)}"
 
 
 def test_the_plan_cross_check_skips_without_a_planning_record(tmp_path, monkeypatch):

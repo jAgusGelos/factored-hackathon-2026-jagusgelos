@@ -89,6 +89,9 @@ def test_run_writes_a_report_file(tmp_path, monkeypatch):
 
     report_path = tmp_path / "report.json"
     monkeypatch.setattr(run_eval_module, "DEFAULT_REPORT_PATH", report_path)
+    # The baselines' content is covered by tests/test_system_comparison.py; here
+    # main() only has to produce the comparison block, so it runs without them.
+    monkeypatch.setattr(run_eval_module, "BASELINE_VARIANTS", {})
 
     exit_code = run_eval_module.main()
 

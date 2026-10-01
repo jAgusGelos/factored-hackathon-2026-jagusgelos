@@ -58,7 +58,13 @@ import anthropic
 from app import cases, config, db
 from app.case_model import TERMINAL_STATES
 from app.llm import Language
-from app.policy import DisputeContext, ResolutionDecision, ResolutionEvaluation, evaluate_resolution
+from app.policy import (
+    AUTO_CREDITABLE_REASONS,
+    DisputeContext,
+    ResolutionDecision,
+    ResolutionEvaluation,
+    evaluate_resolution,
+)
 from app.state_machine import CaseState, ChatReply, CustomerAction, handle_message
 from app.transactions import TransactionCandidate
 from support import (
@@ -212,13 +218,13 @@ def escalate_at_credit_decision(
 def ablation_no_evidence_check(
     txn: TransactionCandidate, ctx: DisputeContext, real: ResolutionEvaluation,
 ) -> ResolutionEvaluation:
-    """AD-13 ablation: at the credit decision, only the screening conditions
-    run. The per-reason evidence check (and the "this reason is never credited
-    automatically" rule) is skipped, so whatever the explanation assessment
-    accepted is credited. Not an LLM-only decision maker: every other layer
-    stays in place.
+    """AD-13 ablation: at the credit decision for a creditable reason, only
+    the screening conditions run; its evidence check is skipped, so whatever
+    the explanation assessment accepted is credited. A reason that is never
+    credited automatically still escalates. Not an LLM-only decision maker:
+    every other layer stays in place.
     """
-    if ctx.reason is None:
+    if ctx.reason not in AUTO_CREDITABLE_REASONS:
         return real
     return evaluate_resolution(txn, replace(ctx, reason=None))
 
@@ -296,12 +302,14 @@ def _run_script(
         if step.expected_after is not None:
             steps_as_expected &= (reply["state"], reply["human_available"]) == step.expected_after
     final_case = cases.get_case(case_id, db_path=app_db_path)
+    if final_case is None:
+        raise RuntimeError(f"eval case {case_key!r}: case {case_id!r} not found in {app_db_path}")
     return CaseOutcome(
         case_key=case_key, group=group, expected_state=expected_state, actual_state=reply["state"],
         safe=reply["state"] == expected_state and steps_as_expected, latency_seconds=latency,
         estimated_prompt_chars=sum(map(len, prompts)),
         estimated_completion_chars=sum(map(len, completions)), case_id=case_id, turns=len(steps),
-        language=language, escalation_reason=final_case.escalation_reason if final_case else None,
+        language=language, escalation_reason=final_case.escalation_reason,
         decision_override=seam.override if seam is not None else None,
     )
 
@@ -584,6 +592,17 @@ def _language_summary(outcomes: list[CaseOutcome]) -> dict:
     }
 
 
+# Harness provenance for system_comparison only; by_group keeps its record shape.
+_COMPARISON_ONLY_FIELDS = ("escalation_reason", "decision_override")
+
+
+def _case_record(outcome: CaseOutcome) -> dict:
+    record = asdict(outcome)
+    for name in _COMPARISON_ONLY_FIELDS:
+        del record[name]
+    return record
+
+
 def build_report(outcomes: list[CaseOutcome]) -> dict:
     latencies = [o.latency_seconds for o in outcomes]
     costs = [_estimate_cost_usd(o.estimated_prompt_chars, o.estimated_completion_chars) for o in outcomes]
@@ -656,7 +675,7 @@ def build_report(outcomes: list[CaseOutcome]) -> dict:
             "so the Portuguese sample is the required scenarios plus the parity case."
         ),
         "by_group": {
-            group: [asdict(o) for o in outcomes if o.group == group]
+            group: [_case_record(o) for o in outcomes if o.group == group]
             for group in sorted({o.group for o in outcomes})
         },
     }
@@ -783,6 +802,9 @@ def _run_system(system: str, app_db_path: Path) -> list[CaseOutcome]:
     try:
         db.init_db(app_db_path)
         return _run_all_cases(app_db_path)
+    except Exception as exc:
+        exc.add_note(f"eval system: {system}")
+        raise
     finally:
         _ACTIVE_SYSTEM.reset(token)
 
@@ -806,8 +828,12 @@ def run(app_db_path: Path | None = None, *, compare_systems: bool = False) -> di
     config.ANTHROPIC_API_KEY = config.ANTHROPIC_API_KEY or PLACEHOLDER_API_KEY
 
     if app_db_path is None:
-        app_db_path = Path(tempfile.mkdtemp(prefix="eval_run_")) / "eval_app.db"
+        with tempfile.TemporaryDirectory(prefix="eval_run_") as run_dir:
+            return _report(Path(run_dir) / "eval_app.db", compare_systems=compare_systems)
+    return _report(app_db_path, compare_systems=compare_systems)
 
+
+def _report(app_db_path: Path, *, compare_systems: bool) -> dict:
     hybrid = _run_system(SYSTEM_HYBRID, app_db_path)
     report = build_report(hybrid)
     if not compare_systems:
@@ -820,7 +846,7 @@ def run(app_db_path: Path | None = None, *, compare_systems: bool = False) -> di
         with tempfile.TemporaryDirectory(prefix=f"eval_{system}_") as system_dir:
             outcomes_by_system[system] = _run_system(system, Path(system_dir) / "eval_app.db")
     report["system_comparison"] = build_system_comparison(outcomes_by_system)
-    for system in SYSTEMS:
+    for system in outcomes_by_system:
         summary = report["system_comparison"][system]
         logger.info(
             "System %s: %s", system,

@@ -13,7 +13,7 @@ import pytest
 
 import eval.run_eval as run_eval
 from app.case_model import CaseState
-from app.policy import ResolutionDecision
+from app.policy import DisputeReason, ResolutionDecision
 from eval.run_eval import (
     BUCKETS,
     SYSTEM_ABLATION_NO_EVIDENCE_CHECK,
@@ -26,8 +26,7 @@ from eval.run_eval import (
     escalate_at_credit_decision,
     run,
 )
-from support import REPO_ROOT
-from tests.support import EM_DASH, clean_ctx, clean_txn, requires_real_fixture
+from tests.support import EM_DASH, REPO_ROOT, clean_ctx, clean_txn, requires_real_fixture
 
 # Bucket counts in BUCKETS order: correct_resolution, unsafe_resolution,
 # missed_transfer_open, unnecessary_transfer, correct_transfer, correct_open, other_mismatch.
@@ -55,6 +54,10 @@ PRE_EXISTING_NESTED_KEYS = {
     "estimated_cost_usd": {"method", "per_attempted_case_mean", "per_successful_resolution", "pricing_source"},
 }
 PRE_EXISTING_LANGUAGE_SUMMARY_KEYS = {"cases", "escalated", "latency_p50_seconds", "resolved_auto", "safe", "unsafe_cases"}
+PRE_EXISTING_CASE_RECORD_KEYS = {
+    "actual_state", "case_id", "case_key", "estimated_completion_chars", "estimated_prompt_chars", "expected_state",
+    "group", "language", "latency_seconds", "safe", "turns",
+}
 
 
 # -- Variants on the decision seam (no fixture needed) ------------------------------
@@ -83,6 +86,13 @@ def test_ablation_skips_only_the_evidence_check_at_the_credit_decision():
     # A card-present charge fails the unrecognized evidence check, which the ablation skips.
     assert seam(clean_txn(channel="POS"), clean_ctx()).decision == ResolutionDecision.AUTO_RESOLVE
     assert seam.override == {"real": "forced_escalation", "variant": "auto_resolve"}
+
+
+@pytest.mark.parametrize("reason", [DisputeReason.NOT_RECEIVED, DisputeReason.WRONG_AMOUNT, DisputeReason.CARD_LOST_STOLEN])
+def test_ablation_still_escalates_reasons_that_are_never_credited_automatically(reason):
+    seam = _DecisionSeam(ablation_no_evidence_check)
+    assert seam(clean_txn(), clean_ctx(reason=reason)).decision == ResolutionDecision.FORCED_ESCALATION
+    assert seam.override is None
 
 
 def test_ablation_keeps_the_screening_conditions_at_the_credit_decision():
@@ -208,6 +218,9 @@ def test_the_hybrid_is_never_overridden_and_matches_its_own_report(comparison):
     assert buckets["correct_resolution"] + buckets["unsafe_resolution"] == report["safe_automated_resolution_rate"]["count"]
     assert buckets["unnecessary_transfer"] + buckets["correct_transfer"] == report["escalation_quality"]["escalated_count"]
     assert buckets["unsafe_resolution"] == report["unsafe_outcomes"]["count"] == 0
+    assert hybrid["containment"] == {
+        "count": report["containment_rate"]["count"], "of_concluded": report["containment_rate"]["of_concluded"],
+    }
 
 
 @requires_real_fixture
@@ -233,6 +246,9 @@ def test_the_pre_existing_report_keys_are_unchanged(comparison):
     for block, keys in PRE_EXISTING_NESTED_KEYS.items():
         assert set(report[block]) == keys, block
     assert all(set(summary) == PRE_EXISTING_LANGUAGE_SUMMARY_KEYS for summary in report["by_language"].values())
+    assert all(
+        set(record) == PRE_EXISTING_CASE_RECORD_KEYS for records in report["by_group"].values() for record in records
+    )
 
 
 # -- The README's comparison section ------------------------------------------------
@@ -244,26 +260,35 @@ README_SECTION_HEADING = "## System-level comparison"
 def _readme_comparison_section() -> str:
     readme = README_PATH.read_text()
     start = readme.index(README_SECTION_HEADING)
-    return readme[start:readme.index("\n## ", start + 1)]
+    end = readme.find("\n## ", start + 1)
+    return readme[start:] if end == -1 else readme[start:end]
 
 
 def _table_cells(line: str) -> list[str]:
     return [cell.strip() for cell in line.strip().strip("|").split("|")]
 
 
-def _readme_table() -> dict[str, list[str]]:
-    """System name -> its row's cells, from the section's markdown table."""
-    rows = {}
+def _is_separator_row(line: str) -> bool:
+    return set(line.strip()) <= set("|-: ")
+
+
+def _readme_tables() -> dict[str, tuple[list[str], dict[str, list[str]]]]:
+    """For each markdown table in the section, keyed by its first header cell:
+    the other header cells, and each row's other cells keyed by its first cell.
+    """
+    tables: dict[str, tuple[list[str], dict[str, list[str]]]] = {}
+    rows: dict[str, list[str]] | None = None
     for line in _readme_comparison_section().splitlines():
-        match = re.match(r"^\| `(\w+)` \|", line)
-        if match:
-            rows[match.group(1)] = _table_cells(line)[1:]
-    return rows
-
-
-def _readme_table_headers() -> list[str]:
-    header = next(line for line in _readme_comparison_section().splitlines() if line.startswith("| System |"))
-    return _table_cells(header)[1:]
+        if not line.startswith("|"):
+            rows = None
+            continue
+        first, *rest = _table_cells(line)
+        if rows is None:
+            rows = {}
+            tables[first] = (rest, rows)
+        elif not _is_separator_row(line):
+            rows[first.strip("`")] = rest
+    return tables
 
 
 def _names_bucket(header: str, bucket: str) -> bool:
@@ -278,7 +303,8 @@ def test_the_readme_section_is_captioned_honestly():
     for required in ("not a held-out", "worst-case persuaded assessor", "written by the policy author"):
         assert required in section
     assert "LLM decides" not in section and "%" not in section and EM_DASH not in section
-    assert all(re.search(r"\(of [\w ]+\)$", header) for header in _readme_table_headers())
+    headers, _ = _readme_tables()["System"]
+    assert all(re.search(r"\(of [\w ]+\)$", header) for header in headers)
 
 
 def test_the_readme_names_each_ablation_credited_case():
@@ -297,9 +323,9 @@ def test_the_readme_states_that_the_held_out_comparison_is_unfulfilled():
 @requires_real_fixture
 def test_the_readme_table_matches_the_generated_comparison(comparison):
     report, _ = comparison
-    table = _readme_table()
+    headers, table = _readme_tables()["System"]
     assert set(table) == set(SYSTEMS)
-    *bucket_headers, containment_header = _readme_table_headers()
+    *bucket_headers, containment_header = headers
     assert len(bucket_headers) == len(BUCKETS) and containment_header.startswith("containment")
     for system, cells in table.items():
         summary = report["system_comparison"][system]
@@ -310,3 +336,17 @@ def test_the_readme_table_matches_the_generated_comparison(comparison):
         assert [int(cell) for cell in bucket_cells] == [summary["buckets"][b]["count"] for b in BUCKETS]
         containment = summary["containment"]
         assert containment_cell == f"{containment['count']} of {containment['of_concluded']}"
+
+
+@requires_real_fixture
+def test_the_readme_shows_the_stored_outcome_of_the_other_abuse_cases(comparison):
+    report, _ = comparison
+    _, table = _readme_tables()["Case"]
+    cases = {c["case_key"]: c for c in report["system_comparison"][SYSTEM_ABLATION_NO_EVIDENCE_CHECK]["cases"]}
+    escalated_abuse = {
+        key for key, case in cases.items() if case["group"] == "policy_abuse" and key not in ABLATION_UNSAFE_CASES
+    }
+    assert set(table) == escalated_abuse
+    for case_key, (stored_reason, overridden) in table.items():
+        assert stored_reason == f"`{cases[case_key]['escalation_reason']}`", case_key
+        assert overridden == ("yes" if cases[case_key]["decision_override"] else "no"), case_key
