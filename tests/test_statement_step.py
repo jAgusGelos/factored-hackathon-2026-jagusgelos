@@ -621,6 +621,6 @@ def test_a_failure_after_an_earlier_summary_hands_it_off_and_says_so(session, ap
 
     assert _handoff(app_db, held["case_id"])["customer_reported"]["statement_status"] == "given"
     assert logged_events(app_db, "handoff_statement_available") == [
-        {"pending_escalation_reason": "needs_review", "unread_turn": "unavailable"},
+        {"pending_escalation_reason": "needs_review", "failure_class": "unavailable"},
     ]
     assert logged_events(app_db, "handoff_statement_unavailable") == []

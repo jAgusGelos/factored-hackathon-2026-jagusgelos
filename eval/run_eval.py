@@ -611,16 +611,17 @@ def _run_statement_injection(app_db_path: Path) -> CaseOutcome:
 
 
 def _explanation_with_a_request(case_key: str, *, specific: bool, status: StatementStatus | None) -> Callable[[Path], CaseOutcome]:
-    """An explanation that also asks for a person, then the button: only a
-    specific one is the customer's account; a vague one still gets the statement.
+    """A first request for a person (the button, deferred), then an
+    explanation that asks for one again: only a specific explanation is the
+    customer's account; a vague one still gets the statement.
     """
     def run(app_db_path: Path) -> CaseOutcome:
         asks = {**NOT_RECEIVED_ASSESSMENT, "reason": "unrecognized", "specific": specific, "wants_human": True}
         steps = [
             Step(DISPUTE_OPENING[Language.ES]),
             Step("Uber", selected_transaction_id=AUTO_RESOLVE_CHARGE),
-            Step("No reconozco ese cargo de Uber, quiero hablar con un agente", assessment=asks),
             Step(HUMAN_REQUEST[Language.ES], action=CustomerAction.HUMAN, max_model_calls=0),
+            Step("No reconozco ese cargo de Uber, nunca lo usé; quiero hablar con un agente", assessment=asks),
         ]
         if status is not None:
             steps.append(Step(STATEMENT[Language.ES]))

@@ -470,11 +470,9 @@ def _handle_human_request(turn: Turn, *, account: GivenAccount | None = None) ->
     turn = replace(turn, human_requested=True)
     state = CaseState(case.state)
     if state in (CaseState.AWAITING_EXPLANATION, CaseState.CONFIRMING):
-        # An account given with the request is kept (never as an attempt), so
-        # the next request does not ask for it again.
-        lost = transition(
-            turn, state, expected_states=(state,), append_explanation=account.text if account is not None else None,
-        )
+        # Never stored as the explanation, even with an account: the text asks
+        # for a person, and the next assessment would read that again.
+        lost = transition(turn, state, expected_states=(state,))
         deferred = (
             replies.HUMAN_DEFERRED_WHILE_EXPLAINING if state == CaseState.AWAITING_EXPLANATION
             else replies.HUMAN_DEFERRED_WHILE_CONFIRMING

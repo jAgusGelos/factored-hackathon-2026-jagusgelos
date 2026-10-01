@@ -58,26 +58,55 @@ class _Unavailable(StrEnum):
 # not hold is dropped.
 _SUMMARY_MAX_WORDS = llm.STATEMENT_SUMMARY_MAX_WORDS + 15
 _QUOTED_RUN_WORDS = 6
-# Dates are not personal data; a document, phone or card number is a long run
-# of digits however it is separated.
-_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b")
+# Dates and amounts are not personal data; a document, phone or card number
+# is a long run of digits however it is separated.
+_DATE = re.compile(
+    r"(?<![\d./-])(?:\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])"
+    r"|(?:0?[1-9]|[12]\d|3[01])[./-](?:0?[1-9]|1[0-2])[./-](?:\d{4}|\d{2}))(?![./\s-]?\d)"
+)
+_CURRENCY = r"(?:\$|cop|ars|usd|mxn|brl|pesos?|d[oó]lares|reales?)"
+_AMOUNT = re.compile(
+    rf"{_CURRENCY}\s*\d{{1,3}}(?:[.,]\d{{3}})+(?:[.,]\d{{1,2}})?"
+    rf"|\d{{1,3}}(?:[.,]\d{{3}})+(?:[.,]\d{{1,2}})?\s*{_CURRENCY}",
+    re.IGNORECASE,
+)
 _LONG_NUMBER = re.compile(r"\d(?:[\s.,/\-–—]?\d){5,}")
 _CONTACT_OR_QUOTE = re.compile(r"@|https?://|[\"“”«»'‘’]")
+# A copied run only counts when it carries the customer's own content, not
+# just the charge's facts in the words anyone would use for them.
+_MIN_CONTENT_WORDS = 2
+_COMMON_WORDS = frozenset({
+    "cliente", "cargo", "cargos", "compra", "tarjeta", "banco", "comercio", "este", "esta", "ese", "esa",
+    "para", "pero", "como", "porque", "desde", "hasta", "sobre", "entre", "cuando", "donde", "pesos",
+    "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre",
+    "noviembre", "diciembre",
+})
 
 
 def _words(text: str) -> list[str]:
     return re.findall(r"\w+", text.casefold())
 
 
-def _quotes_the_customer(summary: str, customer_text: str) -> bool:
-    """A run of the customer's own words, or the whole summary when it is shorter."""
+def _content_words(run: tuple[str, ...], charge_words: frozenset[str]) -> int:
+    return sum(
+        1 for word in run
+        if len(word) >= 4 and not word.isdigit() and word not in _COMMON_WORDS and word not in charge_words
+    )
+
+
+def _quotes_the_customer(summary: str, customer_text: str, charge_words: frozenset[str]) -> bool:
+    """The whole summary copied, or a run of the customer's own words."""
     written = _words(summary)
-    run = min(_QUOTED_RUN_WORDS, len(written))
-    if run == 0:
-        return False
     said = _words(customer_text)
-    runs = {tuple(said[i:i + run]) for i in range(len(said) - run + 1)}
-    return any(tuple(written[i:i + run]) in runs for i in range(len(written) - run + 1))
+    if not written:
+        return False
+    if len(written) < _QUOTED_RUN_WORDS:
+        return any(said[i:i + len(written)] == written for i in range(len(said) - len(written) + 1))
+    runs = {tuple(said[i:i + _QUOTED_RUN_WORDS]) for i in range(len(said) - _QUOTED_RUN_WORDS + 1)}
+    copied = (
+        tuple(written[i:i + _QUOTED_RUN_WORDS]) for i in range(len(written) - _QUOTED_RUN_WORDS + 1)
+    )
+    return any(run in runs and _content_words(run, charge_words) >= _MIN_CONTENT_WORDS for run in copied)
 
 
 def _charge_amount_digits(charge: TransactionCandidate | None) -> frozenset[str]:
@@ -87,16 +116,21 @@ def _charge_amount_digits(charge: TransactionCandidate | None) -> frozenset[str]
     return frozenset({str(int(charge.amount)), re.sub(r"\D", "", f"{charge.amount:.2f}")})
 
 
+def _charge_words(charge: TransactionCandidate | None) -> frozenset[str]:
+    return frozenset(_words(charge.merchant_name or "")) if charge is not None else frozenset()
+
+
 def _names_personal_data(summary: str, charge: TransactionCandidate | None) -> bool:
     allowed = _charge_amount_digits(charge)
-    numbers = (re.sub(r"\D", "", match) for match in _LONG_NUMBER.findall(_DATE.sub(" ", summary)))
+    without_dates_or_amounts = _AMOUNT.sub(" ", _DATE.sub(" ", summary))
+    numbers = (re.sub(r"\D", "", match) for match in _LONG_NUMBER.findall(without_dates_or_amounts))
     return any(digits not in allowed for digits in numbers) or bool(_CONTACT_OR_QUOTE.search(summary))
 
 
 def _summary_is_safe(summary: str, customer_text: str, charge: TransactionCandidate | None) -> bool:
     return (
         len(summary.split()) <= _SUMMARY_MAX_WORDS and not _names_personal_data(summary, charge)
-        and not _quotes_the_customer(summary, customer_text)
+        and not _quotes_the_customer(summary, customer_text, _charge_words(charge))
     )
 
 
@@ -124,6 +158,10 @@ class _Statement:
         known = {str(fact): str(value) for fact, value in assessment.facts().items() if known_fact(value)}
         return _Statement(summary=assessment.summary or self.summary, facts={**self.facts, **known})
 
+    def has_account(self) -> bool:
+        """Something the customer told, even if its summary was dropped."""
+        return bool(self.summary) or any(known_fact(value) for value in self.facts.values())
+
     def missing_fact(self) -> StatementField | None:
         """The one follow-up, in fixed priority (`policy.FOLLOWUP_FACTS`)."""
         for fact in FOLLOWUP_FACTS:
@@ -145,7 +183,7 @@ def handle_statement(turn: Turn, text: str, action: CustomerAction | None) -> Ch
     pending = PendingEscalation.from_dict(case.pending_escalation)
     known = _Statement.from_case(case.statement_facts)
     if action == CustomerAction.HUMAN:
-        return _on_refusal(turn, pending, known, text=None, via="button", had_account=bool(known.summary))
+        return _on_refusal(turn, pending, known, text=None, via="button", had_account=known.has_account())
     if not text.strip():
         return _ask_more_or_finish(turn, pending, known, text=None, followup=None, needs_more=True)
     try:
@@ -165,7 +203,7 @@ def handle_statement(turn: Turn, text: str, action: CustomerAction | None) -> Ch
     statement = known.merged(assessment)
     if assessment.declines or assessment.wants_human:
         return _on_refusal(
-            turn, pending, statement, text=text, via="text", had_account=bool(known.summary), noted=noted,
+            turn, pending, statement, text=text, via="text", had_account=known.has_account(), noted=noted,
         )
     # Only this turn: an earlier turn here was a refusal, never part of an account.
     too_short = len(text.split()) < MIN_EXPLANATION_WORDS
@@ -215,7 +253,7 @@ def _on_refusal(
     declined = _outcome(pending, "handoff_statement_declined", decline_number=case.statement_declines + 1, via=via)
     if case.statement_declines > 0:
         return _finish(
-            turn, pending, statement, text, status=handoffs.StatementStatus.DECLINED, events=[*noted, declined],
+            turn, pending, statement, text, status=handoffs.StatementStatus.DECLINED, events=[declined], noted=noted,
         )
     lost = _stay(
         turn, statement, text, events=[*noted, declined, _outcome(pending, "handoff_statement_insisted")],
@@ -240,7 +278,7 @@ def _finish_without_assessment(
 ) -> ChatReply:
     """A summary from an earlier turn still stands; only this turn's text went unread."""
     if statement.summary:
-        outcome = _outcome(pending, "handoff_statement_available", unread_turn=failure)
+        outcome = _outcome(pending, "handoff_statement_available", failure_class=failure)
     else:
         outcome = _outcome(pending, "handoff_statement_unavailable", failure_class=failure)
     return _finish(turn, pending, statement, text, events=[outcome])

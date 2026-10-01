@@ -291,16 +291,29 @@ def test_an_explanation_that_also_asks_for_a_person_escalates_at_once(session, r
 
 
 @requires_real_fixture
-def test_an_explanation_given_with_a_first_request_is_kept_for_the_second(session, real_fixture_app_db):
+def test_a_deferred_request_leaves_the_next_explanation_to_be_read_on_its_own(session, real_fixture_app_db):
+    # The deferred text asked for a person: kept, the next assessment would
+    # read that request again and hand the case off instead of reviewing it.
     case_id = reach_explaining(session, real_fixture_app_db)
     asks = {**NOT_RECEIVED_ASSESSMENT, "wants_human": True}
 
     deferred = mocked_turn(session, real_fixture_app_db, EXPLANATION, case_id, mock={"assessment": asks})
-    reply = mocked_turn(session, real_fixture_app_db, "Hablar con una persona", case_id, action=CustomerAction.HUMAN)
+    reviewed = mocked_turn(session, real_fixture_app_db, EXPLANATION, case_id)
 
     assert deferred["state"] == CaseState.AWAITING_EXPLANATION
-    stored = cases.get_case(case_id, db_path=real_fixture_app_db)
-    assert stored.explanation_text == EXPLANATION and stored.explanation_attempts == 0
+    assert reviewed["state"] == CaseState.RESOLVED_AUTO
+
+
+@requires_real_fixture
+def test_an_explanation_already_on_the_case_escalates_a_lost_match_at_once(session, real_fixture_app_db):
+    case_id = reach_explaining(session, real_fixture_app_db)
+    assert cases.update_case(
+        case_id, state=CaseState.AWAITING_EXPLANATION, append_explanation=EXPLANATION,
+        clear_fields=("matched_transaction_id",), db_path=real_fixture_app_db,
+    )
+
+    reply = mocked_turn(session, real_fixture_app_db, "y además lo vi en el resumen", case_id)
+
     _assert_one_phase(reply, real_fixture_app_db)
     assert logged_events(real_fixture_app_db, "handoff_statement_skipped")
 

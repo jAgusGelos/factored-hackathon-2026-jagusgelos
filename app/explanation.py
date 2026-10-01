@@ -41,11 +41,10 @@ from app.transactions import TransactionCandidate, get_own_transaction
 @dataclass(frozen=True)
 class GivenAccount:
     """A text that asked for a person and also told what happened (the
-    assessment found it specific): kept as the explanation, so the customer
-    is not asked again before a person.
+    assessment found it specific): when that request hands the case off, it
+    is the customer's account and no statement is asked.
     """
 
-    text: str
     assessment: ExplanationAssessment
 
 
@@ -171,7 +170,7 @@ def handle_explanation(
         )
     if assessment is not None and assessment.wants_human:
         turn.log_event("human_request_detected", {"via": "assessment"})
-        account = GivenAccount(text, assessment) if assessment.specific else None
+        account = GivenAccount(assessment) if assessment.specific else None
         return on_human_request(turn, account=account)
     attempts_left = case.explanation_attempts + 1 < MAX_EXPLANATION_ATTEMPTS
     decision = _explanation_verdict(assessment, attempts_left=attempts_left)
