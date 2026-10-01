@@ -164,6 +164,7 @@ Four separate blocks. They measure different things, so they are never divided i
 
 - Resolution before first response: 492 of 14,631 (measured). Over complaints that have both a first response and a resolution date.
 - Resolved/Closed without a resolution date: 772 of 16,121 (measured).
+- Negative elapsed times: 0 of 67,095 (measured). Complaints whose first response or resolution precedes their creation; excluded from every elapsed-time percentile and from the contact window.
 - Complaint-to-interaction link: 0.0% of 67,095 (measured). Share of complaints with origin_interaction_id populated.
 - Complaints with no currency: 45,319 of 67,095.
 

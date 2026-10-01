@@ -657,3 +657,26 @@ def test_weekly_keeps_a_null_category_last(tmp_path):
         {"category": "Fees", "count": 1}, {"category": "null", "count": 1},
         {"category": None, "count": 1},
     ]
+
+
+def test_negative_elapsed_times_are_excluded_and_counted(tmp_path):
+    con = duckdb.connect(str(tmp_path / "negative.duckdb"))
+    con.execute(
+        "CREATE TABLE complaints (creation_date TIMESTAMP, subcategory VARCHAR, status VARCHAR, "
+        "first_response_date TIMESTAMP, resolution_date TIMESTAMP, origin_interaction_id VARCHAR, "
+        "currency VARCHAR, claimed_amount DOUBLE)"
+    )
+    con.executemany(
+        "INSERT INTO complaints VALUES (?, 'Cargo no reconocido', 'Open', ?, NULL, NULL, NULL, NULL)",
+        [("2024-01-02 00:00:00", "2024-01-01 00:00:00"),
+         ("2024-01-02 00:00:00", "2024-01-02 10:00:00")],
+    )
+    focus = ad.focus_first_response(con)
+    negative = ad.data_quality(con)["negative_elapsed_times"]
+    con.close()
+    assert (focus["total"], focus["n"], focus["p50"], focus["max_hours"]["value"]) == (
+        2, 1, 10.0, 10.0,
+    )
+    assert focus["missing_first_response"]["value"] == 0
+    assert focus["within_contact_window"]["value"] == 1.0
+    assert negative["value"] == 1

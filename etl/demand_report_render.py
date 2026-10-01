@@ -476,6 +476,7 @@ def _data_quality_section(report: dict) -> str:
     before = quality["resolution_before_first_response"]
     closed = quality["closed_without_resolution_date"]
     link = quality["complaint_interaction_link"]
+    negative = quality["negative_elapsed_times"]
     return "\n\n".join([
         "## Data quality",
         (
@@ -483,6 +484,8 @@ def _data_quality_section(report: dict) -> str:
             f"({before['kind']}). {before['note']}\n"
             f"- {'/'.join(closed['statuses'])} without a resolution date: {_num(closed['value'])} "
             f"of {_num(closed['n'])} ({closed['kind']}).\n"
+            f"- Negative elapsed times: {_num(negative['value'])} of {_num(negative['n'])} "
+            f"({negative['kind']}). {negative['note']}\n"
             f"- Complaint-to-interaction link: {_pct(link['value'])} of {_num(link['n'])} "
             f"({link['kind']}). {link['note']}\n"
             f"- Complaints with no currency: {_num(amounts['null_currency']['value'])} of "

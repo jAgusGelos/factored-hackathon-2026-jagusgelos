@@ -5037,6 +5037,12 @@
         "Closed"
       ]
     },
+    "negative_elapsed_times": {
+      "value": 0,
+      "n": 67095,
+      "kind": "measured",
+      "note": "Complaints whose first response or resolution precedes their creation; excluded from every elapsed-time percentile and from the contact window."
+    },
     "claimed_amount_by_currency": {
       "kind": "measured",
       "n": 67095,

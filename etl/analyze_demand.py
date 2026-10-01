@@ -115,7 +115,13 @@ def _iso(value: date | datetime | None) -> str | None:
 
 
 def _hours_since_creation_sql(end_column: str) -> str:
-    return f"date_diff('second', creation_date, {end_column}) / {SECONDS_PER_HOUR}.0"
+    """NULL when `end_column` precedes creation_date: those rows are a timestamp
+    defect, counted in data_quality.negative_elapsed_times, not a measurement.
+    """
+    return (
+        f"CASE WHEN {end_column} >= creation_date THEN "
+        f"date_diff('second', creation_date, {end_column}) / {SECONDS_PER_HOUR}.0 END"
+    )
 
 
 def _distribution(con: duckdb.DuckDBPyConnection, key_sql: str, from_sql: str) -> dict:
@@ -330,16 +336,18 @@ def focus_first_response(con: duckdb.DuckDBPyConnection) -> dict:
     censored cases (no first response yet) counted by status, not dropped.
     """
     hours_sql = (
-        f"SELECT status, {_hours_since_creation_sql('first_response_date')} AS h "
+        "SELECT status, first_response_date, "
+        f"{_hours_since_creation_sql('first_response_date')} AS h "
         "FROM complaints WHERE subcategory = ?"
     )
-    total, n, p50, p90, max_h, within = con.execute(
-        "SELECT count(*), count(h), quantile_cont(h, 0.5), quantile_cont(h, 0.9), max(h), "
+    total, n, missing, p50, p90, max_h, within = con.execute(
+        "SELECT count(*), count(h), count(*) FILTER (WHERE first_response_date IS NULL), "
+        "quantile_cont(h, 0.5), quantile_cont(h, 0.9), max(h), "
         f"count(*) FILTER (WHERE h <= {CONTACT_WINDOW_HOURS}) FROM ({hours_sql})",
         [FOCUS_SUBCATEGORY],
     ).fetchone()
     missing_by_status = con.execute(
-        f"SELECT status, count(*) AS c FROM ({hours_sql}) WHERE h IS NULL "
+        f"SELECT status, count(*) AS c FROM ({hours_sql}) WHERE first_response_date IS NULL "
         "GROUP BY 1 ORDER BY c DESC, status NULLS LAST",
         [FOCUS_SUBCATEGORY],
     ).fetchall()
@@ -359,7 +367,7 @@ def focus_first_response(con: duckdb.DuckDBPyConnection) -> dict:
         "p90": _round_hours(p90),
         "max_hours": {"value": _round_hours(max_h), "n": n, "kind": Kind.MEASURED},
         "missing_first_response": {
-            "value": total - n,
+            "value": missing,
             "n": total,
             "kind": Kind.MEASURED,
             "by_status": [{"status": s, "count": c} for s, c in missing_by_status],
@@ -451,13 +459,15 @@ def _median_similarity(medians: list[float]) -> dict:
 
 
 def data_quality(con: duckdb.DuckDBPyConnection) -> dict:
-    both_dates, before, closed, closed_no_date, linked, total = con.execute(
+    both_dates, before, closed, closed_no_date, linked, total, negative = con.execute(
         "SELECT "
         "count(*) FILTER (WHERE first_response_date IS NOT NULL AND resolution_date IS NOT NULL), "
         "count(*) FILTER (WHERE resolution_date < first_response_date), "
         "count(*) FILTER (WHERE status IN ?), "
         "count(*) FILTER (WHERE status IN ? AND resolution_date IS NULL), "
-        "count(origin_interaction_id), count(*) FROM complaints",
+        "count(origin_interaction_id), count(*), "
+        "count(*) FILTER (WHERE first_response_date < creation_date "
+        "OR resolution_date < creation_date) FROM complaints",
         [list(CLOSED_STATUSES), list(CLOSED_STATUSES)],
     ).fetchone()
     return {
@@ -468,6 +478,13 @@ def data_quality(con: duckdb.DuckDBPyConnection) -> dict:
         "closed_without_resolution_date": {
             "value": closed_no_date, "n": closed, "kind": Kind.MEASURED,
             "statuses": list(CLOSED_STATUSES),
+        },
+        "negative_elapsed_times": {
+            "value": negative, "n": total, "kind": Kind.MEASURED,
+            "note": (
+                "Complaints whose first response or resolution precedes their creation; "
+                "excluded from every elapsed-time percentile and from the contact window."
+            ),
         },
         "claimed_amount_by_currency": _claimed_amounts(con),
         "complaint_interaction_link": {
