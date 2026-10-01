@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import struct
+import subprocess
 import sys
 from pathlib import Path
 
@@ -193,7 +194,7 @@ def test_weekly_flags_partial_weeks_and_excludes_them_from_cv(con):
     # Full weeks only: 2 and 2, so no variation; the partial weeks (1 and 0) are left out.
     assert transactions["full_weeks"] == 2 and transactions["mean_weekly"] == 2.0
     assert transactions["cv"] == 0.0 and transactions["poisson_expected_cv"] == 0.7071
-    # Share 62.5% is outside the 19-21% band, so not flat despite a CV of 0.
+    # Share 62.5% is outside the 49-51% band (2 categories), so not flat despite a CV of 0.
     assert transactions["flat"] is False
 
 
@@ -234,7 +235,9 @@ def test_call_center_reasons(con):
     assert transaccional["resolved_on_contact_share"] == 0.6667
     assert queja["median_handle_seconds"] == 400.0 and queja["resolved_on_contact_share"] == 0.0
     assert producto["median_handle_seconds"] is None and producto["handle_time_n"] == 0
-    assert block["share_spread"] == {"min": 0.2, "max": 0.6}
+    assert block["share_spread"] == {
+        "min": 0.2, "max": 0.6, "even_share": 0.3333, "tolerance": 0.01, "uniform": False,
+    }
 
 
 def test_data_quality(con):
@@ -248,6 +251,10 @@ def test_data_quality(con):
         ("ARS", 50.0), ("MXN", 60.0), ("USD", 200.0),
     ]
     assert amounts["null_currency"]["value"] == 1
+    # Medians 50, 60 and 200 are not within 10% of each other.
+    assert amounts["median_similarity"] == {
+        "compared_currencies": 3, "tolerance": 0.1, "similar": False,
+    }
     assert quality["complaint_interaction_link"]["value"] == 0.125
 
 
@@ -273,7 +280,7 @@ def test_report_contract(report):
 
 def test_missing_snapshot_raises_with_refresh_hint(warehouse, tmp_path):
     with pytest.raises(FileNotFoundError, match="--refresh-eval-snapshot"):
-        ad.run(warehouse, tmp_path / "out", tmp_path / "missing.json")
+        ad.run(warehouse_path=warehouse, out_dir=tmp_path / "out", snapshot_path=tmp_path / "missing.json")
 
 
 def test_refresh_without_eval_report_exits_1(tmp_path, monkeypatch, caplog):
@@ -294,7 +301,7 @@ def test_refresh_rejects_eval_report_missing_a_required_key(tmp_path):
     source = tmp_path / "eval_report.json"
     source.write_text(json.dumps({k: v for k, v in SNAPSHOT.items() if k != "estimated_cost_usd"}))
     with pytest.raises(ValueError, match="estimated_cost_usd"):
-        ad.refresh_snapshot(source, tmp_path / "snapshot.json")
+        ad.refresh_snapshot(eval_report_path=source, snapshot_path=tmp_path / "snapshot.json")
     assert not (tmp_path / "snapshot.json").exists()
 
 
@@ -313,7 +320,7 @@ def test_refresh_copies_only_the_allowlist(tmp_path):
     }
     source = tmp_path / "eval_report.json"
     source.write_text(json.dumps(eval_report))
-    snapshot = ad.refresh_snapshot(source, tmp_path / "snapshot.json")
+    snapshot = ad.refresh_snapshot(eval_report_path=source, snapshot_path=tmp_path / "snapshot.json")
     assert snapshot == SNAPSHOT
     assert json.loads((tmp_path / "snapshot.json").read_text()) == SNAPSHOT
 
@@ -331,7 +338,7 @@ def test_refresh_rejects_eval_report_missing_a_nested_field(tmp_path):
     source = tmp_path / "eval_report.json"
     source.write_text(json.dumps({**SNAPSHOT, "latency_seconds": latency}))
     with pytest.raises(ValueError, match=r"latency_seconds\.p95"):
-        ad.refresh_snapshot(source, tmp_path / "snapshot.json")
+        ad.refresh_snapshot(eval_report_path=source, snapshot_path=tmp_path / "snapshot.json")
     assert not (tmp_path / "snapshot.json").exists()
 
 
@@ -353,14 +360,14 @@ def test_invalid_snapshot_is_rejected_with_its_path(tmp_path, content, message):
 
 def test_missing_warehouse_raises_with_extract_hint(snapshot_path, tmp_path):
     with pytest.raises(FileNotFoundError, match="python -m etl.extract"):
-        ad.run(tmp_path / "missing.duckdb", tmp_path / "out", snapshot_path)
+        ad.run(warehouse_path=tmp_path / "missing.duckdb", out_dir=tmp_path / "out", snapshot_path=snapshot_path)
 
 
 def test_run_is_byte_identical(warehouse, snapshot_path, tmp_path):
     out = tmp_path / "out"
-    ad.run(warehouse, out, snapshot_path)
+    ad.run(warehouse_path=warehouse, out_dir=out, snapshot_path=snapshot_path)
     first = {name: (out / name).read_bytes() for name in (ad.REPORT_JSON_NAME, ad.REPORT_MD_NAME)}
-    ad.run(warehouse, out, snapshot_path)
+    ad.run(warehouse_path=warehouse, out_dir=out, snapshot_path=snapshot_path)
     for name, content in first.items():
         assert (out / name).read_bytes() == content, name
         assert content.endswith(b"\n")
@@ -395,25 +402,25 @@ def test_markdown_sections_and_labels(report):
 def test_flat_headline_and_currency_claim_follow_the_json(report):
     for variability in report["demand"]["weekly"]["variability"]:
         variability["flat"] = True
-    amounts = report["data_quality"]["claimed_amount_by_currency"]["rows"]
-    for row in amounts:
-        row["median_amount"] = 100.0
+    report["data_quality"]["claimed_amount_by_currency"]["median_similarity"]["similar"] = True
     markdown = render.render_markdown(report)
     assert "**Complaint demand is flat by category**" in _tldr(markdown)
     assert "Volume does not single disputes out" in markdown
     assert "within 10.0% of each other" in _tldr(markdown)
 
 
-def test_weekly_gap_weeks_count_as_zero(tmp_path):
-    db_path = tmp_path / "gaps.duckdb"
-    con = duckdb.connect(str(db_path))
+def _weekly_for(tmp_path, timestamps: list[str]) -> dict:
+    con = duckdb.connect(str(tmp_path / "weekly.duckdb"))
     con.execute("CREATE TABLE complaints (creation_date TIMESTAMP, category VARCHAR)")
-    con.executemany(
-        "INSERT INTO complaints VALUES (?, 'Fees')",
-        [("2024-01-01 10:00:00",), ("2024-01-21 10:00:00",)],
-    )
-    weekly = ad.weekly_demand(con)
-    con.close()
+    con.executemany("INSERT INTO complaints VALUES (?, 'Fees')", [(t,) for t in timestamps])
+    try:
+        return ad.weekly_demand(con)
+    finally:
+        con.close()
+
+
+def test_weekly_gap_weeks_count_as_zero(tmp_path):
+    weekly = _weekly_for(tmp_path, ["2024-01-01 10:00:00", "2024-01-21 10:00:00"])
     assert [(w["week_start"], w["total"]) for w in weekly["weeks"]] == [
         ("2024-01-01", 1), ("2024-01-08", 0), ("2024-01-15", 1),
     ]
@@ -422,15 +429,7 @@ def test_weekly_gap_weeks_count_as_zero(tmp_path):
 
 
 def test_cv_needs_two_full_weeks(tmp_path):
-    db_path = tmp_path / "one_week.duckdb"
-    con = duckdb.connect(str(db_path))
-    con.execute("CREATE TABLE complaints (creation_date TIMESTAMP, category VARCHAR)")
-    con.executemany(
-        "INSERT INTO complaints VALUES (?, 'Fees')",
-        [("2024-01-01 10:00:00",), ("2024-01-07 10:00:00",)],
-    )
-    weekly = ad.weekly_demand(con)
-    con.close()
+    weekly = _weekly_for(tmp_path, ["2024-01-01 10:00:00", "2024-01-07 10:00:00"])
     assert weekly["full_weeks"] == 1
     assert weekly["variability"][0]["cv"] is None and weekly["variability"][0]["flat"] is False
 
@@ -455,7 +454,7 @@ def test_run_without_matplotlib_still_writes_json_and_markdown(
 ):
     monkeypatch.setitem(sys.modules, "matplotlib", None)
     out = tmp_path / "out"
-    ad.run(warehouse, out, snapshot_path)
+    ad.run(warehouse_path=warehouse, out_dir=out, snapshot_path=snapshot_path)
     assert (out / ad.REPORT_JSON_NAME).exists() and (out / ad.REPORT_MD_NAME).exists()
     assert not (out / render.CALL_REASONS_CHART).exists()
     assert "charts skipped" in caplog.text
@@ -500,3 +499,48 @@ def test_shorter_escalation_deadline_is_reported(monkeypatch):
 
 def test_contact_window_is_within_the_escalation_deadline():
     assert ad.CONTACT_WINDOW_HOURS <= policy.ESCALATION_CONTACT_BUSINESS_DAYS * HOURS_PER_DAY
+
+
+def test_report_without_real_data_match(con):
+    snapshot = {k: v for k, v in SNAPSHOT.items() if k != ad.OPTIONAL_SNAPSHOT_KEY}
+    report = ad.build_report(con, snapshot)
+    _assert_contract(report)
+    assert report["eval"]["real_data_match"] is None
+    baseline = report["cost"]["projection"]["automation_shares"][0]
+    assert baseline["note"].startswith("Baseline: no real-data match evidence")
+    tldr = _tldr(render.render_markdown(report))
+    assert re.findall(r"^\d+\. ", tldr, re.MULTILINE) == ["1. ", "2. ", "3. ", "4. "]
+
+
+def test_call_center_headline_follows_the_spread(report):
+    report["call_center"]["share_spread"]["uniform"] = True
+    assert "close to uniform" in _tldr(render.render_markdown(report))
+    # The fixture links 1 of 8 complaints to a call, so "no key joins" would be false.
+    assert "only 12.5% of complaints link to a call" in _tldr(render.render_markdown(report))
+
+
+def test_table_cells_cannot_break_the_row():
+    table = render._table(["a"], [["x\r\ny|z\\"]])
+    assert table.splitlines()[2] == "| x y\\|z\\\\ |"
+
+
+def test_snapshot_with_a_null_rate_is_rejected_before_writing(tmp_path):
+    rate = {**SNAPSHOT["safe_automated_resolution_rate"], "rate": None}
+    source = tmp_path / "eval_report.json"
+    source.write_text(json.dumps({**SNAPSHOT, "safe_automated_resolution_rate": rate}))
+    with pytest.raises(ValueError, match=r"safe_automated_resolution_rate\.rate"):
+        ad.refresh_snapshot(eval_report_path=source, snapshot_path=tmp_path / "snapshot.json")
+    assert not (tmp_path / "snapshot.json").exists()
+
+
+def test_offline_modules_do_not_pull_in_app_or_eval():
+    code = (
+        "import sys, etl.analyze_demand; "
+        "print('\\n'.join(m for m in sys.modules "
+        "if m.split('.')[0] in ('app', 'eval', 'anthropic')))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True,
+        cwd=Path(ad.__file__).resolve().parent.parent,
+    )
+    assert result.stdout.strip() == ""

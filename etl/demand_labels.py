@@ -1,6 +1,7 @@
 """The demand report's `kind` labels and lookups over the report dict, shared
 by the builder (`etl/analyze_demand.py`) and the renderer
-(`etl/demand_report_render.py`), which cannot import each other.
+(`etl/demand_report_render.py`): the builder imports the renderer, so the
+renderer cannot import the builder.
 """
 
 from __future__ import annotations

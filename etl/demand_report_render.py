@@ -28,11 +28,6 @@ WINDOW_COLOR = "#C44E52"
 
 NOT_AVAILABLE = "n/a"
 ISO_DATE_LENGTH = len("YYYY-MM-DD")
-# Per-currency medians count as "of similar size" when the largest is within
-# this fraction of the smallest; real amounts in ARS, COP, MXN and USD differ
-# by orders of magnitude.
-SIMILAR_MEDIANS_TOLERANCE = 0.10
-RARE_MATCH_RATE = 0.01
 
 
 def _pct(share: float | None) -> str:
@@ -64,13 +59,17 @@ def _usd_value(value: float | None) -> str:
     return NOT_AVAILABLE if value is None else f"USD {value}"
 
 
+def _raw_seconds(value: float | None) -> str:
+    return NOT_AVAILABLE if value is None else f"{value} s"
+
+
 def _key(value: str | None) -> str:
     return "(missing)" if value is None else value
 
 
 def _cell(text: str) -> str:
     """Keeps a data value from breaking out of its markdown table cell."""
-    return text.replace("\\", "\\\\").replace("|", "\\|").replace("\n", " ")
+    return " ".join(text.replace("\\", "\\\\").replace("|", "\\|").splitlines())
 
 
 def _table(header: list[str], rows: list[list[str]]) -> str:
@@ -80,7 +79,7 @@ def _table(header: list[str], rows: list[list[str]]) -> str:
 
 
 def _all_flat(weekly: dict) -> bool:
-    return all(v["flat"] for v in weekly["variability"])
+    return bool(weekly["variability"]) and all(v["flat"] for v in weekly["variability"])
 
 
 def _distribution_table(block: dict, label: str) -> str:
@@ -110,13 +109,28 @@ def _flatness_finding(weekly: dict) -> str:
     )
 
 
+def _join_key_sentence(link: dict) -> str:
+    if link["value"] == 0:
+        return "because no key joins a complaint to a call."
+    return (
+        f"because only {_pct(link['value'])} of complaints link to a call, so call time is "
+        "not dispute time."
+    )
+
+
 def _call_center_finding(report: dict) -> str:
     center = report["call_center"]
     handle = report["cost"]["human_first_contact_handle_time"]
     anchor = reason_row(center, handle["anchor_seconds"]["contact_reason"])
     upper = reason_row(center, handle["upper_anchor_seconds"]["contact_reason"])
+    spread = center["share_spread"]
+    headline = (
+        "Call-center contact reasons are close to uniform"
+        if spread["uniform"]
+        else "Call-center contact reasons are far from uniform"
+    )
     return (
-        "**Call-center contact reasons are far from uniform** (measured). "
+        f"**{headline}** (measured). "
         f"Over {_num(center['n'])} "
         f"contacts ({_day(center['window']['start'])} to {_day(center['window']['end'])}), "
         f"contact-reason shares range from {_pct(center['share_spread']['min'])} to "
@@ -126,8 +140,8 @@ def _call_center_finding(report: dict) -> str:
         f"{_pct(anchor['resolved_on_contact_share'])} resolved on contact; "
         f"\"{upper['contact_reason']}\" takes {_seconds(upper['median_handle_seconds'])} "
         f"with {_pct(upper['resolved_on_contact_share'])} resolved on contact. This sizes "
-        "the opportunity; it does not show that disputes are the worst process, because "
-        "no key joins a complaint to a call."
+        "the opportunity; it does not show that disputes are the worst process, "
+        + _join_key_sentence(report["data_quality"]["complaint_interaction_link"])
     )
 
 
@@ -149,17 +163,17 @@ def _first_response_finding(focus: dict) -> str:
 
 
 def _similar_medians(amounts: dict) -> bool:
-    medians = [r["median_amount"] for r in amounts["rows"] if r["median_amount"] is not None]
-    return len(medians) > 1 and max(medians) <= min(medians) * (1 + SIMILAR_MEDIANS_TOLERANCE)
+    return amounts["median_similarity"]["similar"]
 
 
 def _currency_sentence(amounts: dict) -> str:
-    if not _similar_medians(amounts):
+    similarity = amounts["median_similarity"]
+    if not similarity["similar"]:
         return "amounts are never summed across currencies."
     return (
-        f"the claimed-amount medians of all {len(amounts['rows'])} currencies are within "
-        f"{_pct(SIMILAR_MEDIANS_TOLERANCE)} of each other, which real amounts in those "
-        "currencies would not be, so amounts are never summed across currencies."
+        f"the claimed-amount medians of the {similarity['compared_currencies']} currencies "
+        f"are within {_pct(similarity['tolerance'])} of each other, which real amounts in "
+        "those currencies would not be, so amounts are never summed across currencies."
     )
 
 
@@ -178,7 +192,7 @@ def _data_quality_finding(quality: dict) -> str:
 
 
 def _rare_match(match: dict | None) -> bool:
-    return match is not None and bool(match["n"]) and match["value"] / match["n"] < RARE_MATCH_RATE
+    return match is not None and match["rare"]
 
 
 def _eval_match_finding(match: dict) -> str:
@@ -372,7 +386,7 @@ def _projection_table(projection: dict) -> str:
 def _time_to_first_action_block(first: dict) -> str:
     agent, human = first["agent_pipeline_p50_seconds"], first["human_first_response_p50_hours"]
     return (
-        f"- Agent pipeline p50: {NOT_AVAILABLE if agent['value'] is None else agent['value']} s "
+        f"- Agent pipeline p50: {_raw_seconds(agent['value'])} "
         f"({agent['kind']}, n = {agent['n']} eval "
         f"scenarios). {agent['note']}\n"
         f"- Human first response p50 for \"{human['subcategory']}\": {_hours(human['value'])} "

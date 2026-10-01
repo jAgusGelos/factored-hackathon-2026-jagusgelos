@@ -56,9 +56,9 @@ SECONDS_PER_HOUR = 3600
 HOURS_UNIT = "calendar hours from creation_date"
 
 FOCUS_SUBCATEGORY = "Cargo no reconocido"
-# Calendar hours. app.policy.ESCALATION_CONTACT_BUSINESS_DAYS = 3 promises
-# business days, and 3 business days always span at least 72 calendar hours,
-# so a share measured against 72 h is a lower bound for that promise.
+# Calendar hours. app.policy.ESCALATION_CONTACT_BUSINESS_DAYS promises business
+# days, which always span at least this many calendar hours (a test pins it),
+# so a share measured against it is a lower bound for that promise.
 CONTACT_WINDOW_HOURS = 72
 CLOSED_STATUSES = ("Resolved", "Closed")
 
@@ -69,6 +69,13 @@ CLOSED_STATUSES = ("Resolved", "Closed")
 FLAT_SHARE_TOLERANCE = 0.01
 FLAT_CV_TOLERANCE = 1.25
 MIN_FULL_WEEKS_FOR_CV = 2
+
+# Per-currency claimed-amount medians count as "of similar size" when the
+# largest is within this fraction of the smallest; real amounts in ARS, COP,
+# MXN and USD differ by orders of magnitude.
+SIMILAR_MEDIANS_TOLERANCE = 0.10
+# A real-data match rate below this is reported as "rare".
+RARE_MATCH_RATE = 0.01
 
 ANCHOR_CONTACT_REASON = "Transaccional"
 UPPER_ANCHOR_CONTACT_REASON = "Queja"
@@ -96,6 +103,16 @@ SNAPSHOT_KEYS = {
     "real_data_match_rate_finding": ("sample_size", "real_matches_found", "source"),
 }
 OPTIONAL_SNAPSHOT_KEY = "real_data_match_rate_finding"
+# Keys and sub-fields (None: the key itself) the report does arithmetic on;
+# None or text there is unusable.
+SNAPSHOT_NUMERIC_FIELDS = {
+    ("sample_size", None),
+    ("safe_automated_resolution_rate", "count"),
+    ("safe_automated_resolution_rate", "of_attempted"),
+    ("safe_automated_resolution_rate", "rate"),
+    ("real_data_match_rate_finding", "sample_size"),
+    ("real_data_match_rate_finding", "real_matches_found"),
+}
 
 
 def _share(part: int | float, whole: int | float) -> float | None:
@@ -398,8 +415,29 @@ def call_center(con: duckdb.DuckDBPyConnection) -> dict:
             "First-contact handle time across all contact reasons. Not dispute-specific: "
             "there is no join key from complaints to interactions."
         ),
-        "share_spread": {"min": min(shares, default=None), "max": max(shares, default=None)},
+        "share_spread": _share_spread(shares),
         "reasons": reasons,
+    }
+
+
+def _share_spread(shares: list[float]) -> dict:
+    """Uniform when every share is within FLAT_SHARE_TOLERANCE of an even split."""
+    even = round(1 / len(shares), 4) if shares else None
+    return {
+        "min": min(shares, default=None),
+        "max": max(shares, default=None),
+        "even_share": even,
+        "tolerance": FLAT_SHARE_TOLERANCE,
+        "uniform": bool(shares) and all(abs(s - even) <= FLAT_SHARE_TOLERANCE for s in shares),
+    }
+
+
+def _median_similarity(medians: list[float]) -> dict:
+    similar = len(medians) > 1 and max(medians) <= min(medians) * (1 + SIMILAR_MEDIANS_TOLERANCE)
+    return {
+        "compared_currencies": len(medians),
+        "tolerance": SIMILAR_MEDIANS_TOLERANCE,
+        "similar": similar,
     }
 
 
@@ -435,6 +473,9 @@ def data_quality(con: duckdb.DuckDBPyConnection) -> dict:
                 "Medians per currency, never summed across currencies. Medians of similar size "
                 "in currencies with very different FX rates are not consistent with real "
                 "amounts in those currencies."
+            ),
+            "median_similarity": _median_similarity(
+                [median for *_, median in by_currency if median is not None]
             ),
             "rows": [
                 {
@@ -577,7 +618,7 @@ def build_report(con: duckdb.DuckDBPyConnection, snapshot: dict) -> dict:
     data_as_of = con.execute("SELECT max(creation_date) FROM complaints").fetchone()[0]
     responses = response_times(con)
     call_center_block = call_center(con)
-    finding = snapshot.get("real_data_match_rate_finding")
+    finding = snapshot.get(OPTIONAL_SNAPSHOT_KEY)
     return {
         "schema_version": SCHEMA_VERSION,
         "data_as_of": _iso(data_as_of),
@@ -599,15 +640,22 @@ def build_report(con: duckdb.DuckDBPyConnection, snapshot: dict) -> dict:
         "data_quality": data_quality(con),
         "eval": {
             "disclosure": snapshot["disclosure"],
-            "real_data_match": None if finding is None else {
-                "value": finding["real_matches_found"],
-                "n": finding["sample_size"],
-                "kind": Kind.MEASURED,
-                "source": finding["source"],
-                "note": "Quoted from the eval snapshot, not recomputed here.",
-            },
+            "real_data_match": None if finding is None else _real_data_match(finding),
         },
         "cost": cost_blocks(snapshot, responses["focus_first_response"], call_center_block),
+    }
+
+
+def _real_data_match(finding: dict) -> dict:
+    matches, sample = finding["real_matches_found"], finding["sample_size"]
+    return {
+        "value": matches,
+        "n": sample,
+        "kind": Kind.MEASURED,
+        "source": finding["source"],
+        "rare_threshold": RARE_MATCH_RATE,
+        "rare": bool(sample) and matches / sample < RARE_MATCH_RATE,
+        "note": "Quoted from the eval snapshot, not recomputed here.",
     }
 
 
@@ -617,10 +665,7 @@ def read_snapshot(path: Path) -> dict:
             f"Eval cost snapshot not found at {path}. Run `python -m eval.run_eval` and then "
             "`python -m etl.analyze_demand --refresh-eval-snapshot`."
         )
-    try:
-        snapshot = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Eval cost snapshot at {path} is not valid JSON: {exc}") from exc
+    snapshot = _read_json(path, "Eval cost snapshot")
     missing = _missing_snapshot_fields(snapshot)
     if missing:
         raise ValueError(
@@ -630,10 +675,16 @@ def read_snapshot(path: Path) -> dict:
     return snapshot
 
 
-def _missing_snapshot_fields(snapshot: dict) -> list[str]:
-    """Dotted names of the allowlisted keys and sub-fields the snapshot lacks;
-    only the real-data finding may be absent as a whole.
+def _is_number(value) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _missing_snapshot_fields(snapshot) -> list[str]:
+    """Dotted names of the allowlisted keys and sub-fields the snapshot lacks
+    or holds in an unusable shape; only the real-data finding may be absent.
     """
+    if not isinstance(snapshot, dict):
+        return ["(root object)"]
     missing = []
     for key, fields in SNAPSHOT_KEYS.items():
         value = snapshot.get(key)
@@ -642,11 +693,18 @@ def _missing_snapshot_fields(snapshot: dict) -> list[str]:
                 missing.append(key)
             continue
         if fields is None:
+            numeric = (key, None) in SNAPSHOT_NUMERIC_FIELDS
+            if not (_is_number(value) if numeric else isinstance(value, str)):
+                missing.append(key)
             continue
         if not isinstance(value, dict):
             missing.append(key)
             continue
-        missing += [f"{key}.{field}" for field in fields if field not in value]
+        missing += [
+            f"{key}.{field}" for field in fields
+            if field not in value
+            or ((key, field) in SNAPSHOT_NUMERIC_FIELDS and not _is_number(value[field]))
+        ]
     return missing
 
 
@@ -656,7 +714,14 @@ def _allowlisted(value, fields: tuple[str, ...] | None):
     return {field: value[field] for field in fields if field in value}
 
 
-def refresh_snapshot(eval_report_path: Path, snapshot_path: Path) -> dict:
+def _read_json(path: Path, label: str):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{label} at {path} is not valid JSON: {exc}") from exc
+
+
+def refresh_snapshot(*, eval_report_path: Path, snapshot_path: Path) -> dict:
     """Copies only the AD-6 allowlist from the eval report, so no case id,
     customer data or prompt can reach the committed snapshot.
     """
@@ -664,7 +729,9 @@ def refresh_snapshot(eval_report_path: Path, snapshot_path: Path) -> dict:
         raise FileNotFoundError(
             f"Eval report not found at {eval_report_path}. Run `python -m eval.run_eval` first."
         )
-    report = json.loads(eval_report_path.read_text(encoding="utf-8"))
+    report = _read_json(eval_report_path, "Eval report")
+    if not isinstance(report, dict):
+        raise ValueError(f"Eval report at {eval_report_path} is not a JSON object")
     source = {
         **report,
         OPTIONAL_SNAPSHOT_KEY: (report.get("escalation_quality") or {}).get(OPTIONAL_SNAPSHOT_KEY),
@@ -691,6 +758,7 @@ def _write_json(payload: dict, path: Path) -> None:
 
 
 def run(
+    *,
     warehouse_path: Path = DEFAULT_WAREHOUSE_PATH,
     out_dir: Path = DEFAULT_OUT_DIR,
     snapshot_path: Path = DEFAULT_SNAPSHOT_PATH,
@@ -705,8 +773,9 @@ def run(
         report = build_report(con, snapshot)
     finally:
         con.close()
+    markdown = render_markdown(report)
     _write_json(report, out_dir / REPORT_JSON_NAME)
-    _write_text(render_markdown(report), out_dir / REPORT_MD_NAME)
+    _write_text(markdown, out_dir / REPORT_MD_NAME)
     _write_charts(report, out_dir)
     return report
 
@@ -737,7 +806,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.refresh_eval_snapshot:
-            refresh_snapshot(DEFAULT_EVAL_REPORT_PATH, DEFAULT_SNAPSHOT_PATH)
+            refresh_snapshot(
+                eval_report_path=DEFAULT_EVAL_REPORT_PATH, snapshot_path=DEFAULT_SNAPSHOT_PATH,
+            )
         run(snapshot_path=DEFAULT_SNAPSHOT_PATH)
     except (FileNotFoundError, ValueError, duckdb.Error) as exc:
         logger.error("%s", exc)

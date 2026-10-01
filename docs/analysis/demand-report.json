@@ -2576,7 +2576,10 @@
     "note": "First-contact handle time across all contact reasons. Not dispute-specific: there is no join key from complaints to interactions.",
     "share_spread": {
       "min": 0.0303,
-      "max": 0.3456
+      "max": 0.3456,
+      "even_share": 0.1667,
+      "tolerance": 0.01,
+      "uniform": false
     },
     "reasons": [
       {
@@ -2672,6 +2675,11 @@
         "kind": "measured"
       },
       "note": "Medians per currency, never summed across currencies. Medians of similar size in currencies with very different FX rates are not consistent with real amounts in those currencies.",
+      "median_similarity": {
+        "compared_currencies": 4,
+        "tolerance": 0.1,
+        "similar": true
+      },
       "rows": [
         {
           "currency": "ARS",
@@ -2714,6 +2722,8 @@
       "n": 2000,
       "kind": "measured",
       "source": "etl/build_fixture.py development, Milestone 1, 2026-09-28",
+      "rare_threshold": 0.01,
+      "rare": true,
       "note": "Quoted from the eval snapshot, not recomputed here."
     }
   },
