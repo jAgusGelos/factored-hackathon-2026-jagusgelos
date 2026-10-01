@@ -233,3 +233,81 @@ def test_the_pre_existing_report_keys_are_unchanged(comparison):
     for block, keys in PRE_EXISTING_NESTED_KEYS.items():
         assert set(report[block]) == keys, block
     assert all(set(summary) == PRE_EXISTING_LANGUAGE_SUMMARY_KEYS for summary in report["by_language"].values())
+
+
+# -- The README's comparison section ------------------------------------------------
+
+README_PATH = REPO_ROOT / "README.md"
+README_SECTION_HEADING = "## System-level comparison"
+EM_DASH = "\u2014"
+
+
+def _readme_comparison_section() -> str:
+    readme = README_PATH.read_text()
+    start = readme.index(README_SECTION_HEADING)
+    return readme[start:readme.index("\n## ", start + 1)]
+
+
+def _table_cells(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def _readme_table() -> dict[str, list[str]]:
+    """System name -> its row's cells, from the section's markdown table."""
+    rows = {}
+    for line in _readme_comparison_section().splitlines():
+        match = re.match(r"^\| `(\w+)` \|", line)
+        if match:
+            rows[match.group(1)] = _table_cells(line)[1:]
+    return rows
+
+
+def _readme_table_headers() -> list[str]:
+    header = next(line for line in _readme_comparison_section().splitlines() if line.startswith("| System |"))
+    return _table_cells(header)[1:]
+
+
+def _names_bucket(header: str, bucket: str) -> bool:
+    """Every word of the bucket's name is in the column header, so columns with
+    equal denominators (6 and 6, 19 and 19) cannot swap labels unnoticed.
+    """
+    return set(bucket.split("_")) <= set(re.findall(r"[a-z]+", header))
+
+
+def test_the_readme_section_is_captioned_honestly():
+    section = _readme_comparison_section()
+    for required in ("not a held-out", "worst-case persuaded assessor", "written by the policy author"):
+        assert required in section
+    assert "LLM decides" not in section and "%" not in section and EM_DASH not in section
+    assert all(re.search(r"\(of [\w ]+\)$", header) for header in _readme_table_headers())
+
+
+def test_the_readme_names_each_ablation_credited_case():
+    section = _readme_comparison_section()
+    for case_key in ABLATION_UNSAFE_CASES:
+        bullet = re.search(rf"^- `{case_key}`: (.*?)(?=^- |^$)", section, re.MULTILINE | re.DOTALL)
+        assert bullet and "record" in bullet.group(1), case_key
+
+
+def test_the_readme_states_that_the_held_out_comparison_is_unfulfilled():
+    readme = README_PATH.read_text()
+    limitations = readme[readme.index("## Known limitations"):]
+    assert "held-out system-level workload remains unfulfilled" in limitations
+
+
+@requires_real_fixture
+def test_the_readme_table_matches_the_generated_comparison(comparison):
+    report, _ = comparison
+    table = _readme_table()
+    assert set(table) == set(SYSTEMS)
+    *bucket_headers, containment_header = _readme_table_headers()
+    assert len(bucket_headers) == len(BUCKETS) and containment_header.startswith("containment")
+    for system, cells in table.items():
+        summary = report["system_comparison"][system]
+        for header, bucket in zip(bucket_headers, BUCKETS, strict=True):
+            assert _names_bucket(header, bucket), (header, bucket)
+            assert header.endswith(f"(of {summary['buckets'][bucket]['denominator']})"), header
+        *bucket_cells, containment_cell = cells
+        assert [int(cell) for cell in bucket_cells] == [summary["buckets"][b]["count"] for b in BUCKETS]
+        containment = summary["containment"]
+        assert containment_cell == f"{containment['count']} of {containment['of_concluded']}"
