@@ -26,7 +26,9 @@ import argparse
 import json
 import logging
 import math
+import shutil
 import statistics
+import tempfile
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -34,6 +36,13 @@ import duckdb
 
 from etl.demand_labels import Kind, reason_row
 from etl.demand_report_render import render_charts, render_markdown
+from etl.demand_snapshot import (
+    EVAL_REPORT_SOURCE,
+    OPTIONAL_SNAPSHOT_KEY,
+    build_snapshot,
+    is_number,
+    read_snapshot,
+)
 from etl.extract import DATA_DIR, DEFAULT_WAREHOUSE_PATH, REPO_ROOT
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -48,7 +57,6 @@ REPORT_MD_NAME = "demand-report.md"
 # Paths as they appear inside the report: repo-relative, never the machine's.
 WAREHOUSE_SOURCE = "data/warehouse.duckdb"
 SNAPSHOT_SOURCE = "docs/analysis/inputs/eval_cost_snapshot.json"
-EVAL_REPORT_SOURCE = "data/eval_report.json"
 
 SCHEMA_VERSION = 1
 
@@ -88,32 +96,6 @@ PROJECTION_PREREQUISITE = (
     "Real complaint-to-transaction linkage or a redesigned intake is required before any "
     "automation share can be claimed."
 )
-
-# AD-6 allowlist: the only keys the committed snapshot may hold. The eval's
-# free-text notes are left out: the report never quotes them.
-SNAPSHOT_KEYS = {
-    "source": None,
-    "disclosure": None,
-    "sample_size": None,
-    "safe_automated_resolution_rate": ("count", "of_attempted", "rate"),
-    "estimated_cost_usd": (
-        "per_attempted_case_mean", "per_successful_resolution", "pricing_source", "method",
-    ),
-    "latency_seconds": ("p50", "p95"),
-    "real_data_match_rate_finding": ("sample_size", "real_matches_found", "source"),
-}
-OPTIONAL_SNAPSHOT_KEY = "real_data_match_rate_finding"
-# Keys and sub-fields (None: the key itself) the report does arithmetic on;
-# None or text there is unusable.
-SNAPSHOT_NUMERIC_FIELDS = {
-    ("sample_size", None),
-    ("safe_automated_resolution_rate", "count"),
-    ("safe_automated_resolution_rate", "of_attempted"),
-    ("safe_automated_resolution_rate", "rate"),
-    ("real_data_match_rate_finding", "sample_size"),
-    ("real_data_match_rate_finding", "real_matches_found"),
-}
-
 
 def _share(part: int | float, whole: int | float) -> float | None:
     return round(part / whole, 4) if whole else None
@@ -230,6 +212,9 @@ def weekly_demand(con: duckdb.DuckDBPyConnection) -> dict:
     total = sum(w["total"] for w in weeks)
     full = [w for w in weeks if not w["partial"]]
     share_band = _flat_share_band(len(categories))
+    variability = [
+        _category_variability(category, weeks, total, share_band) for category in categories
+    ]
     return {
         "kind": Kind.MEASURED,
         "n": total,
@@ -240,9 +225,8 @@ def weekly_demand(con: duckdb.DuckDBPyConnection) -> dict:
             "share_band": list(share_band),
             "cv_tolerance_vs_poisson": FLAT_CV_TOLERANCE,
         },
-        "variability": [
-            _category_variability(category, weeks, total, share_band) for category in categories
-        ],
+        "variability": variability,
+        "all_flat": bool(variability) and all(v["flat"] for v in variability),
         "weeks": weeks,
     }
 
@@ -359,18 +343,22 @@ def focus_first_response(con: duckdb.DuckDBPyConnection) -> dict:
             "kind": Kind.MEASURED,
             "by_status": [{"status": s, "count": c} for s, c in missing_by_status],
         },
-        "within_contact_window": {
-            "value": _share(within, n),
-            "n": n,
-            "kind": Kind.MEASURED,
-            "window_hours": CONTACT_WINDOW_HOURS,
-            "note": (
-                f"Share of RECORDED first responses within {CONTACT_WINDOW_HOURS} calendar "
-                "hours. Cases with no first response are censored and excluded, so this share "
-                "says nothing about them."
-            ),
-        },
+        "within_contact_window": _within_contact_window(within, n),
         "histogram_1h": [{"hour_end": hour_end, "count": c} for hour_end, c in histogram],
+    }
+
+
+def _within_contact_window(within: int, n: int) -> dict:
+    return {
+        "value": _share(within, n),
+        "n": n,
+        "kind": Kind.MEASURED,
+        "window_hours": CONTACT_WINDOW_HOURS,
+        "note": (
+            f"Share of RECORDED first responses within {CONTACT_WINDOW_HOURS} calendar "
+            "hours. Cases with no first response are censored and excluded, so this share "
+            "says nothing about them."
+        ),
     }
 
 
@@ -420,7 +408,7 @@ def call_center(con: duckdb.DuckDBPyConnection) -> dict:
     }
 
 
-def _share_spread(shares: list[float]) -> dict:
+def _share_spread(shares: list[float | None]) -> dict:
     """Uniform when every share is within FLAT_SHARE_TOLERANCE of an even split."""
     even = round(1 / len(shares), 4) if shares else None
     return {
@@ -442,20 +430,15 @@ def _median_similarity(medians: list[float]) -> dict:
 
 
 def data_quality(con: duckdb.DuckDBPyConnection) -> dict:
-    both_dates, before, closed, closed_no_date, linked, total, null_currency = con.execute(
+    both_dates, before, closed, closed_no_date, linked, total = con.execute(
         "SELECT "
         "count(*) FILTER (WHERE first_response_date IS NOT NULL AND resolution_date IS NOT NULL), "
         "count(*) FILTER (WHERE resolution_date < first_response_date), "
         "count(*) FILTER (WHERE status IN ?), "
         "count(*) FILTER (WHERE status IN ? AND resolution_date IS NULL), "
-        "count(origin_interaction_id), count(*), count(*) FILTER (WHERE currency IS NULL) "
-        "FROM complaints",
+        "count(origin_interaction_id), count(*) FROM complaints",
         [list(CLOSED_STATUSES), list(CLOSED_STATUSES)],
     ).fetchone()
-    by_currency = con.execute(
-        "SELECT currency, count(*), count(claimed_amount), median(claimed_amount) "
-        "FROM complaints WHERE currency IS NOT NULL GROUP BY 1 ORDER BY 1"
-    ).fetchall()
     return {
         "resolution_before_first_response": {
             "value": before, "n": both_dates, "kind": Kind.MEASURED,
@@ -465,32 +448,44 @@ def data_quality(con: duckdb.DuckDBPyConnection) -> dict:
             "value": closed_no_date, "n": closed, "kind": Kind.MEASURED,
             "statuses": list(CLOSED_STATUSES),
         },
-        "claimed_amount_by_currency": {
-            "kind": Kind.MEASURED,
-            "n": total,
-            "null_currency": {"value": null_currency, "n": total, "kind": Kind.MEASURED},
-            "note": (
-                "Medians per currency, never summed across currencies. Medians of similar size "
-                "in currencies with very different FX rates are not consistent with real "
-                "amounts in those currencies."
-            ),
-            "median_similarity": _median_similarity(
-                [median for *_, median in by_currency if median is not None]
-            ),
-            "rows": [
-                {
-                    "currency": currency,
-                    "complaints": c,
-                    "amount_n": amount_n,
-                    "median_amount": None if median is None else round(median, 2),
-                }
-                for currency, c, amount_n, median in by_currency
-            ],
-        },
+        "claimed_amount_by_currency": _claimed_amounts(con),
         "complaint_interaction_link": {
             "value": _share(linked, total), "n": total, "kind": Kind.MEASURED, "linked": linked,
             "note": "Share of complaints with origin_interaction_id populated.",
         },
+    }
+
+
+def _claimed_amounts(con: duckdb.DuckDBPyConnection) -> dict:
+    """Medians per currency; amounts are never summed across currencies."""
+    total, null_currency = con.execute(
+        "SELECT count(*), count(*) FILTER (WHERE currency IS NULL) FROM complaints"
+    ).fetchone()
+    by_currency = con.execute(
+        "SELECT currency, count(*), count(claimed_amount), median(claimed_amount) "
+        "FROM complaints WHERE currency IS NOT NULL GROUP BY 1 ORDER BY 1"
+    ).fetchall()
+    return {
+        "kind": Kind.MEASURED,
+        "n": total,
+        "null_currency": {"value": null_currency, "n": total, "kind": Kind.MEASURED},
+        "note": (
+            "Medians per currency, never summed across currencies. Medians of similar size "
+            "in currencies with very different FX rates are not consistent with real "
+            "amounts in those currencies."
+        ),
+        "median_similarity": _median_similarity(
+            [median for *_, median in by_currency if median is not None]
+        ),
+        "rows": [
+            {
+                "currency": currency,
+                "complaints": c,
+                "amount_n": amount_n,
+                "median_amount": None if median is None else round(median, 2),
+            }
+            for currency, c, amount_n, median in by_currency
+        ],
     }
 
 
@@ -515,7 +510,7 @@ def cost_blocks(snapshot: dict, focus: dict, call_center_block: dict) -> dict:
         raise ValueError(f"contact reason {ANCHOR_CONTACT_REASON!r} has no recorded handle time")
 
     per_success = cost["per_successful_resolution"]
-    per_success_value = per_success if isinstance(per_success, int | float) else None
+    per_success_value = per_success if is_number(per_success) else None
 
     return {
         "time_to_first_action": {
@@ -560,10 +555,11 @@ def cost_blocks(snapshot: dict, focus: dict, call_center_block: dict) -> dict:
 
 def _baseline_note(finding: dict | None) -> str:
     if finding is None:
-        return "Baseline: no real-data match evidence is available, so no share is credited."
+        return "Baseline: no complaint-to-transaction match evidence is available."
     return (
-        f"Evidence-based baseline: {finding['real_matches_found']} real amount and date match "
-        f"in a sample of {finding['sample_size']:,} real complaints (eval snapshot)."
+        f"Baseline: {finding['real_matches_found']} amount and date match in a sample of "
+        f"{finding['sample_size']:,} dataset complaints (eval snapshot). The dataset generates "
+        "complaints and transactions independently, so it gives no basis for any share above 0."
     )
 
 
@@ -655,94 +651,16 @@ def _real_data_match(finding: dict) -> dict:
         "source": finding["source"],
         "rare_threshold": RARE_MATCH_RATE,
         "rare": bool(sample) and matches / sample < RARE_MATCH_RATE,
-        "note": "Quoted from the eval snapshot, not recomputed here.",
+        "note": (
+            "Quoted from the eval snapshot, not recomputed here. Measured on this synthetic "
+            "dataset, which generates complaints and transactions independently; it says "
+            "nothing about a real bank's match rate."
+        ),
     }
-
-
-def read_snapshot(path: Path) -> dict:
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Eval cost snapshot not found at {path}. Run `python -m eval.run_eval` and then "
-            "`python -m etl.analyze_demand --refresh-eval-snapshot`."
-        )
-    snapshot = _read_json(path, "Eval cost snapshot")
-    missing = _missing_snapshot_fields(snapshot)
-    if missing:
-        raise ValueError(
-            f"Eval cost snapshot at {path} lacks {missing}. Regenerate it with "
-            "`python -m etl.analyze_demand --refresh-eval-snapshot`."
-        )
-    return snapshot
-
-
-def _is_number(value) -> bool:
-    return isinstance(value, int | float) and not isinstance(value, bool)
-
-
-def _missing_snapshot_fields(snapshot) -> list[str]:
-    """Dotted names of the allowlisted keys and sub-fields the snapshot lacks
-    or holds in an unusable shape; only the real-data finding may be absent.
-    """
-    if not isinstance(snapshot, dict):
-        return ["(root object)"]
-    missing = []
-    for key, fields in SNAPSHOT_KEYS.items():
-        value = snapshot.get(key)
-        if value is None:
-            if key != OPTIONAL_SNAPSHOT_KEY:
-                missing.append(key)
-            continue
-        if fields is None:
-            numeric = (key, None) in SNAPSHOT_NUMERIC_FIELDS
-            if not (_is_number(value) if numeric else isinstance(value, str)):
-                missing.append(key)
-            continue
-        if not isinstance(value, dict):
-            missing.append(key)
-            continue
-        missing += [
-            f"{key}.{field}" for field in fields
-            if field not in value
-            or ((key, field) in SNAPSHOT_NUMERIC_FIELDS and not _is_number(value[field]))
-        ]
-    return missing
-
-
-def _allowlisted(value, fields: tuple[str, ...] | None):
-    if fields is None or not isinstance(value, dict):
-        return value
-    return {field: value[field] for field in fields if field in value}
-
-
-def _read_json(path: Path, label: str):
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"{label} at {path} is not valid JSON: {exc}") from exc
 
 
 def refresh_snapshot(*, eval_report_path: Path, snapshot_path: Path) -> dict:
-    """Copies only the AD-6 allowlist from the eval report, so no case id,
-    customer data or prompt can reach the committed snapshot.
-    """
-    if not eval_report_path.exists():
-        raise FileNotFoundError(
-            f"Eval report not found at {eval_report_path}. Run `python -m eval.run_eval` first."
-        )
-    report = _read_json(eval_report_path, "Eval report")
-    if not isinstance(report, dict):
-        raise ValueError(f"Eval report at {eval_report_path} is not a JSON object")
-    source = {
-        **report,
-        OPTIONAL_SNAPSHOT_KEY: (report.get("escalation_quality") or {}).get(OPTIONAL_SNAPSHOT_KEY),
-    }
-    snapshot: dict = {"source": EVAL_REPORT_SOURCE}
-    for key, fields in SNAPSHOT_KEYS.items():
-        if key != "source" and source.get(key) is not None:
-            snapshot[key] = _allowlisted(source[key], fields)
-    missing = _missing_snapshot_fields(snapshot)
-    if missing:
-        raise ValueError(f"Eval report at {eval_report_path} lacks {missing}")
+    snapshot = build_snapshot(eval_report_path)
     _write_json(snapshot, snapshot_path)
     return snapshot
 
@@ -774,15 +692,23 @@ def run(
     finally:
         con.close()
     markdown = render_markdown(report)
-    _write_json(report, out_dir / REPORT_JSON_NAME)
-    _write_text(markdown, out_dir / REPORT_MD_NAME)
-    _write_charts(report, out_dir)
+    with tempfile.TemporaryDirectory() as staging:
+        charts = _render_charts(report, Path(staging), out_dir)
+        _write_json(report, out_dir / REPORT_JSON_NAME)
+        _write_text(markdown, out_dir / REPORT_MD_NAME)
+        for chart in charts:
+            target = out_dir / chart.name
+            shutil.move(chart, target)
+            logger.info("Wrote %s", target)
     return report
 
 
-def _write_charts(report: dict, out_dir: Path) -> None:
+def _render_charts(report: dict, staging_dir: Path, out_dir: Path) -> list[Path]:
+    """Charts are rendered before any file is written, so a chart failure
+    leaves the previous report untouched.
+    """
     try:
-        paths = render_charts(report, out_dir)
+        return render_charts(report, staging_dir)
     except ModuleNotFoundError as exc:
         if exc.name != "matplotlib":
             raise
@@ -792,9 +718,7 @@ def _write_charts(report: dict, out_dir: Path) -> None:
             "`pip install -r requirements-analysis.txt` and rerun.",
             out_dir,
         )
-        return
-    for path in paths:
-        logger.info("Wrote %s", path)
+        return []
 
 
 def main(argv: list[str] | None = None) -> int:

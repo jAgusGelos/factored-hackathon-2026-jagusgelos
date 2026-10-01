@@ -20,7 +20,7 @@ class Kind(StrEnum):
 KINDS = frozenset(Kind)
 
 KIND_MEANINGS = {
-    Kind.MEASURED: "measured on real data, here or in the cited source",
+    Kind.MEASURED: "measured on the dataset, here or in the cited source",
     Kind.ASSUMED: "an input with no data behind it",
     Kind.SIMULATED: "from the offline eval",
     Kind.PROJECTION: "arithmetic over the others",

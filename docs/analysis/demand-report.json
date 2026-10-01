@@ -227,6 +227,7 @@
           "flat": true
         }
       ],
+      "all_flat": true,
       "weeks": [
         {
           "week_start": "2023-06-12",
@@ -2724,7 +2725,7 @@
       "source": "etl/build_fixture.py development, Milestone 1, 2026-09-28",
       "rare_threshold": 0.01,
       "rare": true,
-      "note": "Quoted from the eval snapshot, not recomputed here."
+      "note": "Quoted from the eval snapshot, not recomputed here. Measured on this synthetic dataset, which generates complaints and transactions independently; it says nothing about a real bank's match rate."
     }
   },
   "cost": {
@@ -2800,7 +2801,7 @@
           "n": null,
           "kind": "assumed",
           "label": "baseline",
-          "note": "Evidence-based baseline: 1 real amount and date match in a sample of 2,000 real complaints (eval snapshot)."
+          "note": "Baseline: 1 amount and date match in a sample of 2,000 dataset complaints (eval snapshot). The dataset generates complaints and transactions independently, so it gives no basis for any share above 0."
         },
         {
           "value": 0.2069,

@@ -59,6 +59,10 @@ def _usd_value(value: float | None) -> str:
     return NOT_AVAILABLE if value is None else f"USD {value}"
 
 
+def _amount(value: float | None) -> str:
+    return NOT_AVAILABLE if value is None else f"{value:,.2f}"
+
+
 def _raw_seconds(value: float | None) -> str:
     return NOT_AVAILABLE if value is None else f"{value} s"
 
@@ -78,10 +82,6 @@ def _table(header: list[str], rows: list[list[str]]) -> str:
     return "\n".join(lines)
 
 
-def _all_flat(weekly: dict) -> bool:
-    return bool(weekly["variability"]) and all(v["flat"] for v in weekly["variability"])
-
-
 def _distribution_table(block: dict, label: str) -> str:
     rows = [[_key(r["key"]), _num(r["count"]), _pct(r["share"])] for r in block["rows"]]
     return _table([label, "Complaints", "Share"], rows)
@@ -89,10 +89,10 @@ def _distribution_table(block: dict, label: str) -> str:
 
 def _flatness_finding(weekly: dict) -> str:
     variability = weekly["variability"]
-    not_flat = [v["category"] for v in variability if not v["flat"]]
-    if not_flat:
+    if not weekly["all_flat"]:
+        not_flat = [v["category"] for v in variability if not v["flat"]]
         headline = "Complaint demand is not flat by category"
-        verdict = "Not flat by the flatness rule below: " + ", ".join(not_flat) + "."
+        verdict = "Not flat by the flatness rule below: " + (", ".join(not_flat) or "n/a") + "."
     else:
         headline = "Complaint demand is flat by category"
         verdict = (
@@ -110,7 +110,7 @@ def _flatness_finding(weekly: dict) -> str:
 
 
 def _join_key_sentence(link: dict) -> str:
-    if link["value"] == 0:
+    if link["linked"] == 0:
         return "because no key joins a complaint to a call."
     return (
         f"because only {_pct(link['value'])} of complaints link to a call, so call time is "
@@ -133,8 +133,8 @@ def _call_center_finding(report: dict) -> str:
         f"**{headline}** (measured). "
         f"Over {_num(center['n'])} "
         f"contacts ({_day(center['window']['start'])} to {_day(center['window']['end'])}), "
-        f"contact-reason shares range from {_pct(center['share_spread']['min'])} to "
-        f"{_pct(center['share_spread']['max'])}. \"{anchor['contact_reason']}\" is "
+        f"contact-reason shares range from {_pct(spread['min'])} to "
+        f"{_pct(spread['max'])}. \"{anchor['contact_reason']}\" is "
         f"{_pct(anchor['share'])} of contacts and {_pct(anchor['handle_seconds_share'])} of "
         f"handle seconds, with a median of {_seconds(anchor['median_handle_seconds'])} and "
         f"{_pct(anchor['resolved_on_contact_share'])} resolved on contact; "
@@ -160,10 +160,6 @@ def _first_response_finding(focus: dict) -> str:
         f"{_pct(focus['within_contact_window']['value'])} of recorded first responses came "
         f"within {focus['within_contact_window']['window_hours']} calendar hours."
     )
-
-
-def _similar_medians(amounts: dict) -> bool:
-    return amounts["median_similarity"]["similar"]
 
 
 def _currency_sentence(amounts: dict) -> str:
@@ -197,14 +193,15 @@ def _rare_match(match: dict | None) -> bool:
 
 def _eval_match_finding(match: dict) -> str:
     headline = (
-        "Real complaints rarely match a real transaction"
+        "Complaints in this dataset rarely match a transaction"
         if _rare_match(match)
-        else "Real complaint-to-transaction match"
+        else "Complaint-to-transaction match in this dataset"
     )
     return (
-        f"**{headline}** (measured, quoted from the "
-        f"eval snapshot): {_num(match['value'])} match in a sample of {_num(match['n'])} "
-        f"complaints (source: {match['source']}). It is not recomputed here."
+        f"**{headline}** (measured, quoted from the eval snapshot): {_num(match['value'])} "
+        f"amount and date match in a sample of {_num(match['n'])} complaints (source: "
+        f"{match['source']}). The dataset generates complaints and transactions "
+        "independently, so this describes the data available here, not a real bank."
     )
 
 
@@ -233,7 +230,7 @@ def _why_disputes(report: dict) -> str:
     volume = (
         "Volume does not single disputes out (complaint demand is flat by category), so the "
         "choice of workflow rests on a design argument, not on demand."
-        if _all_flat(report["demand"]["weekly"])
+        if report["demand"]["weekly"]["all_flat"]
         else "Volume alone is not the reason for the choice of workflow; it rests on a design "
         "argument."
     )
@@ -248,7 +245,7 @@ def _does_not_tell_us(report: dict) -> str:
         f"{_pct(link['value'])} of complaints link to a call, so call time is not dispute time.",
         "Any real automation rate: the eval scenarios are constructed on purpose"
         + (
-            ", and real complaints almost never match a real transaction."
+            ", and complaints in this dataset almost never match a transaction."
             if _rare_match(report["eval"]["real_data_match"])
             else "."
         ),
@@ -260,7 +257,7 @@ def _does_not_tell_us(report: dict) -> str:
         "Real monetary amounts"
         + (
             ": the per-currency medians are not consistent with exchange rates."
-            if _similar_medians(report["data_quality"]["claimed_amount_by_currency"])
+            if report["data_quality"]["claimed_amount_by_currency"]["median_similarity"]["similar"]
             else ": amounts are reported per currency only."
         ),
         "Seasonality: passing a flatness heuristic over this window is not evidence of \"no "
@@ -470,7 +467,7 @@ def _data_quality_section(report: dict) -> str:
         ["Currency", "Complaints", "With amount", "Median claimed amount"],
         [
             [_key(r["currency"]), _num(r["complaints"]), _num(r["amount_n"]),
-             NOT_AVAILABLE if r["median_amount"] is None else f"{r['median_amount']:,.2f}"]
+             _amount(r["median_amount"])]
             for r in amounts["rows"]
         ],
     )

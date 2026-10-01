@@ -16,6 +16,7 @@ from app import policy
 from etl import analyze_demand as ad
 from etl import demand_labels as labels
 from etl import demand_report_render as render
+from etl import demand_snapshot as snap
 from etl.demand_labels import KINDS
 
 H = 3600
@@ -148,7 +149,7 @@ def _assert_contract(report: dict) -> None:
             assert "n" in node and "coverage" in node, node
 
 
-@pytest.mark.parametrize("module", [ad, render, labels])
+@pytest.mark.parametrize("module", [ad, render, labels, snap])
 def test_module_imports_neither_app_nor_eval(module):
     source = Path(module.__file__).read_text()
     assert not re.search(r"^\s*(from|import)\s+(app|eval)\b", source, re.MULTILINE)
@@ -327,10 +328,10 @@ def test_refresh_copies_only_the_allowlist(tmp_path):
 
 def test_committed_snapshot_keys_are_the_allowlist():
     snapshot = json.loads(ad.DEFAULT_SNAPSHOT_PATH.read_text())
-    assert set(snapshot) == set(ad.SNAPSHOT_KEYS)
-    for key, fields in ad.SNAPSHOT_KEYS.items():
-        if fields is not None:
-            assert set(snapshot[key]) == set(fields), key
+    assert set(snapshot) == set(snap.SNAPSHOT_SCHEMA)
+    for key, spec in snap.SNAPSHOT_SCHEMA.items():
+        if isinstance(spec, dict):
+            assert set(snapshot[key]) == set(spec), key
 
 
 def test_refresh_rejects_eval_report_missing_a_nested_field(tmp_path):
@@ -348,13 +349,23 @@ def test_refresh_rejects_eval_report_missing_a_nested_field(tmp_path):
         ("{not json", "not valid JSON"),
         (json.dumps({k: v for k, v in SNAPSHOT.items() if k != "latency_seconds"}),
          "latency_seconds"),
+        ("[]", "not a JSON object"),
+        (json.dumps({**SNAPSHOT, "safe_automated_resolution_rate": {
+            **SNAPSHOT["safe_automated_resolution_rate"], "rate": None}}),
+         r"safe_automated_resolution_rate\.rate"),
+        (json.dumps({**SNAPSHOT, "safe_automated_resolution_rate": {
+            **SNAPSHOT["safe_automated_resolution_rate"], "rate": 1.5}}),
+         r"safe_automated_resolution_rate\.rate"),
+        (json.dumps({**SNAPSHOT, "sample_size": 29.5}), "sample_size"),
+        (json.dumps({**SNAPSHOT, "latency_seconds": {"p50": float("nan"), "p95": 0.4}}),
+         r"latency_seconds\.p50"),
     ],
 )
 def test_invalid_snapshot_is_rejected_with_its_path(tmp_path, content, message):
     path = tmp_path / "snapshot.json"
     path.write_text(content)
     with pytest.raises(ValueError, match=message) as excinfo:
-        ad.read_snapshot(path)
+        snap.read_snapshot(path)
     assert str(path) in str(excinfo.value)
 
 
@@ -402,6 +413,7 @@ def test_markdown_sections_and_labels(report):
 def test_flat_headline_and_currency_claim_follow_the_json(report):
     for variability in report["demand"]["weekly"]["variability"]:
         variability["flat"] = True
+    report["demand"]["weekly"]["all_flat"] = True
     report["data_quality"]["claimed_amount_by_currency"]["median_similarity"]["similar"] = True
     markdown = render.render_markdown(report)
     assert "**Complaint demand is flat by category**" in _tldr(markdown)
@@ -478,8 +490,8 @@ def _focus_max_first_response_hours(report: dict) -> float:
 def _contact_deadline_shortfall(report: dict) -> float | None:
     """Regression guard, not a validation of the customer promise: returns the
     longest recorded "Cargo no reconocido" first response when the escalation
-    deadline, read as calendar hours, is shorter than it, else None. 3 business
-    days always span at least 72 calendar hours. Complaints with no first
+    deadline, read as calendar hours, is shorter than it, else None. Business
+    days span at least as many calendar hours. Complaints with no first
     response (censored) are not in the maximum, so they are not checked.
     """
     max_hours = _focus_max_first_response_hours(report)
@@ -502,12 +514,12 @@ def test_contact_window_is_within_the_escalation_deadline():
 
 
 def test_report_without_real_data_match(con):
-    snapshot = {k: v for k, v in SNAPSHOT.items() if k != ad.OPTIONAL_SNAPSHOT_KEY}
+    snapshot = {k: v for k, v in SNAPSHOT.items() if k != snap.OPTIONAL_SNAPSHOT_KEY}
     report = ad.build_report(con, snapshot)
     _assert_contract(report)
     assert report["eval"]["real_data_match"] is None
     baseline = report["cost"]["projection"]["automation_shares"][0]
-    assert baseline["note"].startswith("Baseline: no real-data match evidence")
+    assert baseline["note"].startswith("Baseline: no complaint-to-transaction match evidence")
     tldr = _tldr(render.render_markdown(report))
     assert re.findall(r"^\d+\. ", tldr, re.MULTILINE) == ["1. ", "2. ", "3. ", "4. "]
 
@@ -544,3 +556,19 @@ def test_offline_modules_do_not_pull_in_app_or_eval():
         cwd=Path(ad.__file__).resolve().parent.parent,
     )
     assert result.stdout.strip() == ""
+
+
+def test_match_headline_follows_the_rare_verdict(report):
+    assert "rarely match a transaction" in _tldr(render.render_markdown(report))
+    report["eval"]["real_data_match"]["rare"] = False
+    tldr = _tldr(render.render_markdown(report))
+    assert "Complaint-to-transaction match in this dataset" in tldr
+    assert "rarely" not in tldr
+
+
+def test_refresh_tolerates_a_malformed_escalation_block(tmp_path):
+    eval_report = {k: v for k, v in SNAPSHOT.items() if k != snap.OPTIONAL_SNAPSHOT_KEY}
+    source = tmp_path / "eval_report.json"
+    source.write_text(json.dumps({**eval_report, "escalation_quality": ["x"]}))
+    snapshot = ad.refresh_snapshot(eval_report_path=source, snapshot_path=tmp_path / "s.json")
+    assert snap.OPTIONAL_SNAPSHOT_KEY not in snapshot
