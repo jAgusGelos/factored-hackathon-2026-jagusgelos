@@ -78,9 +78,11 @@ or rule name reaches the customer. The reply carries the same values in `escalat
 "Caso derivado" card and the client panel render from it (case number first, then a two-step
 timeline: handed off, then "Le contactamos" within the deadline). **The deadline is a demo
 assumption** (`policy.ESCALATION_CONTACT_BUSINESS_DAYS = 3`; this simulated bank has no real contact
-process), sized from the dataset: for "Cargo no reconocido" complaints (n = 12,297) the first
-response took a median of 37 h and a p90 of 58 h, so 3 business days covers the p90 once a weekend
-is in the way. It promises contact, not a resolution.
+process), sized from the dataset: of 12,297 "Cargo no reconocido" complaints, 7,567 have a recorded
+first response, with a median of 37 h, a p90 of 58 h and an observed maximum of 72 calendar hours;
+the other 4,730 have none yet, so the data says nothing about them. 3 business days always span at
+least 72 calendar hours ([demand report](docs/analysis/demand-report.md)). It promises contact, not
+a resolution.
 
 ## Dispute policy: the evidence decides, not the claim (AD-13)
 
@@ -106,6 +108,38 @@ answer gets one follow-up question, a contradiction or a person-only reason esca
 explanation that "sounds convincing" still has to pass the evidence check above. The eval
 harness's `policy_abuse` group runs every one of these abuse paths with the assessment model
 mocked as fully convinced (the worst case), and all of them escalate.
+
+## Demand analysis (why this workflow)
+
+`python -m etl.analyze_demand` turns the warehouse into a versioned report,
+[`docs/analysis/demand-report.md`](docs/analysis/demand-report.md), rendered from
+[`demand-report.json`](docs/analysis/demand-report.json). Every number is labeled measured,
+assumed, simulated, projection or design-argument, and every percentile shows its n and coverage.
+What it finds:
+
+1. **Complaint demand is flat by category.** Each of the 5 categories holds 19.7% to 20.2% of
+   67,095 complaints, and every category passes a flatness check against Poisson noise (a
+   heuristic, not a seasonality test). Volume does not single out disputes, so the report says so
+   instead of claiming it does.
+2. **Call-center contact reasons are far from uniform.** Over 19,677 contacts (2026-05-18 to
+   2026-06-18), "Transaccional" is 34.6% of contacts with a 202 s median handle time, against
+   425 s for "Queja". No key joins a complaint to a call, so this sizes the opportunity without proving
+   disputes cost more.
+3. **"Cargo no reconocido" waits 37 h for a first response** (median; p90 58 h, maximum 72 h) over
+   the 7,567 of 12,297 complaints that have one. The 4,730 without one are reported, not dropped.
+4. **Data quality limits the claims:** 492 resolutions before the first response, 772
+   Resolved/Closed complaints with no resolution date, and claimed amounts whose per-currency
+   medians are not consistent with exchange rates, so they are never summed.
+5. **Complaints in this dataset almost never match a transaction** (1 in a sample of 2,000):
+   the dataset generates them independently, so it gives no basis for any automation share above
+   0.0, which is the projection's baseline. This describes the data here, not a real bank.
+
+The choice of disputes is a labeled design argument (a dispute can be verified in code against the
+customer's own ledger and decided by an explicit policy), and the cost section keeps measured,
+simulated and projected figures in separate blocks with no ratio and no total.
+
+![Median handle time by contact reason](docs/analysis/call_reasons.png)
+![First response for "Cargo no reconocido"](docs/analysis/first_response_cargo_no_reconocido.png)
 
 ## Setup
 
@@ -142,9 +176,14 @@ uvicorn app.main:app --reload --port 8000
 # data/demo_users.json after step 2)
 
 # 5. Tests, lint, eval harness
-pytest                              # 666 tests
+pytest                              # 724 tests
 ruff check .
 python -m eval.run_eval             # -> data/eval_report.json (see "Evaluation results" below)
+
+# 6. Demand analysis report (offline; reads the warehouse from step 1, no AWS needed)
+pip install -r requirements-analysis.txt                  # matplotlib, for the two charts
+python -m etl.analyze_demand        # -> docs/analysis/demand-report.{json,md} + 2 PNGs
+python -m etl.analyze_demand --refresh-eval-snapshot      # optional, after step 5's eval run
 ```
 
 Steps 1-3 require AWS credentials (dataset access) and are offline/one-time. Step 4 (the deployed
@@ -312,9 +351,10 @@ app/            FastAPI backend — auth, state machine, policy, LLM boundary, c
 etl/            Offline ETL: extraction, quality checks, fixture generation, classifier training
 eval/           Eval harness (Milestone 5)
 static/         Frontend (vanilla HTML/CSS/JS, no build step — AD-1)
-tests/          pytest suite (666 tests)
+tests/          pytest suite (724 tests)
 support.py      Shared test/eval mock helpers (no pytest dependency — used by eval/ too)
 docs/           Challenge requirements digest
+docs/analysis/  Demand analysis report (generated by `python -m etl.analyze_demand`)
 data/           Local ETL artifacts, fixture, trained model (gitignored — never commit raw data)
 .workspace/     Full planning record: plan.md, todo.md, findings.md, DESIGN.md (gitignored)
 ```

@@ -102,10 +102,13 @@ MAX_CLARIFICATION_ROUNDS = 2
 
 # The contact deadline the escalation notice promises (a demo assumption: this
 # simulated bank has no real contact process). Sized from the warehouse's
-# `complaints`, subcategory "Cargo no reconocido" (n = 12,297): time to first
-# response has a median of 37 h and a p90 of 58 h, and 20.4% breached their
-# SLA; 2 business days would fall under that p90 once a weekend is in the way.
-# It promises contact, not a resolution (whose median is 15 days).
+# `complaints`, subcategory "Cargo no reconocido": 7,567 of its 12,297
+# complaints have a recorded first response, with a median of 37 h, a p90 of
+# 58 h and an observed maximum of 72 calendar hours; the other 4,730 have none
+# yet, so the data says nothing about them (docs/analysis/demand-report.md).
+# 3 business days always span at least 72 calendar hours, and
+# tests/test_analyze_demand.py fails if this drops below the recorded maximum.
+# It promises contact, not a resolution (a median of 15 days in Transactions).
 ESCALATION_CONTACT_BUSINESS_DAYS = 3
 
 # Milestone 8: "pick your charge" list. Showing the list is how a clarification
