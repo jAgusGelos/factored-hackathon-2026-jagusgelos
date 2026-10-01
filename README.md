@@ -174,7 +174,7 @@ uvicorn app.main:app --reload --port 8000
 # data/demo_users.json after step 2)
 
 # 5. Tests, lint, eval harness
-pytest                              # 766 tests
+pytest                              # 772 tests
 ruff check .
 python -m eval.run_eval             # -> data/eval_report.json (see "Evaluation results" below)
 ```
@@ -274,7 +274,7 @@ Each scenario runs against its own app database:
   Spanish only (except the currency-parity and statement-given cases), so the Portuguese sample is smaller.
 - Safe automated resolution rate: 0.15 (6/40; the mix is mostly escalation/adversarial by design).
 - Containment rate: 0.17 (6/36 concluded cases).
-- Pipeline latency (excludes real LLM network time): p50 0.39s, p95 0.58s.
+- Pipeline latency (excludes real LLM network time): p50 0.26s, p95 0.39s.
 - Real Claude Haiku 4.5 turn latency (manual runs, 2026-09-30): the explanation turn that resolves took 1.3-6.6 s (median 3.2 s over 8 ES/PT runs; 3.1-17.8 s before the resolution message became a validated template), while a first typed report, which makes two model calls, took 6-22 s (the "38.500 pesos" report, 3 runs per language: 4.1-21.2 s, median 8.9 s). Button and menu taps ("Ver mis últimos cargos", a tapped charge, "Sí, es ese", "No es ese", "No está en la lista", "Hablar con una persona") make no model call and were answered in 0.05-0.14 s (a tapped charge ~1 s, local policy and classifier work), down from 1.2-12.2 s when each paid an NLG call (3 runs each, 2026-09-30). Escalation and first-request-for-a-person turns write their reply from a fixed template (the notice or the question about what happened, the deferral and the offer), with no NLG call: a policy escalation from a typed report took 4.0-5.9 s (its only model call is the extraction), a typed request for a person 1.1-6.2 s (its only model call is the extraction, or the explanation check while a charge is being explained), and the same moves from a button or a tapped charge 0.1-0.9 s (manual runs, 2026-09-30). Every turn's model calls share a 20 s budget and the chat shows a typing indicator, then a retry option at 25 s.
 - Statement before the handoff (manual runs against Claude Haiku 4.5, 2026-10-01: 2 Spanish and 2
   Portuguese policy escalations, "No reconozco una compra en Tienda Online Global" and a complete
@@ -367,7 +367,7 @@ app/            FastAPI backend — auth, state machine, policy, LLM boundary, c
 etl/            Offline ETL: extraction, quality checks, fixture generation, classifier training
 eval/           Eval harness (Milestone 5)
 static/         Frontend (vanilla HTML/CSS/JS, no build step — AD-1)
-tests/          pytest suite (766 tests)
+tests/          pytest suite (772 tests)
 support.py      Shared test/eval mock helpers (no pytest dependency — used by eval/ too)
 docs/           Challenge requirements digest
 data/           Local ETL artifacts, fixture, trained model (gitignored — never commit raw data)

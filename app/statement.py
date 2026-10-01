@@ -64,14 +64,18 @@ _DATE = re.compile(
     r"(?<![\d./-])(?:\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])"
     r"|(?:0?[1-9]|[12]\d|3[01])[./-](?:0?[1-9]|1[0-2])[./-](?:\d{4}|\d{2}))(?![./\s-]?\d)"
 )
-_CURRENCY = r"(?:\$|cop|ars|usd|mxn|brl|pesos?|d[oó]lares|reales?)"
-_AMOUNT = re.compile(
-    rf"{_CURRENCY}\s*\d{{1,3}}(?:[.,]\d{{3}})+(?:[.,]\d{{1,2}})?"
-    rf"|\d{{1,3}}(?:[.,]\d{{3}})+(?:[.,]\d{{1,2}})?\s*{_CURRENCY}",
+_CURRENCY = r"(?:\$|\b(?:cop|ars|usd|mxn|brl|pesos?|d[oó]lares|reales?)\b)"
+# Up to 999.999.999 with its currency next to it; anything longer is no amount.
+_GROUPED = r"(?<![\d.,])\d{1,3}(?:[.,]\d{3}){1,2}(?:,\d{1,2})?(?![.,]?\d)"
+_AMOUNT = re.compile(rf"{_CURRENCY}\s*{_GROUPED}|{_GROUPED}\s*{_CURRENCY}", re.IGNORECASE)
+_LONG_NUMBER = re.compile(r"\d(?:[\s.,/\-–—]?\d){5,}")
+_CONTACT_OR_QUOTE = re.compile(r"@|https?://|[\"“”«»‘]")
+# An identifier named next to a long number, however that number is written.
+_IDENTIFIER = re.compile(
+    r"\b(?:documento|c[eé]dula|dni|cpf|rg|pasaporte|tel[eé]fono|celular|whatsapp|n[uú]mero|tarjeta|cuenta)\b"
+    r"\W{0,20}\$?\s*\d(?:[\s.,/\-–—]?\d){5,}",
     re.IGNORECASE,
 )
-_LONG_NUMBER = re.compile(r"\d(?:[\s.,/\-–—]?\d){5,}")
-_CONTACT_OR_QUOTE = re.compile(r"@|https?://|[\"“”«»'‘’]")
 # A copied run only counts when it carries the customer's own content, not
 # just the charge's facts in the words anyone would use for them.
 _MIN_CONTENT_WORDS = 2
@@ -124,7 +128,10 @@ def _names_personal_data(summary: str, charge: TransactionCandidate | None) -> b
     allowed = _charge_amount_digits(charge)
     without_dates_or_amounts = _AMOUNT.sub(" ", _DATE.sub(" ", summary))
     numbers = (re.sub(r"\D", "", match) for match in _LONG_NUMBER.findall(without_dates_or_amounts))
-    return any(digits not in allowed for digits in numbers) or bool(_CONTACT_OR_QUOTE.search(summary))
+    return (
+        any(digits not in allowed for digits in numbers)
+        or bool(_CONTACT_OR_QUOTE.search(summary)) or bool(_IDENTIFIER.search(summary))
+    )
 
 
 def _summary_is_safe(summary: str, customer_text: str, charge: TransactionCandidate | None) -> bool:

@@ -563,8 +563,10 @@ def test_an_escalation_that_skips_the_statement_says_why(session, app_db):
 
 @pytest.mark.parametrize(
     "summary",
-    ["El cliente no reconoce el cargo de 38.500 COP del 2026-06-09.", "Lo notó el 10/06/2026 en la app del banco."],
-    ids=["charge_amount_and_iso_date", "short_date"],
+    ["El cliente no reconoce el cargo de 38.500 COP del 2026-06-09.", "Lo notó el 10/06/2026 en la app del banco.",
+     "El cliente dice que compró por 1.200.000 pesos pero le cobraron 38.500.",
+     "Le robaron el celular y luego apareció el cargo de McDonald's."],
+    ids=["charge_amount_and_iso_date", "short_date", "another_amount_with_currency", "phone_story_and_apostrophe"],
 )
 def test_a_summary_with_the_charge_amount_or_a_date_is_kept(session, app_db, summary):
     held, _ = _held(session, app_db)
@@ -576,9 +578,10 @@ def test_a_summary_with_the_charge_amount_or_a_date_is_kept(session, app_db, sum
 
 @pytest.mark.parametrize(
     "summary",
-    ["Teléfono 300 555 1234 para contactarlo.", "Cédula 1.023.456.789 del cliente.", "Pidió que 'devuelvan todo'.",
-     "No reconozco este cargo nunca"],
-    ids=["phone", "dotted_document", "single_quotes", "short_echo"],
+    ["Teléfono 300 555 1234 para contactarlo.", "Cédula 1.023.456.789 del cliente.", "Pidió que «devuelvan todo».",
+     "No reconozco este cargo nunca", "El cliente indicó documento 123.456.789 pesos.",
+     "Reporta la tarjeta $4.512.345.678.901.234 como robada."],
+    ids=["phone", "dotted_document", "quotes", "short_echo", "identifier_like_an_amount", "card_like_an_amount"],
 )
 def test_a_summary_with_other_numbers_quotes_or_a_short_echo_is_dropped(session, app_db, summary):
     held, _ = _held(session, app_db)
@@ -624,3 +627,27 @@ def test_a_failure_after_an_earlier_summary_hands_it_off_and_says_so(session, ap
         {"pending_escalation_reason": "needs_review", "failure_class": "unavailable"},
     ]
     assert logged_events(app_db, "handoff_statement_unavailable") == []
+
+
+def test_facts_given_with_a_dropped_summary_still_count_as_an_account(session, app_db):
+    held, _ = _held(session, app_db)
+    dropped = {**NO_CARD_FACT, "summary": "Cédula 1.023.456.789 del cliente."}
+
+    _say(session, app_db, held["case_id"], statement=dropped)
+    final = _say(session, app_db, held["case_id"], "Hablar con una persona", action=CustomerAction.HUMAN)
+
+    assert final["state"] == CaseState.ESCALATED
+    assert logged_events(app_db, "handoff_statement_insisted") == []
+
+
+def test_a_dropped_summary_on_the_last_refusal_is_logged_once(session, app_db):
+    held, _ = _held(session, app_db)
+    refusal = {**DECLINE, "summary": "Cédula 1.023.456.789 del cliente."}
+
+    _say(session, app_db, held["case_id"], "prefiero no decirlo", statement=refusal)
+    _say(session, app_db, held["case_id"], "no, gracias", statement=refusal)
+
+    assert len(logged_events(app_db, "handoff_statement_summary_dropped")) == 2
+    assert event_sequence(app_db, held["case_id"])[-3:] == [
+        "handoff_statement_summary_dropped", "handoff_statement_declined", "case_escalated",
+    ]
