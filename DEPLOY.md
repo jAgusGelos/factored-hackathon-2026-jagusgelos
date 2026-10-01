@@ -1,7 +1,7 @@
 # Deployment guide (Task 6.1 / 6.2)
 
 > **Status: artifacts prepared, deploy NOT executed.** Fly.io requires a credit card on
-> file (`plan.md` "Open Questions", AD-7's tradeoffs). Provisioning a paid account is a
+> file (dispute-agent AD-7 in `docs/architecture-decisions.md`). Provisioning a paid account is a
 > decision + action reserved for the user, so this session stops at "ready to deploy"
 > and documents the exact steps below instead of running them. Everything in this file
 > is verified consistent with the actual code (paths, ports, env vars) but the
@@ -18,7 +18,7 @@
   must actually take effect) and never touches `data/app.db` (the session/case store),
   which is the only real state and is what makes the restart-persistence claim (AD-4) true.
 - `.dockerignore` — keeps the image lean and excludes secrets/raw data by construction
-  (`.env`, `raw-docs/`, `.workspace/`, the full `data/` warehouse) while still allowing
+  (`.env`, `raw-docs/`, the local planning record in `.workspace/`, the full `data/` warehouse) while still allowing
   the 3 specific seed files above.
 - `fly.toml` — primary target (AD-7), single machine + mounted volume at `/app/data`.
 - `render.yaml` — documented fallback if Fly.io provisioning fails or the card decision

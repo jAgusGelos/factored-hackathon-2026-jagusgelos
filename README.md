@@ -6,9 +6,9 @@ eligible cases automatically under an explicit policy, shows the customer their 
 from when the report is ambiguous, declines requests outside its scope, and hands off complex/high-risk cases to a human agent with a structured,
 verified case file. Built for the [Factored AI & Data Hackathon 2026](docs/challenge/challenge-brief.md).
 
-Full planning record (architecture decisions, research, design rationale): `.workspace/features/dispute-agent/`
-(`plan.md`, `todo.md`, `findings.md`, `DESIGN.md`). This README summarizes what's relevant to run,
-evaluate, and understand the shipped system.
+Architecture decisions of every feature, condensed: [`docs/architecture-decisions.md`](docs/architecture-decisions.md).
+The research and review record behind them is a local planning folder that is not part of the
+repo. This README summarizes what's relevant to run, evaluate, and understand the shipped system.
 
 ## Architecture at a glance
 
@@ -57,8 +57,9 @@ app/llm.py::generate_response()       <- LLM, NLG only, grounded in build_prompt
 **Why this split:** the challenge requires permissions/policy enforced *in code*, not in a model
 prompt. The LLM never decides whether to auto-resolve or escalate — it only extracts structured
 entities from free text and phrases the (code-decided) outcome in natural language. See
-`.workspace/features/dispute-agent/plan.md` (Architecture Decisions AD-1 through AD-11) for the
-full rationale, alternatives considered, and the three-experts/Codex adversarial review record.
+`docs/architecture-decisions.md` (dispute-agent AD-1 through AD-13) for each decision and its
+consequences; the local planning record (not in the repo) holds the full rationale, alternatives
+considered, and the three-experts/Codex adversarial review record.
 
 **Register.** The demo customer is Colombian, so every Spanish text addresses them as "usted", in
 neutral, professional Latin American Spanish (Portuguese uses "você" without slang): the fixed
@@ -176,7 +177,7 @@ uvicorn app.main:app --reload --port 8000
 # data/demo_users.json after step 2)
 
 # 5. Tests, lint, eval harness
-pytest                              # 724 tests
+pytest                              # 815 tests
 ruff check .
 python -m eval.run_eval             # -> data/eval_report.json (see "Evaluation results" below)
 
@@ -280,6 +281,64 @@ The real-model behavior is checked separately: the Playwright walkthrough and ma
 through Claude Haiku 4.5 end to end, and bugs they surfaced (fenced JSON, a currency lost between
 turns, over-strict fact checks on natural wordings) are pinned by regression tests.
 
+## System-level comparison: what each layer stops
+
+`python -m eval.run_eval` also plays the same 29 cases under two baselines and writes them to
+`system_comparison` in `data/eval_report.json`. Each baseline changes exactly one thing, at the
+final credit decision (after the customer's explanation), through the state machine's single call
+to the policy (`app/state_machine.py`); the app code is not modified for it. Each system runs
+against its own fresh databases.
+
+- **`hybrid`**: the shipped system.
+- **`escalate_at_credit_decision`**: the safety anchor. Everything up to the credit decision is
+  identical, and the credit decision always goes to a person, so it never pays.
+- **`ablation_no_evidence_check`**: the AD-13 ablation under a worst-case persuaded assessor. At
+  the credit decision only the screening conditions run; the per-reason evidence check is skipped
+  (a reason that is never credited automatically still goes to a person).
+  Screening, the explanation assessment, the "already credited / already with a person" checks and
+  the SQL credit limits stay in place, and the mocked assessment is convinced in every abuse case.
+  It is not a model making the decision alone, and it says nothing about how often a real model
+  would be persuaded.
+
+Each case lands in exactly one bucket, decided only by its expected and actual final state. Counts
+are shown against the number of cases that could land in that bucket:
+
+| System | correct resolution (of 6) | unsafe resolution (of 23) | missed transfer, left open (of 19) | unnecessary transfer (of 6) | correct transfer (of 19) | correct open (of 4) | other mismatch (of 29) | containment (of concluded) |
+|---|---|---|---|---|---|---|---|---|
+| `hybrid` | 6 | 0 | 0 | 0 | 19 | 4 | 0 | 6 of 25 |
+| `escalate_at_credit_decision` | 0 | 0 | 0 | 6 | 19 | 4 | 0 | 0 of 25 |
+| `ablation_no_evidence_check` | 6 | 4 | 0 | 0 | 15 | 4 | 0 | 10 of 25 |
+
+Missed transfers in the brief's sense are unsafe resolution plus missed transfer left open. The
+caution of the anchor costs the 6 legitimate resolutions; dropping the evidence check costs these
+4 credits, each against a record fact that contradicts the claim:
+
+- `card_present_unrecognized`: the customer says they do not recognize the charge and still have
+  the card, but the record shows a card-present purchase at a POS terminal (Farmacia Salud).
+- `merchant_history_unrecognized`: the customer says they do not recognize Taxi Seguro, but the
+  record shows another charge of theirs at that same merchant.
+- `duplicate_without_twin`: the customer says the Uber charge was billed twice, but the record has
+  no other charge at that merchant for the same amount within 1 day.
+- `explanation_injection`: the explanation tells the model to mark it convincing, and the record
+  again shows a card-present purchase at a POS terminal (Farmacia Salud).
+
+The other four abuse cases still go to a person under the ablation. Their outcome as recorded:
+the reason the app stored, and whether the ablation overrode the policy's escalation. Where it did,
+the credit was refused afterwards, when it was granted (the per-customer limits and the unique
+credit key are checked in the same SQL `UPDATE`):
+
+| Case | Stored `escalation_reason` | Ablation overrode the policy |
+|---|---|---|
+| `second_unrecognized_credit` | `needs_review` | yes |
+| `duplicate_pair_twice` | `already_credited` | yes |
+| `not_received_merchant_dispute` | `not_received` | no |
+| `same_charge_after_escalation` | `already_in_review` | no |
+
+**Read this with its limits.** This is a constructed, offline suite with mocked extraction and
+assessment, written by the policy author: the expected states encode the policy under test. It is
+not a held-out workload, so it shows which layer stops which attack on these cases, not real-world
+rates.
+
 ## Known limitations (disclosed, not hidden)
 
 - **The system eval is simulated; real-model quality is checked by hand, not measured.** The app
@@ -288,6 +347,10 @@ turns, over-strict fact checks on natural wordings) are pinned by regression tes
   exclude the real model. Without a key the app still degrades gracefully: every LLM failure
   forces escalation with the deterministic escalation notice, whose reason is a technical problem
   (verified live, not just in tests).
+- **The system-level comparison is not a held-out evaluation.** The brief asks for a baseline vs.
+  the proposed system on the same workload; the comparison above does that on the constructed
+  29-case suite, but an independently labeled, held-out system-level workload remains unfulfilled.
+  The only held-out evaluation in this repo is the classifier's chronological split.
 - **The demo customer's history is partly synthetic.** 6 of the 14 charges are real dataset rows;
   8 are team-generated to cover every scenario and are labeled as such in the fixture
   (`_is_synthetic`, `_source_file = 'synthetic'`). The dataset window is a snapshot ending
@@ -351,19 +414,19 @@ app/            FastAPI backend — auth, state machine, policy, LLM boundary, c
 etl/            Offline ETL: extraction, quality checks, fixture generation, classifier training
 eval/           Eval harness (Milestone 5)
 static/         Frontend (vanilla HTML/CSS/JS, no build step — AD-1)
-tests/          pytest suite (724 tests)
+tests/          pytest suite (815 tests)
 support.py      Shared test/eval mock helpers (no pytest dependency — used by eval/ too)
 docs/           Challenge requirements digest
 docs/analysis/  Demand analysis report (generated by `python -m etl.analyze_demand`)
 data/           Local ETL artifacts, fixture, trained model (gitignored — never commit raw data)
-.workspace/     Full planning record: plan.md, todo.md, findings.md, DESIGN.md (gitignored)
+.workspace/     Local planning record (gitignored); its decisions are in docs/architecture-decisions.md
 ```
 
 ## Submission checklist (per challenge rules)
 
 - [x] Public GitHub repo named `factored-hackathon-2026-jagusgelos`
 - [ ] Deployed tool link — pending a deployment-platform decision (Fly.io vs. Render; Fly.io
-      requires a credit card on file — see `.workspace/features/dispute-agent/plan.md` Open Questions).
+      requires a credit card on file; see dispute-agent AD-7 in `docs/architecture-decisions.md`).
       Deploy artifacts are ready (`Dockerfile`, `docker-entrypoint.sh`, `fly.toml`, `render.yaml`)
       and locally verified (a real Docker build + a real container-restart persistence test) —
       see `DEPLOY.md` for the exact remaining commands and what's proven vs. still pending.
