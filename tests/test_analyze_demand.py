@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import json
 import re
+import struct
+import sys
 from pathlib import Path
 
 import duckdb
 import pytest
 
 from etl import analyze_demand as ad
+from etl import demand_labels as labels
+from etl import demand_report_render as render
+from etl.demand_labels import KINDS
 
 H = 3600
 
@@ -135,13 +140,14 @@ def _assert_contract(report: dict) -> None:
         for key in node:
             assert not FORBIDDEN_KEY.search(key), key
         if "value" in node:
-            assert "n" in node and node.get("kind") in ad.KINDS, node
+            assert "n" in node and node.get("kind") in KINDS, node
         if "p50" in node or "p90" in node:
             assert "n" in node and "coverage" in node, node
 
 
-def test_module_imports_neither_app_nor_eval():
-    source = Path(ad.__file__).read_text()
+@pytest.mark.parametrize("module", [ad, render, labels])
+def test_module_imports_neither_app_nor_eval(module):
+    source = Path(module.__file__).read_text()
     assert not re.search(r"^\s*(from|import)\s+(app|eval)\b", source, re.MULTILINE)
 
 
@@ -321,8 +327,64 @@ def test_committed_snapshot_keys_are_the_allowlist():
 def test_run_is_byte_identical(warehouse, snapshot_path, tmp_path):
     out = tmp_path / "out"
     ad.run(warehouse, out, snapshot_path)
-    first = (out / ad.REPORT_JSON_NAME).read_bytes()
+    first = {name: (out / name).read_bytes() for name in (ad.REPORT_JSON_NAME, ad.REPORT_MD_NAME)}
     ad.run(warehouse, out, snapshot_path)
-    assert (out / ad.REPORT_JSON_NAME).read_bytes() == first
-    assert first.endswith(b"\n")
-    _assert_contract(json.loads(first))
+    for name, content in first.items():
+        assert (out / name).read_bytes() == content, name
+        assert content.endswith(b"\n")
+    _assert_contract(json.loads(first[ad.REPORT_JSON_NAME]))
+
+
+def _tldr(markdown: str) -> str:
+    return markdown.split("## TL;DR")[1].split("\n## ")[0]
+
+
+def test_markdown_sections_and_labels(report):
+    markdown = render.render_markdown(report)
+    for heading in (
+        "## TL;DR: findings", "## Why disputes", "## What this data does not tell us",
+        "## Demand", "## Response times", "## Call center", "## Cost",
+        "### D. PROJECTION", "## Data quality", "## Method and reproducibility",
+    ):
+        assert heading in markdown, heading
+    assert "PROJECTION" in markdown and ad.SCENARIO_SUITE_LABEL in markdown
+    assert "design-argument" in markdown and ad.PROJECTION_PREREQUISITE in markdown
+    assert "\u2014" not in markdown
+    assert not re.search(r"(?i)\d+(\.\d+)?\s*x\s+cheaper", markdown)
+    tldr = _tldr(markdown)
+    assert "USD" not in tldr
+    assert re.findall(r"^\d+\. ", tldr, re.MULTILINE) == ["1. ", "2. ", "3. ", "4. ", "5. "]
+    assert "n = 3 of 4" in tldr
+
+
+def _png_size(path: Path) -> tuple[int, int]:
+    data = path.read_bytes()
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    return struct.unpack(">II", data[16:24])
+
+
+def test_charts_are_pngs_of_at_least_800x400(report, tmp_path):
+    pytest.importorskip("matplotlib")
+    paths = render.render_charts(report, tmp_path)
+    assert [p.name for p in paths] == [render.CALL_REASONS_CHART, render.FIRST_RESPONSE_CHART]
+    for path in paths:
+        width, height = _png_size(path)
+        assert width >= 800 and height >= 400, path
+
+
+def test_run_without_matplotlib_still_writes_json_and_markdown(
+    warehouse, snapshot_path, tmp_path, monkeypatch, caplog,
+):
+    monkeypatch.setitem(sys.modules, "matplotlib", None)
+    out = tmp_path / "out"
+    ad.run(warehouse, out, snapshot_path)
+    assert (out / ad.REPORT_JSON_NAME).exists() and (out / ad.REPORT_MD_NAME).exists()
+    assert not (out / render.CALL_REASONS_CHART).exists()
+    assert "charts skipped" in caplog.text
+
+
+def test_committed_report_is_rendered_from_committed_json():
+    report = json.loads((ad.DEFAULT_OUT_DIR / ad.REPORT_JSON_NAME).read_text())
+    _assert_contract(report)
+    markdown = (ad.DEFAULT_OUT_DIR / ad.REPORT_MD_NAME).read_text()
+    assert markdown == render.render_markdown(report)

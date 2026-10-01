@@ -28,11 +28,12 @@ import logging
 import math
 import statistics
 from datetime import date, datetime
-from enum import StrEnum
 from pathlib import Path
 
 import duckdb
 
+from etl.demand_labels import Kind
+from etl.demand_report_render import reason_row, render_charts, render_markdown
 from etl.extract import DATA_DIR, DEFAULT_WAREHOUSE_PATH, REPO_ROOT
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -42,6 +43,7 @@ DEFAULT_OUT_DIR = REPO_ROOT / "docs" / "analysis"
 DEFAULT_SNAPSHOT_PATH = DEFAULT_OUT_DIR / "inputs" / "eval_cost_snapshot.json"
 DEFAULT_EVAL_REPORT_PATH = DATA_DIR / "eval_report.json"
 REPORT_JSON_NAME = "demand-report.json"
+REPORT_MD_NAME = "demand-report.md"
 
 # Paths as they appear inside the report: repo-relative, never the machine's.
 WAREHOUSE_SOURCE = "data/warehouse.duckdb"
@@ -51,15 +53,6 @@ EVAL_REPORT_SOURCE = "data/eval_report.json"
 SCHEMA_VERSION = 1
 
 
-class Kind(StrEnum):
-    MEASURED = "measured"
-    ASSUMED = "assumed"
-    SIMULATED = "simulated"
-    PROJECTION = "projection"
-    DESIGN_ARGUMENT = "design-argument"
-
-
-KINDS = frozenset(Kind)
 
 SECONDS_PER_HOUR = 3600
 HOURS_UNIT = "calendar hours from creation_date"
@@ -452,13 +445,6 @@ def _table_rows(con: duckdb.DuckDBPyConnection) -> dict:
     }
 
 
-def _reason(call_center_block: dict, reason: str) -> dict:
-    for row in call_center_block["reasons"]:
-        if row["contact_reason"] == reason:
-            return row
-    raise ValueError(f"contact reason {reason!r} not found in call_center_interactions")
-
-
 def cost_blocks(snapshot: dict, focus: dict, call_center_block: dict) -> dict:
     """AD-5: four separately labeled blocks. No ratio between them, no savings
     figure and no total over a period: the blocks measure different things.
@@ -466,8 +452,8 @@ def cost_blocks(snapshot: dict, focus: dict, call_center_block: dict) -> dict:
     sample_size = snapshot["sample_size"]
     resolution = snapshot["safe_automated_resolution_rate"]
     cost = snapshot["estimated_cost_usd"]
-    anchor = _reason(call_center_block, ANCHOR_CONTACT_REASON)
-    upper = _reason(call_center_block, UPPER_ANCHOR_CONTACT_REASON)
+    anchor = reason_row(call_center_block, ANCHOR_CONTACT_REASON)
+    upper = reason_row(call_center_block, UPPER_ANCHOR_CONTACT_REASON)
     anchor_seconds = anchor["median_handle_seconds"]
     if anchor_seconds is None:
         raise ValueError(f"contact reason {ANCHOR_CONTACT_REASON!r} has no recorded handle time")
@@ -531,7 +517,7 @@ def _projection(anchor_seconds: float, resolution: dict) -> dict:
         },
         {
             "value": ASSUMED_AUTOMATION_SHARE, "n": None, "kind": Kind.ASSUMED,
-            "label": "assumed",
+            "label": "illustrative",
         },
     ]
     rates = [{"value": rate, "n": None, "kind": Kind.ASSUMED} for rate in HOURLY_RATES_USD]
@@ -637,10 +623,14 @@ def refresh_snapshot(eval_report_path: Path, snapshot_path: Path) -> dict:
     return snapshot
 
 
-def _write_json(payload: dict, path: Path) -> None:
+def _write_text(text: str, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    path.write_text(text, encoding="utf-8")
     logger.info("Wrote %s", path)
+
+
+def _write_json(payload: dict, path: Path) -> None:
+    _write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", path)
 
 
 def run(
@@ -655,7 +645,24 @@ def run(
     finally:
         con.close()
     _write_json(report, out_dir / REPORT_JSON_NAME)
+    _write_text(render_markdown(report), out_dir / REPORT_MD_NAME)
+    _write_charts(report, out_dir)
     return report
+
+
+def _write_charts(report: dict, out_dir: Path) -> None:
+    try:
+        paths = render_charts(report, out_dir)
+    except ModuleNotFoundError as exc:
+        if exc.name != "matplotlib":
+            raise
+        logger.warning(
+            "matplotlib is not installed; charts skipped. "
+            "Install it with `pip install -r requirements-analysis.txt`."
+        )
+        return
+    for path in paths:
+        logger.info("Wrote %s", path)
 
 
 def main(argv: list[str] | None = None) -> int:
