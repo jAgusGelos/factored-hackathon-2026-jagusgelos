@@ -224,8 +224,10 @@ after Milestone 6. AD-13 was decided on 2026-09-30 without a plan section (see i
 - **Options:** credit on the claim within AD-11's limits (the previous behavior); let the model
   judge whether the explanation is believable; ask the customer why and credit only what the
   record supports, per reason.
-- **Decision:** after a confident, confirmed match, the customer explains what happened and the
-  model classifies the reason only. Screening applies to every reason first: status `Approved`,
+- **Decision:** after a confident, confirmed match, the customer explains what happened. The
+  model assesses the explanation (its reason, whether it is specific and consistent with the
+  charge); code turns that into a follow-up, an escalation or a check, and the assessment alone
+  never authorizes a credit. Screening applies to every reason first: status `Approved`,
   `fraud_score` < 30, at most USD 200, no older than 60 days, customer `Active`, fewer than 3
   dataset disputes in the same category in 90 days, classifier not `Critical`, and this system's
   automatic credits to the customer in the last 90 days plus this one within USD 200. Then a
@@ -608,7 +610,8 @@ the branch `feat/system-baseline-adrs`.
 ### AD-2: Two single-variable baselines, named for what they are
 
 - **Decision:** `escalate_at_credit_decision` (never credits) and `ablation_no_evidence_check`
-  (skips only the AD-13 evidence check), both acting only at the final credit decision.
+  (skips only the AD-13 evidence check; a reason never credited automatically still escalates),
+  both acting only at the final credit decision.
 - **Why:** one variable per baseline makes every difference attributable to one layer.
 - **Source:** `.workspace/features/system-baseline-adrs/plan.md`, AD-2 (line 66).
 

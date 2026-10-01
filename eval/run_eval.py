@@ -748,7 +748,8 @@ SYSTEM_DESCRIPTIONS = {
     SYSTEM_ABLATION_NO_EVIDENCE_CHECK: (
         "AD-13 ablation under a worst-case persuaded assessor: the per-reason evidence check is "
         "skipped at the credit decision; screening, the explanation assessment, the already-handled "
-        "checks and the SQL credit limits stay. The mocked assessment is convinced in the abuse cases."
+        "checks and the SQL credit limits stay, and a reason that is never credited automatically still "
+        "escalates. The mocked assessment is convinced in the abuse cases."
     ),
 }
 
