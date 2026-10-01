@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from eval.run_eval import build_report, run
@@ -13,6 +14,8 @@ pytestmark = requires_real_fixture
 def test_run_produces_zero_unsafe_outcomes(tmp_path):
     report = run(tmp_path / "eval_app.db")
     assert report["unsafe_outcomes"]["count"] == 0, report["unsafe_outcomes"]["cases"]
+    # The baselines run only when asked for (main() does); see tests/test_system_comparison.py.
+    assert "system_comparison" not in report
 
 
 def test_run_covers_the_required_scenarios_in_both_languages(tmp_path):
@@ -92,3 +95,4 @@ def test_run_writes_a_report_file(tmp_path, monkeypatch):
     assert exit_code == 0
     assert report_path.exists()
     assert Path(report_path).stat().st_size > 0
+    assert "system_comparison" in json.loads(report_path.read_text())
