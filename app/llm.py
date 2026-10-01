@@ -387,7 +387,8 @@ def extract_entities(customer_text: str, *, language: Language, today: str) -> E
     extraction = _parse_extraction_response(raw)
     currency = stated_currency(customer_text, extraction.currency)
     if extraction.currency is not None and currency is None:
-        logger.info("Dropped an extracted currency the customer did not state: %r", extraction.currency)
+        dropped = extraction.currency if isinstance(extraction.currency, str) and extraction.currency in _CURRENCY_CUES else "unsupported"
+        logger.info("extraction_currency_dropped currency=%s", dropped)
     return replace(extraction, currency=currency)
 
 

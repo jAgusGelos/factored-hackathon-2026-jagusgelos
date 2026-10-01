@@ -27,6 +27,7 @@ from tests.support import (
     DUPLICATE_CHARGES,
     EXPLANATION,
     FRAUD_SCORE_CHARGE,
+    HANDOFF_KEYS,
     NOT_RECEIVED_ASSESSMENT,
     OPENING,
     OVER_LIMIT_CHARGE,
@@ -125,8 +126,7 @@ def test_escalation_case_confident_match_ineligible_produces_structured_handoff(
     assert reply["state"] == CaseState.ESCALATED
     case = cases.get_case(reply["case_id"], db_path=real_fixture_app_db)
     assert case.matched_transaction_id == FRAUD_SCORE_CHARGE == case.handoff["evidence"][0]
-    # Structured handoff, never a raw transcript.
-    assert set(case.handoff) == {"request_summary", "verified_facts", "customer_reported", "policy_reasons", "actions_taken", "evidence", "open_questions"}
+    assert set(case.handoff) == HANDOFF_KEYS
     assert any("fraud_score" in q for q in case.handoff["policy_reasons"])
     assert OPENING not in json.dumps(case.handoff)
 

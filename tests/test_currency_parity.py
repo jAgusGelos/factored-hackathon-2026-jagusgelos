@@ -17,6 +17,7 @@ from app.case_model import CaseState
 from app.llm import Language
 from tests.support import (
     AUTO_RESOLVE_CHARGE,
+    CURRENCY_PARITY_REPORT,
     charge_extraction,
     demo_session,
     logged_events,
@@ -25,12 +26,8 @@ from tests.support import (
     requires_real_fixture,
 )
 
-REPORT = {
-    Language.ES: "No reconozco un cargo de 38.500 pesos del 14 de junio",
-    Language.PT: "Não reconheço uma cobrança de 38.500 pesos do dia 14 de junho",
-}
-# What the real model extracted from REPORT (2026-09-30, 3 of 3 runs each).
-GUESSED_CURRENCY = {Language.ES: "COP", Language.PT: "MXN"}
+REPORT = {language: text for language, (text, _) in CURRENCY_PARITY_REPORT.items()}
+GUESSED_CURRENCY = {language: guessed for language, (_, guessed) in CURRENCY_PARITY_REPORT.items()}
 
 
 @pytest.mark.parametrize(
@@ -66,6 +63,16 @@ def test_extraction_drops_the_currency_the_model_guessed_for_bare_pesos(language
     assert extraction.amount == payload["amount"] and extraction.date == payload["date"]
 
 
+def test_a_dropped_currency_that_is_not_a_code_is_never_logged(caplog):
+    injected = [REPORT[Language.ES]]
+    payload = {**charge_extraction(AUTO_RESOLVE_CHARGE), "currency": injected}
+    with patch("app.llm.anthropic.Anthropic", return_value=mock_anthropic_client(payload)), caplog.at_level("INFO"):
+        extraction = llm.extract_entities(REPORT[Language.ES], language=Language.ES, today="2026-06-18")
+    assert extraction.currency is None
+    assert "extraction_currency_dropped currency=unsupported" in caplog.text
+    assert REPORT[Language.ES] not in caplog.text
+
+
 def test_both_extraction_prompts_say_bare_pesos_is_no_currency():
     assert '"pesos" o "$" sin país no es una moneda: use null' in llm._EXTRACTION_SYSTEM_PROMPT[Language.ES]
     assert '"pesos" ou "$" sem país não é uma moeda: use null' in llm._EXTRACTION_SYSTEM_PROMPT[Language.PT]
@@ -80,7 +87,6 @@ def test_the_same_report_proposes_the_same_charge_in_both_languages(real_fixture
     assert reply["state"] == CaseState.CONFIRMING
     case = cases.get_case(reply["case_id"], db_path=real_fixture_app_db)
     assert case.matched_transaction_id == AUTO_RESOLVE_CHARGE
-    # The profile's currency found the charge; the case does not claim the customer said it.
     assert case.reported_currency is None
     assert logged_events(real_fixture_app_db, "case_confirming")[0]["currency"] == "COP"
 

@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 import duckdb
 
 from app.auth import Session, create_session, get_session, verify_credentials
-from app.llm import ASSESSMENT_MARKER, CONFIRMATION_MARKER
+from app.llm import ASSESSMENT_MARKER, CONFIRMATION_MARKER, Language
 from etl.build_fixture import (
     AUTO_RESOLVE_CHARGE_ID as AUTO_RESOLVE_CHARGE,
 )
@@ -164,3 +164,10 @@ def charge_extraction(transaction_id: str | None = None, **overrides) -> dict:
     """
     base = charge_report(transaction_id) if transaction_id else {"amount": None, "currency": None, "date": None}
     return {**base, "merchant_hint": None, "wants_human": False, **overrides}
+
+# The same report of the Uber charge, with the currency the real model
+# guessed for a bare "pesos" in each language (2026-09-30, 3 of 3 runs each).
+CURRENCY_PARITY_REPORT = {
+    Language.ES: ("No reconozco un cargo de 38.500 pesos del 14 de junio", "COP"),
+    Language.PT: ("Não reconheço uma cobrança de 38.500 pesos do dia 14 de junho", "MXN"),
+}

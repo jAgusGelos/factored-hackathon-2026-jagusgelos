@@ -983,7 +983,6 @@ function handoffSections(handoff) {
   if (hasEntries(handoff.customer_reported)) {
     sections.push(handoffSectionHtml(t("handoffReported"), factListHtml(handoff.customer_reported), { kind: "unverified", text: t("handoffReportedTag") }));
   }
-  // A handoff stored before verified and reported values had their own fields.
   if (hasEntries(handoff.facts)) sections.push(handoffSectionHtml(t("handoffLegacyFacts"), factListHtml(handoff.facts)));
   if (handoff.policy_reason_count) sections.push(handoffSectionHtml(t("handoffPolicy"), `<p>${escapeHtml(t("handoffPolicyCount", handoff.policy_reason_count))}</p>`));
   if (handoff.actions_taken?.length) sections.push(listSectionHtml("handoffActions", handoff.actions_taken, "action-log"));

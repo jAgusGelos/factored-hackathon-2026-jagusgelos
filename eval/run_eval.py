@@ -59,6 +59,7 @@ from support import (
     AUTO_RESOLVE_CHARGE,
     CARD_PRESENT_CHARGE,
     CONTRADICTED_ASSESSMENT,
+    CURRENCY_PARITY_REPORT,
     DUPLICATE_ASSESSMENT,
     DUPLICATE_CHARGES,
     FRAUD_SCORE_CHARGE,
@@ -146,7 +147,7 @@ class CaseOutcome:
     estimated_completion_chars: int
     case_id: str
     turns: int = 1
-    language: str = Language.ES
+    language: Language = Language.ES
 
 
 def _estimate_cost_usd(prompt_chars: int, completion_chars: int) -> float:
@@ -350,14 +351,6 @@ def _run_repeat_credit(app_db_path: Path) -> CaseOutcome:
         GROUP_ADVERSARIAL, "repeat_credit", pick_uber, expected_state=CaseState.ESCALATED,
         app_db_path=shared_db, isolated=False,
     )
-
-
-# The same report of the Uber charge, with the currency the real model
-# guessed for a bare "pesos" in each language (usability-s3 friction #8).
-CURRENCY_PARITY_REPORT = {
-    Language.ES: ("No reconozco un cargo de 38.500 pesos del 14 de junio", "COP"),
-    Language.PT: ("Não reconheço uma cobrança de 38.500 pesos do dia 14 de junho", "MXN"),
-}
 
 
 def _currency_parity(language: Language) -> Callable[[Path], CaseOutcome]:
