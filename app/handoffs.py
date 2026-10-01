@@ -21,7 +21,7 @@ from app.case_model import (
     ReportedCharge,
 )
 from app.charge_search import iso_day
-from app.llm import ConfirmationAnswer
+from app.llm import ConfirmationAnswer, Tristate, card_possession_matters, known_fact
 from app.policy import MATCH_DATE_TOLERANCE_DAYS, MAX_CASE_TURNS, ExplanationAssessment
 from app.replies import format_amount
 from app.transactions import TransactionCandidate
@@ -329,12 +329,48 @@ class StatementStatus(StrEnum):
     SUMMARY_UNAVAILABLE = "summary_unavailable"
 
 
-def with_statement(handoff: dict, *, status: StatementStatus) -> dict:
+# One advisor task per key fact the statement left unknown.
+_STATEMENT_OPEN_QUESTIONS = {
+    "denies_purchase": "Confirmar con el cliente si hizo o autorizó esta compra.",
+    "merchant_known": "Confirmar con el cliente si conoce el comercio o lo usó alguna vez.",
+    "card_possession": "Confirmar con el cliente si tiene la tarjeta consigo.",
+    "how_noticed": "Confirmar con el cliente cómo y cuándo se dio cuenta del cargo.",
+    "other_suspicious_activity": "Confirmar con el cliente si hay otros cargos o movimientos que no reconoce.",
+}
+CARD_LOST_QUESTION = (
+    "Confirmar con el cliente si perdió la tarjeta o se la robaron, y si corresponde bloquearla."
+)
+
+
+def _statement_open_questions(facts: dict[str, str | None]) -> tuple[str, ...]:
+    unknown = [
+        fact for fact in _STATEMENT_OPEN_QUESTIONS
+        if not known_fact(facts.get(fact))
+        and (fact != "card_possession" or card_possession_matters(facts))
+    ]
+    questions = tuple(_STATEMENT_OPEN_QUESTIONS[fact] for fact in unknown)
+    return (*questions, CARD_LOST_QUESTION) if facts.get("card_possession") == Tristate.NO else questions
+
+
+def with_statement(
+    handoff: dict, *, status: StatementStatus, summary: str = "", facts: dict[str, str | None] | None = None,
+) -> dict:
     """A pending handoff (`case_turn.PendingEscalation.handoff`) with the
-    statement step's outcome in `customer_reported`. Every other field is
-    the pending one, untouched: the statement never changes the decision.
+    statement step's outcome: its status, the model's summary (only when
+    given) and every known key fact in `customer_reported`, and one advisor
+    task per fact still unknown in `open_questions`. Every other field is the
+    pending one, untouched: the statement never changes the decision.
     """
-    return {**handoff, "customer_reported": {**handoff["customer_reported"], "statement_status": str(status)}}
+    facts = facts or {}
+    reported = {"statement_status": str(status)}
+    if status == StatementStatus.GIVEN:
+        reported["statement_summary"] = f"{summary} (resumen del modelo)"
+    reported |= {fact: str(value) for fact, value in facts.items() if known_fact(value)}
+    return {
+        **handoff,
+        "customer_reported": {**handoff["customer_reported"], **reported},
+        "open_questions": [*handoff["open_questions"], *_statement_open_questions(facts)],
+    }
 
 
 def service_failure(

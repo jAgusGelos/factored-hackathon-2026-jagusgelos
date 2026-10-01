@@ -209,6 +209,7 @@ def update_case(
     expected_states: tuple[str, ...] | None = None,
     expected_offered_transaction_ids: tuple[str, ...] | None = None,
     expected_matched_transaction_id: str | None = None,
+    expected_statement_counts: tuple[int, int] | None = None,
     credit: CreditGrant | None = None,
     escalation_reason: str | None = None,
     pending_escalation: dict | None = None,
@@ -220,8 +221,8 @@ def update_case(
 ) -> bool:
     """A compare-and-set: returns False (and writes nothing) when the case no
     longer matches `expected_states` / `expected_offered_transaction_ids` /
-    `expected_matched_transaction_id`, so
-    two concurrent requests on the same case cannot both win a transition.
+    `expected_matched_transaction_id` / `expected_statement_counts` (follow-ups,
+    declines), so two concurrent requests on the same case cannot both win a transition.
     None arguments leave a column as it is; `clear_fields` resets one to NULL.
     Raises DuplicateCreditError if the write would credit an already-credited
     transaction (or duplicate pair) a second time. With `credit`, the write
@@ -235,6 +236,7 @@ def update_case(
 
     guards, guard_params = _expectation_guards(
         expected_states, expected_offered_transaction_ids, expected_matched_transaction_id,
+        expected_statement_counts,
     )
     now = datetime.now(UTC)
     credit_params: list[object] = [None, None, None]
@@ -301,6 +303,7 @@ def _expectation_guards(
     expected_states: tuple[str, ...] | None,
     expected_offered_transaction_ids: tuple[str, ...] | None,
     expected_matched_transaction_id: str | None,
+    expected_statement_counts: tuple[int, int] | None,
 ) -> tuple[str, list[object]]:
     """The compare-and-set part of update_case's WHERE clause, and its parameters."""
     guards = ""
@@ -314,6 +317,9 @@ def _expectation_guards(
     if expected_matched_transaction_id is not None:
         guards += " AND matched_transaction_id = ?"
         params.append(expected_matched_transaction_id)
+    if expected_statement_counts is not None:
+        guards += " AND statement_followups = ? AND statement_declines = ?"
+        params += list(expected_statement_counts)
     return guards, params
 
 

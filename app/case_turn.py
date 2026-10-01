@@ -203,6 +203,18 @@ def _escalation_reply(
     return turn.reply(CaseState.ESCALATED, text, escalation=notice)
 
 
+def charge_prompt_context(turn: Turn, state: str, charge: TransactionCandidate | None) -> llm.PromptContext:
+    """The allowlisted facts of the charge a step asks the model about (AD-5)."""
+    if charge is None:
+        return llm.build_prompt_context(case_state=state, language=turn.language)
+    return llm.build_prompt_context(
+        case_state=state, language=turn.language,
+        candidate_amount=charge.amount, candidate_currency=charge.currency,
+        candidate_date=iso_day(charge), candidate_merchant_name=charge.merchant_name,
+        candidate_merchant_category=charge.merchant_category, candidate_channel=charge.channel,
+    )
+
+
 def force_escalation(
     turn: Turn, *, event_type: str, failed_call: str, action_taken: str, error: llm.LLMUnavailable | None = None,
     charge: TransactionCandidate | None = None,
@@ -315,17 +327,16 @@ def _ask_for_statement(turn: Turn, pending: PendingEscalation, fields: dict) -> 
     return turn.reply(CaseState.AWAITING_STATEMENT, replies.ASK_FOR_STATEMENT[turn.language])
 
 
-def finish_pending_escalation(
-    turn: Turn, pending: PendingEscalation, handoff: dict, *, append_statement: str | None = None,
-) -> ChatReply:
+def finish_pending_escalation(turn: Turn, pending: PendingEscalation, handoff: dict, **fields) -> ChatReply:
     """Hands off the escalation the statement step held, with its own reason
     and `handoff` (the pending one plus the statement fields), from
     `awaiting_statement` only: a stale or concurrent statement turn loses the
-    compare-and-set instead of escalating twice.
+    compare-and-set instead of escalating twice. `fields`: the statement
+    step's own columns and guards (`cases.update_case`).
     """
     lost = transition(
         turn, CaseState.ESCALATED, expected_states=(CaseState.AWAITING_STATEMENT,), handoff=handoff,
-        escalation_reason=pending.reason, append_statement=append_statement,
+        escalation_reason=pending.reason, **fields,
     )
     if lost:
         return lost

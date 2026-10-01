@@ -37,6 +37,8 @@ PENDING_TIMEOUT_SECONDS = 120
 assert PENDING_TIMEOUT_SECONDS > TURN_DEADLINE_SECONDS
 # The explanation assessment is a short JSON object; a tight cap keeps it fast.
 ASSESSMENT_MAX_TOKENS = 300
+# The statement assessment (app/statement.py): a summary and six closed fields.
+STATEMENT_MAX_TOKENS = 300
 
 # The login screen offers an "Autocompletar" button for the demo account (AD-4 is a
 # SIMULATED identity service over synthetic data). Set to 0 to hide the

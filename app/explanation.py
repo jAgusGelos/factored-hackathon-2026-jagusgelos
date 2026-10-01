@@ -14,8 +14,15 @@ from typing import Protocol
 
 from app import config, handoffs, llm, replies
 from app.case_model import CaseEvaluation, CaseState, EscalationReason, ReportedCharge
-from app.case_turn import ChatReply, Turn, escalate, finish_escalated, force_escalation, transition
-from app.charge_search import iso_day
+from app.case_turn import (
+    ChatReply,
+    Turn,
+    charge_prompt_context,
+    escalate,
+    finish_escalated,
+    force_escalation,
+    transition,
+)
 from app.credit import finish_resolved
 from app.llm import PromptScene
 from app.policy import (
@@ -40,15 +47,6 @@ class PolicyVerdict(Protocol):
     ) -> CaseEvaluation: ...
 
 
-def _charge_context(turn: Turn, state: str, matched: TransactionCandidate) -> llm.PromptContext:
-    return llm.build_prompt_context(
-        case_state=state, language=turn.language,
-        candidate_amount=matched.amount, candidate_currency=matched.currency,
-        candidate_date=iso_day(matched), candidate_merchant_name=matched.merchant_name,
-        candidate_merchant_category=matched.merchant_category, candidate_channel=matched.channel,
-    )
-
-
 def ask_for_explanation(
     turn: Turn, matched: TransactionCandidate, *, expected_states: tuple[CaseState, ...],
     expected_offered: tuple[str, ...] | None = None, expected_match: str | None = None,
@@ -65,7 +63,9 @@ def ask_for_explanation(
         return lost
     turn.log_event("explanation_requested", {"matched_transaction_id": matched.transaction_id})
     fallback = replies.ask_for_explanation(matched, turn.language)
-    reply = turn.generate_reply(_charge_context(turn, CaseState.AWAITING_EXPLANATION, matched), fallback=fallback)
+    reply = turn.generate_reply(
+        charge_prompt_context(turn, CaseState.AWAITING_EXPLANATION, matched), fallback=fallback,
+    )
     if not replies.names_the_facts(reply, matched, turn.language):
         turn.log_event("explanation_request_replaced", {"reason": "facts_missing"})
         reply = fallback
@@ -83,7 +83,7 @@ def _assess(turn: Turn, explanation: str, matched: TransactionCandidate) -> Expl
     if _too_short(explanation):
         return _TOO_SHORT
     assessment = llm.assess_explanation(
-        explanation, charge=_charge_context(turn, CaseState.AWAITING_EXPLANATION, matched),
+        explanation, charge=charge_prompt_context(turn, CaseState.AWAITING_EXPLANATION, matched),
     )
     if assessment is None:
         turn.log_event("explanation_parse_failed", {"call": "assess_explanation"})

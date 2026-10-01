@@ -585,14 +585,17 @@ def test_replies_about_open_cases_carry_no_escalation(session, real_fixture_app_
 def test_the_escalating_turns_make_no_response_model_call(session, real_fixture_app_db):
     listed = mocked_turn(session, real_fixture_app_db, "fue el 14 de junio", extraction=charge_extraction(date="2026-06-14"))
     asking = mock_anthropic_client(charge_extraction())
-    finishing = mock_anthropic_client(charge_extraction())
+    finishing_prompts: list[str] = []
+    finishing = mock_anthropic_client(charge_extraction(), captured_prompts=finishing_prompts)
 
     asked = mocked_turn(session, real_fixture_app_db, "No está en la lista", listed["case_id"], client=asking,
                         action=CustomerAction.NONE_OF_THESE)
     final = finish_statement(session, real_fixture_app_db, asked, client=finishing)
 
     assert asking.messages.create.call_count == 0
-    assert finishing.messages.create.call_count == 0
+    # Only the statement's own assessment: the notice is a template.
+    assert finishing.messages.create.call_count == 1
+    assert llm.STATEMENT_MARKER in finishing_prompts[0]
     assert final["reply"] == replies.escalation_notice(
         listed["case_id"], EscalationReason.CHARGE_NOT_IDENTIFIED, charge=None, language=Language.ES,
     )[0]

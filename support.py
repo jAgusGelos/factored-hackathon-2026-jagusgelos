@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 import duckdb
 
 from app.auth import Session, create_session, get_session, verify_credentials
-from app.llm import ASSESSMENT_MARKER, CONFIRMATION_MARKER, Language
+from app.llm import ASSESSMENT_MARKER, CONFIRMATION_MARKER, STATEMENT_MARKER, Language
 from etl.build_fixture import (
     AUTO_RESOLVE_CHARGE_ID as AUTO_RESOLVE_CHARGE,
 )
@@ -46,7 +46,7 @@ REAL_DEMO_USERS_PATH = REPO_ROOT / "data" / "demo_users.json"
 
 __all__ = [
     "AUTO_RESOLVE_CHARGE", "CARD_PRESENT_CHARGE", "CONTRADICTED_ASSESSMENT", "CONVINCING_ASSESSMENT", "DEMO_USERNAME", "DUPLICATE_ASSESSMENT",
-    "DUPLICATE_CHARGES", "EXPLANATION", "FRAUD_SCORE_CHARGE", "NOT_RECEIVED_ASSESSMENT", "OVER_LIMIT_CHARGE",
+    "DUPLICATE_CHARGES", "EXPLANATION", "FRAUD_SCORE_CHARGE", "GIVEN_STATEMENT", "NOT_RECEIVED_ASSESSMENT", "OVER_LIMIT_CHARGE",
     "REAL_DEMO_USERS_PATH", "REAL_FIXTURE_PATH", "REPO_ROOT", "SECOND_ONLINE_CHARGE", "STATEMENT", "app_db_rows", "charge_extraction",
     "charge_report", "demo_session", "event_sequence", "logged_events", "mock_anthropic_client", "session_for",
 ]
@@ -58,11 +58,13 @@ def mock_anthropic_client(
     *,
     confirmation_answer: str = "yes",
     assessment: dict | None = None,
+    statement: dict | None = None,
     captured_prompts: list[str] | None = None,
     captured_completions: list[str] | None = None,
 ) -> MagicMock:
     """Answers the JSON-extraction system prompt with `extraction_payload`, the
-    confirm-before-resolve classifier (AD-12) with `confirmation_answer`, and
+    confirm-before-resolve classifier (AD-12) with `confirmation_answer`, the
+    explanation and statement assessments with `assessment` / `statement`, and
     every other call with `nlg_text`; optionally records every system prompt
     and user message sent (privacy/language assertions) and every completion
     returned (eval/run_eval.py's cost estimate).
@@ -77,6 +79,8 @@ def mock_anthropic_client(
             text = confirmation_answer
         elif ASSESSMENT_MARKER in system:
             text = json.dumps(assessment or CONVINCING_ASSESSMENT)
+        elif STATEMENT_MARKER in system:
+            text = json.dumps(statement or GIVEN_STATEMENT)
         elif "JSON" in system:
             text = json.dumps(extraction_payload)
         else:
@@ -104,6 +108,13 @@ DUPLICATE_ASSESSMENT = {
 NOT_RECEIVED_ASSESSMENT = {**CONVINCING_ASSESSMENT, "reason": "not_received"}
 CONTRADICTED_ASSESSMENT = {
     **CONVINCING_ASSESSMENT, "consistent": False, "contradictions": ["El monto no coincide con el cargo."],
+}
+# What the mocked model reads from a statement before a handoff, unless a
+# test passes its own `statement`: every key fact known, so no follow-up.
+GIVEN_STATEMENT = {
+    "summary": "El cliente no reconoce la compra, no conoce el comercio y tiene la tarjeta consigo.",
+    "declines": False, "wants_human": False, "denies_purchase": "yes", "merchant_known": "no",
+    "card_possession": "yes", "how_noticed": "app_alert", "noticed_on": None, "other_suspicious_activity": "no",
 }
 OPENING = "Tengo un cargo que no reconozco"
 EXPLANATION = "No uso Uber hace meses, tengo la tarjeta conmigo y ayer vi el cargo en la app del banco"

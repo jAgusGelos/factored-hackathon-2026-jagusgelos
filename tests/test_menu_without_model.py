@@ -24,6 +24,7 @@ from tests.support import (
     FRAUD_SCORE_CHARGE,
     OPENING,
     STATEMENT,
+    app_db_rows,
     assert_asks_for_statement,
     assert_escalation_notice,
     charge_extraction,
@@ -302,3 +303,28 @@ def test_a_not_that_one_tap_that_loses_the_race_does_not_move_the_case(session, 
     case = cases.get_case(proposed["case_id"], db_path=real_fixture_app_db)
     assert (case.state, case.matched_transaction_id) == (CaseState.AWAITING_EXPLANATION, AUTO_RESOLVE_CHARGE)
     assert reply["state"] == CaseState.AWAITING_EXPLANATION
+
+
+@pytest.mark.parametrize(
+    "tap",
+    [
+        dict(selected_transaction_id=AUTO_RESOLVE_CHARGE),
+        dict(action=CustomerAction.NONE_OF_THESE),
+        dict(action=CustomerAction.SHOW_CHARGES),
+        dict(action=CustomerAction.CONFIRM_YES),
+        dict(action=CustomerAction.CONFIRM_NO),
+    ],
+    ids=["charge", "none_of_these", "show_charges", "confirm_yes", "confirm_no"],
+)
+def test_an_old_tap_while_waiting_for_the_statement_changes_nothing(session, real_fixture_app_db, tap):
+    asked, _ = _escalated_by_a_tap(session, real_fixture_app_db)
+    before = cases.get_case(asked["case_id"], db_path=real_fixture_app_db)
+    events_before = len(app_db_rows(real_fixture_app_db, "SELECT id FROM events"))
+
+    reply, calls = _turn(session, real_fixture_app_db, "botón viejo", asked["case_id"], **tap)
+
+    assert calls == 0
+    assert reply["state"] == CaseState.AWAITING_STATEMENT
+    assert cases.get_case(asked["case_id"], db_path=real_fixture_app_db) == before
+    new_events = app_db_rows(real_fixture_app_db, "SELECT event_type FROM events WHERE id > ?", [events_before])
+    assert {e[0] for e in new_events} <= {"action_rejected", "selection_rejected"}

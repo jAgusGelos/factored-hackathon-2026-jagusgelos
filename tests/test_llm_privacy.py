@@ -94,6 +94,26 @@ def test_generate_response_rejects_a_raw_dict_that_bypassed_the_allowlist():
         llm.generate_response({"email": "leak@example.test"}, language=llm.Language.ES)
 
 
+def test_assess_statement_rejects_a_raw_dict_that_bypassed_the_allowlist():
+    with pytest.raises(TypeError):
+        llm.assess_statement("texto", earlier=None, charge={"email": "leak@example.test"})
+
+
+def test_the_statement_prompt_carries_only_allowlisted_charge_facts(monkeypatch):
+    sent: list[str] = []
+    monkeypatch.setattr(llm, "call_llm", lambda prompt, **kwargs: sent.append(prompt) or "{}")
+    charge = llm.build_prompt_context(
+        case_state="awaiting_statement", candidate_amount=38500.0, candidate_merchant_name="Uber",
+    )
+
+    llm.assess_statement("lo último", earlier="lo anterior", charge=charge)
+
+    assert sent == [
+        "Charge facts:\ncandidate_amount: 38500.0\ncandidate_merchant_name: Uber\n\n"
+        "Earlier in this step:\nlo anterior\n\nLatest message:\nlo último"
+    ]
+
+
 def test_only_llm_module_imports_the_anthropic_sdk():
     """Every LLM call site in app/ must go through app/llm.py — proven by
     grepping for a direct provider-client import anywhere else in app/.
