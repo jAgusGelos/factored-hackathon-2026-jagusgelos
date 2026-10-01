@@ -1,0 +1,2877 @@
+{
+  "schema_version": 1,
+  "data_as_of": "2026-06-18T07:56:52",
+  "generator": "python -m etl.analyze_demand",
+  "sources": {
+    "warehouse": "data/warehouse.duckdb",
+    "eval_snapshot": "docs/analysis/inputs/eval_cost_snapshot.json",
+    "table_rows": {
+      "complaints": 67095,
+      "customers": 150000,
+      "call_center_interactions": 19677
+    }
+  },
+  "demand": {
+    "by_category": {
+      "kind": "measured",
+      "n": 67095,
+      "rows": [
+        {
+          "key": "Transactions",
+          "count": 13580,
+          "share": 0.2024
+        },
+        {
+          "key": "Fees",
+          "count": 13553,
+          "share": 0.202
+        },
+        {
+          "key": "Technical",
+          "count": 13407,
+          "share": 0.1998
+        },
+        {
+          "key": "Branch",
+          "count": 13361,
+          "share": 0.1991
+        },
+        {
+          "key": "Service",
+          "count": 13194,
+          "share": 0.1966
+        }
+      ]
+    },
+    "by_subcategory": {
+      "kind": "measured",
+      "n": 67095,
+      "rows": [
+        {
+          "category": "Transactions",
+          "subcategory": "Cargo no reconocido",
+          "count": 12297,
+          "share_of_category": 0.9055
+        },
+        {
+          "category": "Fees",
+          "subcategory": "Cobro indebido",
+          "count": 12194,
+          "share_of_category": 0.8997
+        },
+        {
+          "category": "Technical",
+          "subcategory": "Problema con app",
+          "count": 12128,
+          "share_of_category": 0.9046
+        },
+        {
+          "category": "Branch",
+          "subcategory": "Atención en sucursal",
+          "count": 11892,
+          "share_of_category": 0.8901
+        },
+        {
+          "category": "Service",
+          "subcategory": "Calidad de servicio",
+          "count": 11886,
+          "share_of_category": 0.9009
+        },
+        {
+          "category": "Branch",
+          "subcategory": null,
+          "count": 1469,
+          "share_of_category": 0.1099
+        },
+        {
+          "category": "Fees",
+          "subcategory": null,
+          "count": 1359,
+          "share_of_category": 0.1003
+        },
+        {
+          "category": "Service",
+          "subcategory": null,
+          "count": 1308,
+          "share_of_category": 0.0991
+        },
+        {
+          "category": "Transactions",
+          "subcategory": null,
+          "count": 1283,
+          "share_of_category": 0.0945
+        },
+        {
+          "category": "Technical",
+          "subcategory": null,
+          "count": 1279,
+          "share_of_category": 0.0954
+        }
+      ]
+    },
+    "by_channel": {
+      "kind": "measured",
+      "n": 67095,
+      "rows": [
+        {
+          "key": "Call Center",
+          "count": 33761,
+          "share": 0.5032
+        },
+        {
+          "key": "Email",
+          "count": 13323,
+          "share": 0.1986
+        },
+        {
+          "key": "Web",
+          "count": 9884,
+          "share": 0.1473
+        },
+        {
+          "key": "App",
+          "count": 6727,
+          "share": 0.1003
+        },
+        {
+          "key": "Branch",
+          "count": 2683,
+          "share": 0.04
+        },
+        {
+          "key": "Regulator",
+          "count": 717,
+          "share": 0.0107
+        }
+      ]
+    },
+    "by_country": {
+      "kind": "measured",
+      "n": 67095,
+      "rows": [
+        {
+          "key": "México",
+          "count": 33375,
+          "share": 0.4974
+        },
+        {
+          "key": "Colombia",
+          "count": 20384,
+          "share": 0.3038
+        },
+        {
+          "key": "Argentina",
+          "count": 13336,
+          "share": 0.1988
+        }
+      ],
+      "coverage": 1.0
+    },
+    "weekly": {
+      "kind": "measured",
+      "n": 67095,
+      "week_start_day": "Monday",
+      "full_weeks": 156,
+      "partial_weeks": 2,
+      "flat_rule": {
+        "share_band": [
+          0.19,
+          0.21
+        ],
+        "cv_tolerance_vs_poisson": 1.25
+      },
+      "variability": [
+        {
+          "category": "Branch",
+          "share": 0.1991,
+          "full_weeks": 156,
+          "mean_weekly": 85.3,
+          "cv": 0.1016,
+          "poisson_expected_cv": 0.1083,
+          "flat": true
+        },
+        {
+          "category": "Fees",
+          "share": 0.202,
+          "full_weeks": 156,
+          "mean_weekly": 86.4,
+          "cv": 0.1028,
+          "poisson_expected_cv": 0.1076,
+          "flat": true
+        },
+        {
+          "category": "Service",
+          "share": 0.1966,
+          "full_weeks": 156,
+          "mean_weekly": 84.2,
+          "cv": 0.1065,
+          "poisson_expected_cv": 0.109,
+          "flat": true
+        },
+        {
+          "category": "Technical",
+          "share": 0.1998,
+          "full_weeks": 156,
+          "mean_weekly": 85.6,
+          "cv": 0.1087,
+          "poisson_expected_cv": 0.1081,
+          "flat": true
+        },
+        {
+          "category": "Transactions",
+          "share": 0.2024,
+          "full_weeks": 156,
+          "mean_weekly": 86.7,
+          "cv": 0.0949,
+          "poisson_expected_cv": 0.1074,
+          "flat": true
+        }
+      ],
+      "weeks": [
+        {
+          "week_start": "2023-06-12",
+          "partial": true,
+          "total": 66,
+          "by_category": {
+            "Branch": 8,
+            "Fees": 17,
+            "Service": 16,
+            "Technical": 12,
+            "Transactions": 13
+          }
+        },
+        {
+          "week_start": "2023-06-19",
+          "partial": false,
+          "total": 396,
+          "by_category": {
+            "Branch": 73,
+            "Fees": 85,
+            "Service": 81,
+            "Technical": 65,
+            "Transactions": 92
+          }
+        },
+        {
+          "week_start": "2023-06-26",
+          "partial": false,
+          "total": 428,
+          "by_category": {
+            "Branch": 83,
+            "Fees": 74,
+            "Service": 94,
+            "Technical": 97,
+            "Transactions": 80
+          }
+        },
+        {
+          "week_start": "2023-07-03",
+          "partial": false,
+          "total": 422,
+          "by_category": {
+            "Branch": 90,
+            "Fees": 86,
+            "Service": 78,
+            "Technical": 82,
+            "Transactions": 86
+          }
+        },
+        {
+          "week_start": "2023-07-10",
+          "partial": false,
+          "total": 416,
+          "by_category": {
+            "Branch": 88,
+            "Fees": 102,
+            "Service": 64,
+            "Technical": 73,
+            "Transactions": 89
+          }
+        },
+        {
+          "week_start": "2023-07-17",
+          "partial": false,
+          "total": 448,
+          "by_category": {
+            "Branch": 94,
+            "Fees": 97,
+            "Service": 96,
+            "Technical": 72,
+            "Transactions": 89
+          }
+        },
+        {
+          "week_start": "2023-07-24",
+          "partial": false,
+          "total": 438,
+          "by_category": {
+            "Branch": 101,
+            "Fees": 88,
+            "Service": 82,
+            "Technical": 77,
+            "Transactions": 90
+          }
+        },
+        {
+          "week_start": "2023-07-31",
+          "partial": false,
+          "total": 428,
+          "by_category": {
+            "Branch": 84,
+            "Fees": 94,
+            "Service": 78,
+            "Technical": 83,
+            "Transactions": 89
+          }
+        },
+        {
+          "week_start": "2023-08-07",
+          "partial": false,
+          "total": 457,
+          "by_category": {
+            "Branch": 86,
+            "Fees": 80,
+            "Service": 97,
+            "Technical": 87,
+            "Transactions": 107
+          }
+        },
+        {
+          "week_start": "2023-08-14",
+          "partial": false,
+          "total": 412,
+          "by_category": {
+            "Branch": 74,
+            "Fees": 90,
+            "Service": 70,
+            "Technical": 90,
+            "Transactions": 88
+          }
+        },
+        {
+          "week_start": "2023-08-21",
+          "partial": false,
+          "total": 418,
+          "by_category": {
+            "Branch": 92,
+            "Fees": 72,
+            "Service": 73,
+            "Technical": 90,
+            "Transactions": 91
+          }
+        },
+        {
+          "week_start": "2023-08-28",
+          "partial": false,
+          "total": 404,
+          "by_category": {
+            "Branch": 87,
+            "Fees": 77,
+            "Service": 76,
+            "Technical": 81,
+            "Transactions": 83
+          }
+        },
+        {
+          "week_start": "2023-09-04",
+          "partial": false,
+          "total": 409,
+          "by_category": {
+            "Branch": 75,
+            "Fees": 76,
+            "Service": 82,
+            "Technical": 79,
+            "Transactions": 97
+          }
+        },
+        {
+          "week_start": "2023-09-11",
+          "partial": false,
+          "total": 425,
+          "by_category": {
+            "Branch": 75,
+            "Fees": 86,
+            "Service": 83,
+            "Technical": 96,
+            "Transactions": 85
+          }
+        },
+        {
+          "week_start": "2023-09-18",
+          "partial": false,
+          "total": 451,
+          "by_category": {
+            "Branch": 101,
+            "Fees": 86,
+            "Service": 76,
+            "Technical": 100,
+            "Transactions": 88
+          }
+        },
+        {
+          "week_start": "2023-09-25",
+          "partial": false,
+          "total": 423,
+          "by_category": {
+            "Branch": 88,
+            "Fees": 101,
+            "Service": 90,
+            "Technical": 77,
+            "Transactions": 67
+          }
+        },
+        {
+          "week_start": "2023-10-02",
+          "partial": false,
+          "total": 403,
+          "by_category": {
+            "Branch": 82,
+            "Fees": 81,
+            "Service": 85,
+            "Technical": 81,
+            "Transactions": 74
+          }
+        },
+        {
+          "week_start": "2023-10-09",
+          "partial": false,
+          "total": 447,
+          "by_category": {
+            "Branch": 66,
+            "Fees": 103,
+            "Service": 98,
+            "Technical": 93,
+            "Transactions": 87
+          }
+        },
+        {
+          "week_start": "2023-10-16",
+          "partial": false,
+          "total": 430,
+          "by_category": {
+            "Branch": 80,
+            "Fees": 84,
+            "Service": 93,
+            "Technical": 85,
+            "Transactions": 88
+          }
+        },
+        {
+          "week_start": "2023-10-23",
+          "partial": false,
+          "total": 407,
+          "by_category": {
+            "Branch": 95,
+            "Fees": 79,
+            "Service": 74,
+            "Technical": 80,
+            "Transactions": 79
+          }
+        },
+        {
+          "week_start": "2023-10-30",
+          "partial": false,
+          "total": 437,
+          "by_category": {
+            "Branch": 99,
+            "Fees": 77,
+            "Service": 82,
+            "Technical": 95,
+            "Transactions": 84
+          }
+        },
+        {
+          "week_start": "2023-11-06",
+          "partial": false,
+          "total": 414,
+          "by_category": {
+            "Branch": 100,
+            "Fees": 82,
+            "Service": 73,
+            "Technical": 87,
+            "Transactions": 72
+          }
+        },
+        {
+          "week_start": "2023-11-13",
+          "partial": false,
+          "total": 413,
+          "by_category": {
+            "Branch": 86,
+            "Fees": 87,
+            "Service": 81,
+            "Technical": 69,
+            "Transactions": 90
+          }
+        },
+        {
+          "week_start": "2023-11-20",
+          "partial": false,
+          "total": 437,
+          "by_category": {
+            "Branch": 90,
+            "Fees": 83,
+            "Service": 99,
+            "Technical": 90,
+            "Transactions": 75
+          }
+        },
+        {
+          "week_start": "2023-11-27",
+          "partial": false,
+          "total": 435,
+          "by_category": {
+            "Branch": 85,
+            "Fees": 98,
+            "Service": 74,
+            "Technical": 90,
+            "Transactions": 88
+          }
+        },
+        {
+          "week_start": "2023-12-04",
+          "partial": false,
+          "total": 432,
+          "by_category": {
+            "Branch": 90,
+            "Fees": 93,
+            "Service": 78,
+            "Technical": 96,
+            "Transactions": 75
+          }
+        },
+        {
+          "week_start": "2023-12-11",
+          "partial": false,
+          "total": 471,
+          "by_category": {
+            "Branch": 94,
+            "Fees": 89,
+            "Service": 93,
+            "Technical": 99,
+            "Transactions": 96
+          }
+        },
+        {
+          "week_start": "2023-12-18",
+          "partial": false,
+          "total": 465,
+          "by_category": {
+            "Branch": 103,
+            "Fees": 101,
+            "Service": 92,
+            "Technical": 87,
+            "Transactions": 82
+          }
+        },
+        {
+          "week_start": "2023-12-25",
+          "partial": false,
+          "total": 434,
+          "by_category": {
+            "Branch": 77,
+            "Fees": 86,
+            "Service": 84,
+            "Technical": 94,
+            "Transactions": 93
+          }
+        },
+        {
+          "week_start": "2024-01-01",
+          "partial": false,
+          "total": 401,
+          "by_category": {
+            "Branch": 74,
+            "Fees": 69,
+            "Service": 77,
+            "Technical": 91,
+            "Transactions": 90
+          }
+        },
+        {
+          "week_start": "2024-01-08",
+          "partial": false,
+          "total": 452,
+          "by_category": {
+            "Branch": 82,
+            "Fees": 102,
+            "Service": 94,
+            "Technical": 88,
+            "Transactions": 86
+          }
+        },
+        {
+          "week_start": "2024-01-15",
+          "partial": false,
+          "total": 390,
+          "by_category": {
+            "Branch": 71,
+            "Fees": 78,
+            "Service": 86,
+            "Technical": 77,
+            "Transactions": 78
+          }
+        },
+        {
+          "week_start": "2024-01-22",
+          "partial": false,
+          "total": 450,
+          "by_category": {
+            "Branch": 91,
+            "Fees": 85,
+            "Service": 89,
+            "Technical": 97,
+            "Transactions": 88
+          }
+        },
+        {
+          "week_start": "2024-01-29",
+          "partial": false,
+          "total": 424,
+          "by_category": {
+            "Branch": 92,
+            "Fees": 94,
+            "Service": 68,
+            "Technical": 85,
+            "Transactions": 85
+          }
+        },
+        {
+          "week_start": "2024-02-05",
+          "partial": false,
+          "total": 415,
+          "by_category": {
+            "Branch": 65,
+            "Fees": 100,
+            "Service": 72,
+            "Technical": 96,
+            "Transactions": 82
+          }
+        },
+        {
+          "week_start": "2024-02-12",
+          "partial": false,
+          "total": 414,
+          "by_category": {
+            "Branch": 83,
+            "Fees": 78,
+            "Service": 73,
+            "Technical": 94,
+            "Transactions": 86
+          }
+        },
+        {
+          "week_start": "2024-02-19",
+          "partial": false,
+          "total": 399,
+          "by_category": {
+            "Branch": 80,
+            "Fees": 88,
+            "Service": 69,
+            "Technical": 83,
+            "Transactions": 79
+          }
+        },
+        {
+          "week_start": "2024-02-26",
+          "partial": false,
+          "total": 439,
+          "by_category": {
+            "Branch": 88,
+            "Fees": 93,
+            "Service": 81,
+            "Technical": 84,
+            "Transactions": 93
+          }
+        },
+        {
+          "week_start": "2024-03-04",
+          "partial": false,
+          "total": 435,
+          "by_category": {
+            "Branch": 80,
+            "Fees": 90,
+            "Service": 91,
+            "Technical": 95,
+            "Transactions": 79
+          }
+        },
+        {
+          "week_start": "2024-03-11",
+          "partial": false,
+          "total": 456,
+          "by_category": {
+            "Branch": 96,
+            "Fees": 79,
+            "Service": 96,
+            "Technical": 97,
+            "Transactions": 88
+          }
+        },
+        {
+          "week_start": "2024-03-18",
+          "partial": false,
+          "total": 425,
+          "by_category": {
+            "Branch": 91,
+            "Fees": 84,
+            "Service": 89,
+            "Technical": 77,
+            "Transactions": 84
+          }
+        },
+        {
+          "week_start": "2024-03-25",
+          "partial": false,
+          "total": 438,
+          "by_category": {
+            "Branch": 79,
+            "Fees": 94,
+            "Service": 86,
+            "Technical": 101,
+            "Transactions": 78
+          }
+        },
+        {
+          "week_start": "2024-04-01",
+          "partial": false,
+          "total": 455,
+          "by_category": {
+            "Branch": 74,
+            "Fees": 88,
+            "Service": 87,
+            "Technical": 97,
+            "Transactions": 109
+          }
+        },
+        {
+          "week_start": "2024-04-08",
+          "partial": false,
+          "total": 450,
+          "by_category": {
+            "Branch": 82,
+            "Fees": 96,
+            "Service": 90,
+            "Technical": 84,
+            "Transactions": 98
+          }
+        },
+        {
+          "week_start": "2024-04-15",
+          "partial": false,
+          "total": 409,
+          "by_category": {
+            "Branch": 73,
+            "Fees": 93,
+            "Service": 82,
+            "Technical": 71,
+            "Transactions": 90
+          }
+        },
+        {
+          "week_start": "2024-04-22",
+          "partial": false,
+          "total": 430,
+          "by_category": {
+            "Branch": 107,
+            "Fees": 70,
+            "Service": 82,
+            "Technical": 77,
+            "Transactions": 94
+          }
+        },
+        {
+          "week_start": "2024-04-29",
+          "partial": false,
+          "total": 386,
+          "by_category": {
+            "Branch": 85,
+            "Fees": 73,
+            "Service": 84,
+            "Technical": 57,
+            "Transactions": 87
+          }
+        },
+        {
+          "week_start": "2024-05-06",
+          "partial": false,
+          "total": 424,
+          "by_category": {
+            "Branch": 94,
+            "Fees": 97,
+            "Service": 82,
+            "Technical": 86,
+            "Transactions": 65
+          }
+        },
+        {
+          "week_start": "2024-05-13",
+          "partial": false,
+          "total": 424,
+          "by_category": {
+            "Branch": 79,
+            "Fees": 81,
+            "Service": 82,
+            "Technical": 86,
+            "Transactions": 96
+          }
+        },
+        {
+          "week_start": "2024-05-20",
+          "partial": false,
+          "total": 397,
+          "by_category": {
+            "Branch": 87,
+            "Fees": 85,
+            "Service": 66,
+            "Technical": 86,
+            "Transactions": 73
+          }
+        },
+        {
+          "week_start": "2024-05-27",
+          "partial": false,
+          "total": 400,
+          "by_category": {
+            "Branch": 87,
+            "Fees": 91,
+            "Service": 59,
+            "Technical": 84,
+            "Transactions": 79
+          }
+        },
+        {
+          "week_start": "2024-06-03",
+          "partial": false,
+          "total": 428,
+          "by_category": {
+            "Branch": 92,
+            "Fees": 97,
+            "Service": 78,
+            "Technical": 82,
+            "Transactions": 79
+          }
+        },
+        {
+          "week_start": "2024-06-10",
+          "partial": false,
+          "total": 453,
+          "by_category": {
+            "Branch": 84,
+            "Fees": 96,
+            "Service": 88,
+            "Technical": 99,
+            "Transactions": 86
+          }
+        },
+        {
+          "week_start": "2024-06-17",
+          "partial": false,
+          "total": 415,
+          "by_category": {
+            "Branch": 88,
+            "Fees": 79,
+            "Service": 81,
+            "Technical": 70,
+            "Transactions": 97
+          }
+        },
+        {
+          "week_start": "2024-06-24",
+          "partial": false,
+          "total": 451,
+          "by_category": {
+            "Branch": 88,
+            "Fees": 102,
+            "Service": 84,
+            "Technical": 86,
+            "Transactions": 91
+          }
+        },
+        {
+          "week_start": "2024-07-01",
+          "partial": false,
+          "total": 445,
+          "by_category": {
+            "Branch": 86,
+            "Fees": 97,
+            "Service": 78,
+            "Technical": 88,
+            "Transactions": 96
+          }
+        },
+        {
+          "week_start": "2024-07-08",
+          "partial": false,
+          "total": 407,
+          "by_category": {
+            "Branch": 85,
+            "Fees": 80,
+            "Service": 85,
+            "Technical": 83,
+            "Transactions": 74
+          }
+        },
+        {
+          "week_start": "2024-07-15",
+          "partial": false,
+          "total": 422,
+          "by_category": {
+            "Branch": 76,
+            "Fees": 71,
+            "Service": 89,
+            "Technical": 96,
+            "Transactions": 90
+          }
+        },
+        {
+          "week_start": "2024-07-22",
+          "partial": false,
+          "total": 427,
+          "by_category": {
+            "Branch": 76,
+            "Fees": 88,
+            "Service": 89,
+            "Technical": 79,
+            "Transactions": 95
+          }
+        },
+        {
+          "week_start": "2024-07-29",
+          "partial": false,
+          "total": 441,
+          "by_category": {
+            "Branch": 77,
+            "Fees": 94,
+            "Service": 87,
+            "Technical": 97,
+            "Transactions": 86
+          }
+        },
+        {
+          "week_start": "2024-08-05",
+          "partial": false,
+          "total": 433,
+          "by_category": {
+            "Branch": 69,
+            "Fees": 104,
+            "Service": 79,
+            "Technical": 95,
+            "Transactions": 86
+          }
+        },
+        {
+          "week_start": "2024-08-12",
+          "partial": false,
+          "total": 411,
+          "by_category": {
+            "Branch": 90,
+            "Fees": 67,
+            "Service": 79,
+            "Technical": 92,
+            "Transactions": 83
+          }
+        },
+        {
+          "week_start": "2024-08-19",
+          "partial": false,
+          "total": 420,
+          "by_category": {
+            "Branch": 85,
+            "Fees": 88,
+            "Service": 85,
+            "Technical": 88,
+            "Transactions": 74
+          }
+        },
+        {
+          "week_start": "2024-08-26",
+          "partial": false,
+          "total": 416,
+          "by_category": {
+            "Branch": 80,
+            "Fees": 77,
+            "Service": 96,
+            "Technical": 78,
+            "Transactions": 85
+          }
+        },
+        {
+          "week_start": "2024-09-02",
+          "partial": false,
+          "total": 423,
+          "by_category": {
+            "Branch": 82,
+            "Fees": 92,
+            "Service": 80,
+            "Technical": 80,
+            "Transactions": 89
+          }
+        },
+        {
+          "week_start": "2024-09-09",
+          "partial": false,
+          "total": 451,
+          "by_category": {
+            "Branch": 100,
+            "Fees": 95,
+            "Service": 94,
+            "Technical": 80,
+            "Transactions": 82
+          }
+        },
+        {
+          "week_start": "2024-09-16",
+          "partial": false,
+          "total": 437,
+          "by_category": {
+            "Branch": 89,
+            "Fees": 89,
+            "Service": 70,
+            "Technical": 90,
+            "Transactions": 99
+          }
+        },
+        {
+          "week_start": "2024-09-23",
+          "partial": false,
+          "total": 442,
+          "by_category": {
+            "Branch": 88,
+            "Fees": 83,
+            "Service": 80,
+            "Technical": 101,
+            "Transactions": 90
+          }
+        },
+        {
+          "week_start": "2024-09-30",
+          "partial": false,
+          "total": 430,
+          "by_category": {
+            "Branch": 72,
+            "Fees": 95,
+            "Service": 100,
+            "Technical": 77,
+            "Transactions": 86
+          }
+        },
+        {
+          "week_start": "2024-10-07",
+          "partial": false,
+          "total": 411,
+          "by_category": {
+            "Branch": 91,
+            "Fees": 67,
+            "Service": 71,
+            "Technical": 84,
+            "Transactions": 98
+          }
+        },
+        {
+          "week_start": "2024-10-14",
+          "partial": false,
+          "total": 423,
+          "by_category": {
+            "Branch": 88,
+            "Fees": 89,
+            "Service": 78,
+            "Technical": 82,
+            "Transactions": 86
+          }
+        },
+        {
+          "week_start": "2024-10-21",
+          "partial": false,
+          "total": 397,
+          "by_category": {
+            "Branch": 77,
+            "Fees": 84,
+            "Service": 81,
+            "Technical": 77,
+            "Transactions": 78
+          }
+        },
+        {
+          "week_start": "2024-10-28",
+          "partial": false,
+          "total": 427,
+          "by_category": {
+            "Branch": 79,
+            "Fees": 80,
+            "Service": 86,
+            "Technical": 88,
+            "Transactions": 94
+          }
+        },
+        {
+          "week_start": "2024-11-04",
+          "partial": false,
+          "total": 410,
+          "by_category": {
+            "Branch": 87,
+            "Fees": 68,
+            "Service": 90,
+            "Technical": 83,
+            "Transactions": 82
+          }
+        },
+        {
+          "week_start": "2024-11-11",
+          "partial": false,
+          "total": 442,
+          "by_category": {
+            "Branch": 91,
+            "Fees": 85,
+            "Service": 95,
+            "Technical": 91,
+            "Transactions": 80
+          }
+        },
+        {
+          "week_start": "2024-11-18",
+          "partial": false,
+          "total": 459,
+          "by_category": {
+            "Branch": 92,
+            "Fees": 95,
+            "Service": 98,
+            "Technical": 81,
+            "Transactions": 93
+          }
+        },
+        {
+          "week_start": "2024-11-25",
+          "partial": false,
+          "total": 449,
+          "by_category": {
+            "Branch": 88,
+            "Fees": 111,
+            "Service": 87,
+            "Technical": 79,
+            "Transactions": 84
+          }
+        },
+        {
+          "week_start": "2024-12-02",
+          "partial": false,
+          "total": 418,
+          "by_category": {
+            "Branch": 78,
+            "Fees": 91,
+            "Service": 82,
+            "Technical": 81,
+            "Transactions": 86
+          }
+        },
+        {
+          "week_start": "2024-12-09",
+          "partial": false,
+          "total": 414,
+          "by_category": {
+            "Branch": 75,
+            "Fees": 93,
+            "Service": 85,
+            "Technical": 82,
+            "Transactions": 79
+          }
+        },
+        {
+          "week_start": "2024-12-16",
+          "partial": false,
+          "total": 400,
+          "by_category": {
+            "Branch": 97,
+            "Fees": 77,
+            "Service": 70,
+            "Technical": 83,
+            "Transactions": 73
+          }
+        },
+        {
+          "week_start": "2024-12-23",
+          "partial": false,
+          "total": 448,
+          "by_category": {
+            "Branch": 89,
+            "Fees": 91,
+            "Service": 96,
+            "Technical": 89,
+            "Transactions": 83
+          }
+        },
+        {
+          "week_start": "2024-12-30",
+          "partial": false,
+          "total": 472,
+          "by_category": {
+            "Branch": 100,
+            "Fees": 103,
+            "Service": 80,
+            "Technical": 90,
+            "Transactions": 99
+          }
+        },
+        {
+          "week_start": "2025-01-06",
+          "partial": false,
+          "total": 449,
+          "by_category": {
+            "Branch": 84,
+            "Fees": 79,
+            "Service": 94,
+            "Technical": 98,
+            "Transactions": 94
+          }
+        },
+        {
+          "week_start": "2025-01-13",
+          "partial": false,
+          "total": 420,
+          "by_category": {
+            "Branch": 86,
+            "Fees": 90,
+            "Service": 72,
+            "Technical": 94,
+            "Transactions": 78
+          }
+        },
+        {
+          "week_start": "2025-01-20",
+          "partial": false,
+          "total": 435,
+          "by_category": {
+            "Branch": 86,
+            "Fees": 93,
+            "Service": 87,
+            "Technical": 87,
+            "Transactions": 82
+          }
+        },
+        {
+          "week_start": "2025-01-27",
+          "partial": false,
+          "total": 461,
+          "by_category": {
+            "Branch": 90,
+            "Fees": 110,
+            "Service": 91,
+            "Technical": 85,
+            "Transactions": 85
+          }
+        },
+        {
+          "week_start": "2025-02-03",
+          "partial": false,
+          "total": 428,
+          "by_category": {
+            "Branch": 80,
+            "Fees": 95,
+            "Service": 75,
+            "Technical": 87,
+            "Transactions": 91
+          }
+        },
+        {
+          "week_start": "2025-02-10",
+          "partial": false,
+          "total": 459,
+          "by_category": {
+            "Branch": 99,
+            "Fees": 84,
+            "Service": 87,
+            "Technical": 97,
+            "Transactions": 92
+          }
+        },
+        {
+          "week_start": "2025-02-17",
+          "partial": false,
+          "total": 425,
+          "by_category": {
+            "Branch": 86,
+            "Fees": 91,
+            "Service": 75,
+            "Technical": 84,
+            "Transactions": 89
+          }
+        },
+        {
+          "week_start": "2025-02-24",
+          "partial": false,
+          "total": 433,
+          "by_category": {
+            "Branch": 91,
+            "Fees": 93,
+            "Service": 84,
+            "Technical": 76,
+            "Transactions": 89
+          }
+        },
+        {
+          "week_start": "2025-03-03",
+          "partial": false,
+          "total": 429,
+          "by_category": {
+            "Branch": 86,
+            "Fees": 89,
+            "Service": 88,
+            "Technical": 78,
+            "Transactions": 88
+          }
+        },
+        {
+          "week_start": "2025-03-10",
+          "partial": false,
+          "total": 412,
+          "by_category": {
+            "Branch": 76,
+            "Fees": 76,
+            "Service": 98,
+            "Technical": 74,
+            "Transactions": 88
+          }
+        },
+        {
+          "week_start": "2025-03-17",
+          "partial": false,
+          "total": 409,
+          "by_category": {
+            "Branch": 84,
+            "Fees": 77,
+            "Service": 79,
+            "Technical": 76,
+            "Transactions": 93
+          }
+        },
+        {
+          "week_start": "2025-03-24",
+          "partial": false,
+          "total": 379,
+          "by_category": {
+            "Branch": 77,
+            "Fees": 94,
+            "Service": 61,
+            "Technical": 66,
+            "Transactions": 81
+          }
+        },
+        {
+          "week_start": "2025-03-31",
+          "partial": false,
+          "total": 417,
+          "by_category": {
+            "Branch": 82,
+            "Fees": 87,
+            "Service": 84,
+            "Technical": 81,
+            "Transactions": 83
+          }
+        },
+        {
+          "week_start": "2025-04-07",
+          "partial": false,
+          "total": 403,
+          "by_category": {
+            "Branch": 81,
+            "Fees": 78,
+            "Service": 69,
+            "Technical": 88,
+            "Transactions": 87
+          }
+        },
+        {
+          "week_start": "2025-04-14",
+          "partial": false,
+          "total": 439,
+          "by_category": {
+            "Branch": 79,
+            "Fees": 92,
+            "Service": 90,
+            "Technical": 80,
+            "Transactions": 98
+          }
+        },
+        {
+          "week_start": "2025-04-21",
+          "partial": false,
+          "total": 386,
+          "by_category": {
+            "Branch": 78,
+            "Fees": 79,
+            "Service": 69,
+            "Technical": 96,
+            "Transactions": 64
+          }
+        },
+        {
+          "week_start": "2025-04-28",
+          "partial": false,
+          "total": 410,
+          "by_category": {
+            "Branch": 78,
+            "Fees": 89,
+            "Service": 71,
+            "Technical": 84,
+            "Transactions": 88
+          }
+        },
+        {
+          "week_start": "2025-05-05",
+          "partial": false,
+          "total": 411,
+          "by_category": {
+            "Branch": 69,
+            "Fees": 92,
+            "Service": 78,
+            "Technical": 77,
+            "Transactions": 95
+          }
+        },
+        {
+          "week_start": "2025-05-12",
+          "partial": false,
+          "total": 430,
+          "by_category": {
+            "Branch": 82,
+            "Fees": 84,
+            "Service": 91,
+            "Technical": 84,
+            "Transactions": 89
+          }
+        },
+        {
+          "week_start": "2025-05-19",
+          "partial": false,
+          "total": 437,
+          "by_category": {
+            "Branch": 81,
+            "Fees": 96,
+            "Service": 87,
+            "Technical": 98,
+            "Transactions": 75
+          }
+        },
+        {
+          "week_start": "2025-05-26",
+          "partial": false,
+          "total": 443,
+          "by_category": {
+            "Branch": 95,
+            "Fees": 79,
+            "Service": 79,
+            "Technical": 109,
+            "Transactions": 81
+          }
+        },
+        {
+          "week_start": "2025-06-02",
+          "partial": false,
+          "total": 418,
+          "by_category": {
+            "Branch": 76,
+            "Fees": 87,
+            "Service": 88,
+            "Technical": 95,
+            "Transactions": 72
+          }
+        },
+        {
+          "week_start": "2025-06-09",
+          "partial": false,
+          "total": 430,
+          "by_category": {
+            "Branch": 84,
+            "Fees": 76,
+            "Service": 91,
+            "Technical": 91,
+            "Transactions": 88
+          }
+        },
+        {
+          "week_start": "2025-06-16",
+          "partial": false,
+          "total": 426,
+          "by_category": {
+            "Branch": 80,
+            "Fees": 79,
+            "Service": 85,
+            "Technical": 90,
+            "Transactions": 92
+          }
+        },
+        {
+          "week_start": "2025-06-23",
+          "partial": false,
+          "total": 428,
+          "by_category": {
+            "Branch": 97,
+            "Fees": 80,
+            "Service": 90,
+            "Technical": 71,
+            "Transactions": 90
+          }
+        },
+        {
+          "week_start": "2025-06-30",
+          "partial": false,
+          "total": 449,
+          "by_category": {
+            "Branch": 105,
+            "Fees": 89,
+            "Service": 91,
+            "Technical": 71,
+            "Transactions": 93
+          }
+        },
+        {
+          "week_start": "2025-07-07",
+          "partial": false,
+          "total": 428,
+          "by_category": {
+            "Branch": 87,
+            "Fees": 73,
+            "Service": 73,
+            "Technical": 105,
+            "Transactions": 90
+          }
+        },
+        {
+          "week_start": "2025-07-14",
+          "partial": false,
+          "total": 478,
+          "by_category": {
+            "Branch": 107,
+            "Fees": 95,
+            "Service": 93,
+            "Technical": 102,
+            "Transactions": 81
+          }
+        },
+        {
+          "week_start": "2025-07-21",
+          "partial": false,
+          "total": 417,
+          "by_category": {
+            "Branch": 93,
+            "Fees": 73,
+            "Service": 74,
+            "Technical": 87,
+            "Transactions": 90
+          }
+        },
+        {
+          "week_start": "2025-07-28",
+          "partial": false,
+          "total": 425,
+          "by_category": {
+            "Branch": 77,
+            "Fees": 86,
+            "Service": 92,
+            "Technical": 91,
+            "Transactions": 79
+          }
+        },
+        {
+          "week_start": "2025-08-04",
+          "partial": false,
+          "total": 435,
+          "by_category": {
+            "Branch": 91,
+            "Fees": 79,
+            "Service": 102,
+            "Technical": 70,
+            "Transactions": 93
+          }
+        },
+        {
+          "week_start": "2025-08-11",
+          "partial": false,
+          "total": 438,
+          "by_category": {
+            "Branch": 97,
+            "Fees": 79,
+            "Service": 95,
+            "Technical": 90,
+            "Transactions": 77
+          }
+        },
+        {
+          "week_start": "2025-08-18",
+          "partial": false,
+          "total": 412,
+          "by_category": {
+            "Branch": 79,
+            "Fees": 72,
+            "Service": 87,
+            "Technical": 74,
+            "Transactions": 100
+          }
+        },
+        {
+          "week_start": "2025-08-25",
+          "partial": false,
+          "total": 465,
+          "by_category": {
+            "Branch": 91,
+            "Fees": 90,
+            "Service": 83,
+            "Technical": 88,
+            "Transactions": 113
+          }
+        },
+        {
+          "week_start": "2025-09-01",
+          "partial": false,
+          "total": 400,
+          "by_category": {
+            "Branch": 93,
+            "Fees": 76,
+            "Service": 76,
+            "Technical": 68,
+            "Transactions": 87
+          }
+        },
+        {
+          "week_start": "2025-09-08",
+          "partial": false,
+          "total": 420,
+          "by_category": {
+            "Branch": 79,
+            "Fees": 90,
+            "Service": 78,
+            "Technical": 90,
+            "Transactions": 83
+          }
+        },
+        {
+          "week_start": "2025-09-15",
+          "partial": false,
+          "total": 406,
+          "by_category": {
+            "Branch": 83,
+            "Fees": 75,
+            "Service": 68,
+            "Technical": 95,
+            "Transactions": 85
+          }
+        },
+        {
+          "week_start": "2025-09-22",
+          "partial": false,
+          "total": 401,
+          "by_category": {
+            "Branch": 81,
+            "Fees": 91,
+            "Service": 74,
+            "Technical": 67,
+            "Transactions": 88
+          }
+        },
+        {
+          "week_start": "2025-09-29",
+          "partial": false,
+          "total": 437,
+          "by_category": {
+            "Branch": 97,
+            "Fees": 81,
+            "Service": 104,
+            "Technical": 70,
+            "Transactions": 85
+          }
+        },
+        {
+          "week_start": "2025-10-06",
+          "partial": false,
+          "total": 460,
+          "by_category": {
+            "Branch": 95,
+            "Fees": 88,
+            "Service": 82,
+            "Technical": 96,
+            "Transactions": 99
+          }
+        },
+        {
+          "week_start": "2025-10-13",
+          "partial": false,
+          "total": 423,
+          "by_category": {
+            "Branch": 81,
+            "Fees": 82,
+            "Service": 97,
+            "Technical": 81,
+            "Transactions": 82
+          }
+        },
+        {
+          "week_start": "2025-10-20",
+          "partial": false,
+          "total": 444,
+          "by_category": {
+            "Branch": 87,
+            "Fees": 78,
+            "Service": 86,
+            "Technical": 90,
+            "Transactions": 103
+          }
+        },
+        {
+          "week_start": "2025-10-27",
+          "partial": false,
+          "total": 436,
+          "by_category": {
+            "Branch": 89,
+            "Fees": 95,
+            "Service": 77,
+            "Technical": 88,
+            "Transactions": 87
+          }
+        },
+        {
+          "week_start": "2025-11-03",
+          "partial": false,
+          "total": 449,
+          "by_category": {
+            "Branch": 90,
+            "Fees": 83,
+            "Service": 96,
+            "Technical": 86,
+            "Transactions": 94
+          }
+        },
+        {
+          "week_start": "2025-11-10",
+          "partial": false,
+          "total": 432,
+          "by_category": {
+            "Branch": 87,
+            "Fees": 78,
+            "Service": 78,
+            "Technical": 99,
+            "Transactions": 90
+          }
+        },
+        {
+          "week_start": "2025-11-17",
+          "partial": false,
+          "total": 423,
+          "by_category": {
+            "Branch": 76,
+            "Fees": 88,
+            "Service": 101,
+            "Technical": 84,
+            "Transactions": 74
+          }
+        },
+        {
+          "week_start": "2025-11-24",
+          "partial": false,
+          "total": 412,
+          "by_category": {
+            "Branch": 83,
+            "Fees": 84,
+            "Service": 86,
+            "Technical": 82,
+            "Transactions": 77
+          }
+        },
+        {
+          "week_start": "2025-12-01",
+          "partial": false,
+          "total": 429,
+          "by_category": {
+            "Branch": 97,
+            "Fees": 76,
+            "Service": 94,
+            "Technical": 71,
+            "Transactions": 91
+          }
+        },
+        {
+          "week_start": "2025-12-08",
+          "partial": false,
+          "total": 412,
+          "by_category": {
+            "Branch": 68,
+            "Fees": 76,
+            "Service": 78,
+            "Technical": 97,
+            "Transactions": 93
+          }
+        },
+        {
+          "week_start": "2025-12-15",
+          "partial": false,
+          "total": 450,
+          "by_category": {
+            "Branch": 81,
+            "Fees": 98,
+            "Service": 95,
+            "Technical": 82,
+            "Transactions": 94
+          }
+        },
+        {
+          "week_start": "2025-12-22",
+          "partial": false,
+          "total": 422,
+          "by_category": {
+            "Branch": 99,
+            "Fees": 85,
+            "Service": 80,
+            "Technical": 91,
+            "Transactions": 67
+          }
+        },
+        {
+          "week_start": "2025-12-29",
+          "partial": false,
+          "total": 440,
+          "by_category": {
+            "Branch": 89,
+            "Fees": 90,
+            "Service": 88,
+            "Technical": 84,
+            "Transactions": 89
+          }
+        },
+        {
+          "week_start": "2026-01-05",
+          "partial": false,
+          "total": 450,
+          "by_category": {
+            "Branch": 83,
+            "Fees": 100,
+            "Service": 106,
+            "Technical": 86,
+            "Transactions": 75
+          }
+        },
+        {
+          "week_start": "2026-01-12",
+          "partial": false,
+          "total": 415,
+          "by_category": {
+            "Branch": 74,
+            "Fees": 73,
+            "Service": 90,
+            "Technical": 92,
+            "Transactions": 86
+          }
+        },
+        {
+          "week_start": "2026-01-19",
+          "partial": false,
+          "total": 435,
+          "by_category": {
+            "Branch": 80,
+            "Fees": 87,
+            "Service": 95,
+            "Technical": 82,
+            "Transactions": 91
+          }
+        },
+        {
+          "week_start": "2026-01-26",
+          "partial": false,
+          "total": 451,
+          "by_category": {
+            "Branch": 85,
+            "Fees": 85,
+            "Service": 98,
+            "Technical": 96,
+            "Transactions": 87
+          }
+        },
+        {
+          "week_start": "2026-02-02",
+          "partial": false,
+          "total": 428,
+          "by_category": {
+            "Branch": 96,
+            "Fees": 87,
+            "Service": 89,
+            "Technical": 74,
+            "Transactions": 82
+          }
+        },
+        {
+          "week_start": "2026-02-09",
+          "partial": false,
+          "total": 442,
+          "by_category": {
+            "Branch": 97,
+            "Fees": 76,
+            "Service": 89,
+            "Technical": 82,
+            "Transactions": 98
+          }
+        },
+        {
+          "week_start": "2026-02-16",
+          "partial": false,
+          "total": 408,
+          "by_category": {
+            "Branch": 87,
+            "Fees": 79,
+            "Service": 89,
+            "Technical": 79,
+            "Transactions": 74
+          }
+        },
+        {
+          "week_start": "2026-02-23",
+          "partial": false,
+          "total": 425,
+          "by_category": {
+            "Branch": 96,
+            "Fees": 81,
+            "Service": 80,
+            "Technical": 70,
+            "Transactions": 98
+          }
+        },
+        {
+          "week_start": "2026-03-02",
+          "partial": false,
+          "total": 438,
+          "by_category": {
+            "Branch": 86,
+            "Fees": 88,
+            "Service": 84,
+            "Technical": 95,
+            "Transactions": 85
+          }
+        },
+        {
+          "week_start": "2026-03-09",
+          "partial": false,
+          "total": 446,
+          "by_category": {
+            "Branch": 81,
+            "Fees": 91,
+            "Service": 86,
+            "Technical": 97,
+            "Transactions": 91
+          }
+        },
+        {
+          "week_start": "2026-03-16",
+          "partial": false,
+          "total": 446,
+          "by_category": {
+            "Branch": 81,
+            "Fees": 92,
+            "Service": 88,
+            "Technical": 82,
+            "Transactions": 103
+          }
+        },
+        {
+          "week_start": "2026-03-23",
+          "partial": false,
+          "total": 454,
+          "by_category": {
+            "Branch": 92,
+            "Fees": 91,
+            "Service": 88,
+            "Technical": 91,
+            "Transactions": 92
+          }
+        },
+        {
+          "week_start": "2026-03-30",
+          "partial": false,
+          "total": 446,
+          "by_category": {
+            "Branch": 87,
+            "Fees": 81,
+            "Service": 82,
+            "Technical": 102,
+            "Transactions": 94
+          }
+        },
+        {
+          "week_start": "2026-04-06",
+          "partial": false,
+          "total": 428,
+          "by_category": {
+            "Branch": 84,
+            "Fees": 86,
+            "Service": 79,
+            "Technical": 95,
+            "Transactions": 84
+          }
+        },
+        {
+          "week_start": "2026-04-13",
+          "partial": false,
+          "total": 440,
+          "by_category": {
+            "Branch": 85,
+            "Fees": 90,
+            "Service": 82,
+            "Technical": 88,
+            "Transactions": 95
+          }
+        },
+        {
+          "week_start": "2026-04-20",
+          "partial": false,
+          "total": 423,
+          "by_category": {
+            "Branch": 80,
+            "Fees": 99,
+            "Service": 77,
+            "Technical": 83,
+            "Transactions": 84
+          }
+        },
+        {
+          "week_start": "2026-04-27",
+          "partial": false,
+          "total": 417,
+          "by_category": {
+            "Branch": 72,
+            "Fees": 73,
+            "Service": 90,
+            "Technical": 94,
+            "Transactions": 88
+          }
+        },
+        {
+          "week_start": "2026-05-04",
+          "partial": false,
+          "total": 434,
+          "by_category": {
+            "Branch": 95,
+            "Fees": 83,
+            "Service": 82,
+            "Technical": 84,
+            "Transactions": 90
+          }
+        },
+        {
+          "week_start": "2026-05-11",
+          "partial": false,
+          "total": 398,
+          "by_category": {
+            "Branch": 64,
+            "Fees": 95,
+            "Service": 88,
+            "Technical": 70,
+            "Transactions": 81
+          }
+        },
+        {
+          "week_start": "2026-05-18",
+          "partial": false,
+          "total": 424,
+          "by_category": {
+            "Branch": 76,
+            "Fees": 84,
+            "Service": 79,
+            "Technical": 95,
+            "Transactions": 90
+          }
+        },
+        {
+          "week_start": "2026-05-25",
+          "partial": false,
+          "total": 422,
+          "by_category": {
+            "Branch": 70,
+            "Fees": 95,
+            "Service": 84,
+            "Technical": 83,
+            "Transactions": 90
+          }
+        },
+        {
+          "week_start": "2026-06-01",
+          "partial": false,
+          "total": 430,
+          "by_category": {
+            "Branch": 92,
+            "Fees": 88,
+            "Service": 95,
+            "Technical": 72,
+            "Transactions": 83
+          }
+        },
+        {
+          "week_start": "2026-06-08",
+          "partial": false,
+          "total": 410,
+          "by_category": {
+            "Branch": 83,
+            "Fees": 87,
+            "Service": 87,
+            "Technical": 77,
+            "Transactions": 76
+          }
+        },
+        {
+          "week_start": "2026-06-15",
+          "partial": true,
+          "total": 224,
+          "by_category": {
+            "Branch": 41,
+            "Fees": 53,
+            "Service": 48,
+            "Technical": 42,
+            "Transactions": 40
+          }
+        }
+      ]
+    }
+  },
+  "response_times": {
+    "first_response_by_category": {
+      "kind": "measured",
+      "unit": "calendar hours from creation_date",
+      "rows": [
+        {
+          "category": "Branch",
+          "kind": "measured",
+          "total": 13361,
+          "n": 8167,
+          "coverage": 0.6113,
+          "p50": 38.0,
+          "p90": 58.0
+        },
+        {
+          "category": "Fees",
+          "kind": "measured",
+          "total": 13553,
+          "n": 8271,
+          "coverage": 0.6103,
+          "p50": 38.0,
+          "p90": 58.0
+        },
+        {
+          "category": "Service",
+          "kind": "measured",
+          "total": 13194,
+          "n": 7882,
+          "coverage": 0.5974,
+          "p50": 38.0,
+          "p90": 58.0
+        },
+        {
+          "category": "Technical",
+          "kind": "measured",
+          "total": 13407,
+          "n": 8184,
+          "coverage": 0.6104,
+          "p50": 38.0,
+          "p90": 58.0
+        },
+        {
+          "category": "Transactions",
+          "kind": "measured",
+          "total": 13580,
+          "n": 8349,
+          "coverage": 0.6148,
+          "p50": 37.0,
+          "p90": 58.0
+        }
+      ]
+    },
+    "resolution_by_category": {
+      "kind": "measured",
+      "unit": "calendar hours from creation_date",
+      "rows": [
+        {
+          "category": "Branch",
+          "kind": "measured",
+          "total": 13361,
+          "n": 3075,
+          "coverage": 0.2301,
+          "p50": 384.0,
+          "p90": 672.0
+        },
+        {
+          "category": "Fees",
+          "kind": "measured",
+          "total": 13553,
+          "n": 3068,
+          "coverage": 0.2264,
+          "p50": 384.0,
+          "p90": 648.0
+        },
+        {
+          "category": "Service",
+          "kind": "measured",
+          "total": 13194,
+          "n": 2998,
+          "coverage": 0.2272,
+          "p50": 384.0,
+          "p90": 672.0
+        },
+        {
+          "category": "Technical",
+          "kind": "measured",
+          "total": 13407,
+          "n": 3039,
+          "coverage": 0.2267,
+          "p50": 384.0,
+          "p90": 672.0
+        },
+        {
+          "category": "Transactions",
+          "kind": "measured",
+          "total": 13580,
+          "n": 3169,
+          "coverage": 0.2334,
+          "p50": 360.0,
+          "p90": 648.0
+        }
+      ]
+    },
+    "focus_first_response": {
+      "subcategory": "Cargo no reconocido",
+      "kind": "measured",
+      "unit": "calendar hours from creation_date",
+      "total": 12297,
+      "n": 7567,
+      "coverage": 0.6154,
+      "p50": 37.0,
+      "p90": 58.0,
+      "max_hours": {
+        "value": 72.0,
+        "n": 7567,
+        "kind": "measured"
+      },
+      "missing_first_response": {
+        "value": 4730,
+        "n": 12297,
+        "kind": "measured",
+        "by_status": [
+          {
+            "status": "Open",
+            "count": 3648
+          },
+          {
+            "status": "Escalated",
+            "count": 618
+          },
+          {
+            "status": "In Process",
+            "count": 241
+          },
+          {
+            "status": "Rejected",
+            "count": 111
+          },
+          {
+            "status": "Resolved",
+            "count": 95
+          },
+          {
+            "status": "Closed",
+            "count": 17
+          }
+        ]
+      },
+      "within_contact_window": {
+        "value": 1.0,
+        "n": 7567,
+        "kind": "measured",
+        "window_hours": 72,
+        "note": "Share of RECORDED first responses within 72 calendar hours. Cases with no first response are censored and excluded, so this share says nothing about them."
+      },
+      "histogram_1h": [
+        {
+          "hour": 3,
+          "count": 11
+        },
+        {
+          "hour": 4,
+          "count": 15
+        },
+        {
+          "hour": 5,
+          "count": 16
+        },
+        {
+          "hour": 6,
+          "count": 17
+        },
+        {
+          "hour": 7,
+          "count": 32
+        },
+        {
+          "hour": 8,
+          "count": 41
+        },
+        {
+          "hour": 9,
+          "count": 54
+        },
+        {
+          "hour": 10,
+          "count": 47
+        },
+        {
+          "hour": 11,
+          "count": 51
+        },
+        {
+          "hour": 12,
+          "count": 61
+        },
+        {
+          "hour": 13,
+          "count": 72
+        },
+        {
+          "hour": 14,
+          "count": 90
+        },
+        {
+          "hour": 15,
+          "count": 78
+        },
+        {
+          "hour": 16,
+          "count": 120
+        },
+        {
+          "hour": 17,
+          "count": 90
+        },
+        {
+          "hour": 18,
+          "count": 125
+        },
+        {
+          "hour": 19,
+          "count": 125
+        },
+        {
+          "hour": 20,
+          "count": 107
+        },
+        {
+          "hour": 21,
+          "count": 119
+        },
+        {
+          "hour": 22,
+          "count": 135
+        },
+        {
+          "hour": 23,
+          "count": 136
+        },
+        {
+          "hour": 24,
+          "count": 165
+        },
+        {
+          "hour": 25,
+          "count": 167
+        },
+        {
+          "hour": 26,
+          "count": 147
+        },
+        {
+          "hour": 27,
+          "count": 162
+        },
+        {
+          "hour": 28,
+          "count": 157
+        },
+        {
+          "hour": 29,
+          "count": 152
+        },
+        {
+          "hour": 30,
+          "count": 172
+        },
+        {
+          "hour": 31,
+          "count": 188
+        },
+        {
+          "hour": 32,
+          "count": 151
+        },
+        {
+          "hour": 33,
+          "count": 169
+        },
+        {
+          "hour": 34,
+          "count": 166
+        },
+        {
+          "hour": 35,
+          "count": 160
+        },
+        {
+          "hour": 36,
+          "count": 170
+        },
+        {
+          "hour": 37,
+          "count": 152
+        },
+        {
+          "hour": 38,
+          "count": 158
+        },
+        {
+          "hour": 39,
+          "count": 170
+        },
+        {
+          "hour": 40,
+          "count": 173
+        },
+        {
+          "hour": 41,
+          "count": 186
+        },
+        {
+          "hour": 42,
+          "count": 149
+        },
+        {
+          "hour": 43,
+          "count": 140
+        },
+        {
+          "hour": 44,
+          "count": 164
+        },
+        {
+          "hour": 45,
+          "count": 127
+        },
+        {
+          "hour": 46,
+          "count": 180
+        },
+        {
+          "hour": 47,
+          "count": 144
+        },
+        {
+          "hour": 48,
+          "count": 161
+        },
+        {
+          "hour": 49,
+          "count": 155
+        },
+        {
+          "hour": 50,
+          "count": 145
+        },
+        {
+          "hour": 51,
+          "count": 151
+        },
+        {
+          "hour": 52,
+          "count": 163
+        },
+        {
+          "hour": 53,
+          "count": 138
+        },
+        {
+          "hour": 54,
+          "count": 123
+        },
+        {
+          "hour": 55,
+          "count": 116
+        },
+        {
+          "hour": 56,
+          "count": 102
+        },
+        {
+          "hour": 57,
+          "count": 102
+        },
+        {
+          "hour": 58,
+          "count": 88
+        },
+        {
+          "hour": 59,
+          "count": 89
+        },
+        {
+          "hour": 60,
+          "count": 91
+        },
+        {
+          "hour": 61,
+          "count": 88
+        },
+        {
+          "hour": 62,
+          "count": 78
+        },
+        {
+          "hour": 63,
+          "count": 72
+        },
+        {
+          "hour": 64,
+          "count": 72
+        },
+        {
+          "hour": 65,
+          "count": 46
+        },
+        {
+          "hour": 66,
+          "count": 39
+        },
+        {
+          "hour": 67,
+          "count": 42
+        },
+        {
+          "hour": 68,
+          "count": 34
+        },
+        {
+          "hour": 69,
+          "count": 21
+        },
+        {
+          "hour": 70,
+          "count": 18
+        },
+        {
+          "hour": 71,
+          "count": 12
+        },
+        {
+          "hour": 72,
+          "count": 10
+        }
+      ]
+    }
+  },
+  "call_center": {
+    "kind": "measured",
+    "n": 19677,
+    "window": {
+      "start": "2026-05-18T08:00:16",
+      "end": "2026-06-18T07:58:13"
+    },
+    "note": "First-contact handle time across all contact reasons. Not dispute-specific: there is no join key from complaints to interactions.",
+    "share_spread": {
+      "min": 0.0303,
+      "max": 0.3456
+    },
+    "reasons": [
+      {
+        "contact_reason": "Transaccional",
+        "reason_category": "Transaccional",
+        "contacts": 6801,
+        "share": 0.3456,
+        "handle_time_n": 5874,
+        "median_handle_seconds": 202.0,
+        "handle_seconds_share": 0.2374,
+        "resolved_n": 6801,
+        "resolved_on_contact_share": 0.9171
+      },
+      {
+        "contact_reason": "Producto",
+        "reason_category": "Producto",
+        "contacts": 4376,
+        "share": 0.2224,
+        "handle_time_n": 3757,
+        "median_handle_seconds": 265.0,
+        "handle_seconds_share": 0.1857,
+        "resolved_n": 4376,
+        "resolved_on_contact_share": 0.8972
+      },
+      {
+        "contact_reason": "Queja",
+        "reason_category": "Queja",
+        "contacts": 3378,
+        "share": 0.1717,
+        "handle_time_n": 2901,
+        "median_handle_seconds": 425.0,
+        "handle_seconds_share": 0.2304,
+        "resolved_n": 3378,
+        "resolved_on_contact_share": 0.4328
+      },
+      {
+        "contact_reason": "Técnico",
+        "reason_category": "Técnico",
+        "contacts": 2982,
+        "share": 0.1515,
+        "handle_time_n": 2563,
+        "median_handle_seconds": 363.0,
+        "handle_seconds_share": 0.1702,
+        "resolved_n": 2982,
+        "resolved_on_contact_share": 0.6915
+      },
+      {
+        "contact_reason": "Comercial",
+        "reason_category": "Comercial",
+        "contacts": 1544,
+        "share": 0.0785,
+        "handle_time_n": 1337,
+        "median_handle_seconds": 540.0,
+        "handle_seconds_share": 0.133,
+        "resolved_n": 1544,
+        "resolved_on_contact_share": 0.671
+      },
+      {
+        "contact_reason": "Retención",
+        "reason_category": "Retención",
+        "contacts": 596,
+        "share": 0.0303,
+        "handle_time_n": 497,
+        "median_handle_seconds": 482.0,
+        "handle_seconds_share": 0.0434,
+        "resolved_n": 596,
+        "resolved_on_contact_share": 0.5973
+      }
+    ]
+  },
+  "data_quality": {
+    "resolution_before_first_response": {
+      "value": 492,
+      "n": 14631,
+      "kind": "measured",
+      "note": "Over complaints that have both a first response and a resolution date."
+    },
+    "closed_without_resolution_date": {
+      "value": 772,
+      "n": 16121,
+      "kind": "measured",
+      "statuses": [
+        "Resolved",
+        "Closed"
+      ]
+    },
+    "claimed_amount_by_currency": {
+      "kind": "measured",
+      "n": 67095,
+      "null_currency": {
+        "value": 45319,
+        "n": 67095,
+        "kind": "measured"
+      },
+      "note": "Medians per currency, never summed across currencies. Medians of similar size in currencies with very different FX rates are not consistent with real amounts in those currencies.",
+      "rows": [
+        {
+          "currency": "ARS",
+          "complaints": 5402,
+          "amount_n": 5132,
+          "median_amount": 2521.17
+        },
+        {
+          "currency": "COP",
+          "complaints": 5456,
+          "amount_n": 5192,
+          "median_amount": 2467.2
+        },
+        {
+          "currency": "MXN",
+          "complaints": 5487,
+          "amount_n": 5215,
+          "median_amount": 2551.21
+        },
+        {
+          "currency": "USD",
+          "complaints": 5431,
+          "amount_n": 5172,
+          "median_amount": 2563.86
+        }
+      ]
+    },
+    "complaint_interaction_link": {
+      "value": 0.0,
+      "n": 67095,
+      "kind": "measured",
+      "linked": 0,
+      "note": "Share of complaints with origin_interaction_id populated."
+    }
+  },
+  "eval": {
+    "disclosure": "OFFLINE/SIMULATED: the Anthropic client is mocked deterministically for reproducibility. Measures the state machine's policy pipeline and processing latency, NOT real LLM quality, network latency, or real API cost.",
+    "real_data_match": {
+      "value": 1,
+      "n": 2000,
+      "kind": "measured",
+      "source": "etl/build_fixture.py development, Milestone 1, 2026-09-28",
+      "note": "Quoted from the eval snapshot, not recomputed here."
+    }
+  },
+  "cost": {
+    "time_to_first_action": {
+      "agent_pipeline_p50_seconds": {
+        "value": 0.2228,
+        "n": 29,
+        "kind": "simulated",
+        "note": "Offline eval pipeline time with a mocked LLM; excludes network time."
+      },
+      "human_first_response_p50_hours": {
+        "value": 37.0,
+        "n": 7567,
+        "coverage": 0.6154,
+        "kind": "measured",
+        "subcategory": "Cargo no reconocido"
+      }
+    },
+    "human_first_contact_handle_time": {
+      "anchor_seconds": {
+        "value": 202.0,
+        "n": 5874,
+        "kind": "measured",
+        "contact_reason": "Transaccional"
+      },
+      "upper_anchor_seconds": {
+        "value": 425.0,
+        "n": 2901,
+        "kind": "measured",
+        "contact_reason": "Queja"
+      },
+      "note": "First-contact handle time across all contact reasons. Not dispute-specific: there is no join key from complaints to interactions."
+    },
+    "agent_llm_cost_usd": {
+      "per_attempted_case": {
+        "value": 0.001235,
+        "n": 29,
+        "kind": "simulated"
+      },
+      "per_successful_resolution": {
+        "value": 0.00597,
+        "n": 6,
+        "kind": "simulated"
+      },
+      "method": "estimated from constructed prompt/response character counts (~4 chars/token), not measured API billing",
+      "pricing_source": "https://www.anthropic.com/claude/haiku (Haiku 4.5, $1/$5 per M input/output tokens, verified 2026-09-28)",
+      "disclosure": "OFFLINE/SIMULATED: the Anthropic client is mocked deterministically for reproducibility. Measures the state machine's policy pipeline and processing latency, NOT real LLM quality, network latency, or real API cost."
+    },
+    "projection": {
+      "kind": "projection",
+      "formula": "expected human handle cost per case (USD) = (1 - automation share) x anchor handle hours x hourly rate",
+      "anchor_seconds": 202.0,
+      "hourly_rates_usd": [
+        {
+          "value": 5,
+          "n": null,
+          "kind": "assumed"
+        },
+        {
+          "value": 10,
+          "n": null,
+          "kind": "assumed"
+        },
+        {
+          "value": 20,
+          "n": null,
+          "kind": "assumed"
+        }
+      ],
+      "automation_shares": [
+        {
+          "value": 0.0,
+          "n": null,
+          "kind": "assumed",
+          "label": "baseline",
+          "note": "Evidence-based baseline: real complaint-to-transaction linkage is near zero."
+        },
+        {
+          "value": 0.2069,
+          "n": 29,
+          "kind": "simulated",
+          "label": "scenario-suite outcome, not a population estimate",
+          "note": "6 of 29 constructed eval scenarios ended in a safe automated resolution."
+        },
+        {
+          "value": 0.5,
+          "n": null,
+          "kind": "assumed",
+          "label": "assumed"
+        }
+      ],
+      "cells": [
+        {
+          "hourly_rate_usd": 5,
+          "automation_share": 0.0,
+          "value": 0.2806,
+          "n": null,
+          "kind": "projection"
+        },
+        {
+          "hourly_rate_usd": 5,
+          "automation_share": 0.2069,
+          "value": 0.2225,
+          "n": null,
+          "kind": "projection"
+        },
+        {
+          "hourly_rate_usd": 5,
+          "automation_share": 0.5,
+          "value": 0.1403,
+          "n": null,
+          "kind": "projection"
+        },
+        {
+          "hourly_rate_usd": 10,
+          "automation_share": 0.0,
+          "value": 0.5611,
+          "n": null,
+          "kind": "projection"
+        },
+        {
+          "hourly_rate_usd": 10,
+          "automation_share": 0.2069,
+          "value": 0.445,
+          "n": null,
+          "kind": "projection"
+        },
+        {
+          "hourly_rate_usd": 10,
+          "automation_share": 0.5,
+          "value": 0.2806,
+          "n": null,
+          "kind": "projection"
+        },
+        {
+          "hourly_rate_usd": 20,
+          "automation_share": 0.0,
+          "value": 1.1222,
+          "n": null,
+          "kind": "projection"
+        },
+        {
+          "hourly_rate_usd": 20,
+          "automation_share": 0.2069,
+          "value": 0.89,
+          "n": null,
+          "kind": "projection"
+        },
+        {
+          "hourly_rate_usd": 20,
+          "automation_share": 0.5,
+          "value": 0.5611,
+          "n": null,
+          "kind": "projection"
+        }
+      ],
+      "prerequisite": "Real complaint-to-transaction linkage or a redesigned intake is required before any automation share can be claimed."
+    }
+  }
+}
