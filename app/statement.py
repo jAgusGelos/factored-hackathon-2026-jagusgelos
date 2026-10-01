@@ -63,10 +63,11 @@ _QUOTED_RUN_WORDS = 6
 # digits, however it is separated, may be a document, phone, card or account
 # number, so the summary is dropped rather than guessed safe.
 _DATE = re.compile(
-    r"(?<![\d./-])(?:\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])"
+    r"(?<![\d./-])(?<!\d\s)(?:\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])"
     r"|(?:0?[1-9]|[12]\d|3[01])[./-](?:0?[1-9]|1[0-2])[./-](?:\d{4}|\d{2}))(?![./\s-]?\d)"
 )
-_LONG_NUMBER = re.compile(r"\d(?:[\s.,/_\-–—]{0,3}\d){5,}")
+# Any separator that is not a letter (a word breaks the run).
+_LONG_NUMBER = re.compile(r"\d(?:(?:[^\w]|_){0,3}\d){5,}")
 _CONTACT_OR_QUOTE = re.compile(r"@|https?://|[\"“”]")
 # A copied run only counts when it carries the customer's own content, not
 # just the charge's facts in the words anyone would use for them.

@@ -581,9 +581,10 @@ def test_a_summary_with_the_charge_amount_or_a_date_is_kept(session, app_db, sum
     ["Teléfono 300 555 1234 para contactarlo.", "Cédula 1.023.456.789 del cliente.", "Pidió que “devuelvan todo”.",
      "No reconozco este cargo nunca", "El cliente indicó documento 123.456.789 pesos.",
      "Reporta la tarjeta $4.512.345.678.901.234 como robada.", "Tarjeta 4512 - 3456 - 7890 - 1234 robada.",
-     "El cliente dice que compró por 1.200.000 pesos."],
+     "El cliente dice que compró por 1.200.000 pesos.", "Contacto 300:555:1234.", "Tarjeta 4512·3456·7890·1234.",
+     "Cuenta 1234|5678|90."],
     ids=["phone", "dotted_document", "quotes", "short_echo", "identifier_like_an_amount", "card_like_an_amount",
-         "card_with_spaced_dashes", "another_amount"],
+         "card_with_spaced_dashes", "another_amount", "colons", "middle_dots", "pipes"],
 )
 def test_a_summary_with_other_numbers_quotes_or_a_short_echo_is_dropped(session, app_db, summary):
     held, _ = _held(session, app_db)

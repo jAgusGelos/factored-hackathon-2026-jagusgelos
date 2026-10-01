@@ -108,7 +108,7 @@ summary_unavailable), the summary labelled "(resumen del modelo)", the known fac
 customer reported, and one open question per fact still unknown; their own words stay in the case
 record only. Code also checks the summary, with a margin over the prompt: one longer than 40 words,
 with a long run of digits that is neither a date nor the charge's own amount (the prompt asks for
-no other numbers, so a summary quoting another amount is dropped too), an email, a link, quotes, or a
+no other numbers, so a summary quoting another amount is dropped too), an email, a link, double quotes, or a
 run of the customer's own words is dropped (`handoff_statement_summary_dropped`) and the statement
 counts as summary_unavailable. Technical failures (`SERVICE_ISSUE`) never ask, nor do escalations
 after the customer already explained the charge in the explanation step, including an explanation
@@ -175,7 +175,7 @@ uvicorn app.main:app --reload --port 8000
 # data/demo_users.json after step 2)
 
 # 5. Tests, lint, eval harness
-pytest                              # 774 tests
+pytest                              # 777 tests
 ruff check .
 python -m eval.run_eval             # -> data/eval_report.json (see "Evaluation results" below)
 ```
@@ -368,7 +368,7 @@ app/            FastAPI backend — auth, state machine, policy, LLM boundary, c
 etl/            Offline ETL: extraction, quality checks, fixture generation, classifier training
 eval/           Eval harness (Milestone 5)
 static/         Frontend (vanilla HTML/CSS/JS, no build step — AD-1)
-tests/          pytest suite (774 tests)
+tests/          pytest suite (777 tests)
 support.py      Shared test/eval mock helpers (no pytest dependency — used by eval/ too)
 docs/           Challenge requirements digest
 data/           Local ETL artifacts, fixture, trained model (gitignored — never commit raw data)
