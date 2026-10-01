@@ -189,7 +189,9 @@ def test_weekly_flags_partial_weeks_and_excludes_them_from_cv(con):
         ("2024-01-15", False, 3),
         ("2024-01-22", True, 1),
     ]
-    assert weekly["weeks"][0]["by_category"] == {"Fees": 0, "Transactions": 1}
+    assert weekly["weeks"][0]["by_category"] == [
+        {"category": "Fees", "count": 0}, {"category": "Transactions", "count": 1},
+    ]
     assert (weekly["full_weeks"], weekly["partial_weeks"]) == (2, 2)
     transactions = next(v for v in weekly["variability"] if v["category"] == "Transactions")
     # Full weeks only: 2 and 2, so no variation; the partial weeks (1 and 0) are left out.
@@ -642,10 +644,16 @@ def test_weekly_keeps_a_null_category_last(tmp_path):
     con.executemany(
         "INSERT INTO complaints VALUES (?, ?)",
         [("2024-01-08 10:00:00", "Fees"), ("2024-01-09 10:00:00", None),
-         ("2024-01-15 10:00:00", "Fees"), ("2024-01-16 10:00:00", None)],
+         ("2024-01-10 10:00:00", "null"), ("2024-01-15 10:00:00", "Fees"),
+         ("2024-01-16 10:00:00", None), ("2024-01-17 10:00:00", "null")],
     )
     weekly = ad.weekly_demand(con)
     con.close()
-    assert [v["category"] for v in weekly["variability"]] == ["Fees", None]
-    assert sum(v["share"] for v in weekly["variability"]) == 1.0
-    assert weekly["weeks"][0]["by_category"] == {"Fees": 1, None: 1}
+    assert [v["category"] for v in weekly["variability"]] == ["Fees", "null", None]
+    assert sum(v["share"] for v in weekly["variability"]) == pytest.approx(1.0, abs=1e-3)
+    # A category literally named "null" and a NULL category survive a JSON round trip.
+    week = json.loads(json.dumps(weekly))["weeks"][0]["by_category"]
+    assert week == [
+        {"category": "Fees", "count": 1}, {"category": "null", "count": 1},
+        {"category": None, "count": 1},
+    ]

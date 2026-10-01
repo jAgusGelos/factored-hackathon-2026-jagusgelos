@@ -239,7 +239,11 @@ def _weekly_rows(
             "week_start": week.isoformat(),
             "partial": partial,
             "total": sum(counts.get(week, {}).values()),
-            "by_category": {c: counts.get(week, {}).get(c, 0) for c in categories},
+            # A list, not an object: a NULL category has no JSON key that cannot
+            # collide with a real category name.
+            "by_category": [
+                {"category": c, "count": counts.get(week, {}).get(c, 0)} for c in categories
+            ],
         })
     return weeks
 
@@ -254,12 +258,16 @@ def _flat_share_band(category_count: int) -> tuple[float, float]:
     return round(even - FLAT_SHARE_TOLERANCE, 4), round(even + FLAT_SHARE_TOLERANCE, 4)
 
 
+def _week_count(week: dict, category: str | None) -> int:
+    return next(e["count"] for e in week["by_category"] if e["category"] == category)
+
+
 def _category_variability(
     category: str | None, weeks: list[dict], total: int, share_band: tuple[float, float],
 ) -> dict:
     """Share over all weeks; coefficient of variation over full weeks only."""
-    series = [w["by_category"][category] for w in weeks if not w["partial"]]
-    share = _share(sum(w["by_category"][category] for w in weeks), total)
+    series = [_week_count(w, category) for w in weeks if not w["partial"]]
+    share = _share(sum(_week_count(w, category) for w in weeks), total)
     mean = statistics.fmean(series) if series else 0.0
     measurable = len(series) >= MIN_FULL_WEEKS_FOR_CV and mean > 0
     cv = statistics.pstdev(series) / mean if measurable else None
