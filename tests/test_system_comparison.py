@@ -58,7 +58,6 @@ PRE_EXISTING_CASE_RECORD_KEYS = {
     "actual_state", "case_id", "case_key", "estimated_completion_chars", "estimated_prompt_chars", "expected_state",
     "group", "language", "latency_seconds", "safe", "turns",
 }
-# Added by statement-before-handoff: additive keys, the ones above are unchanged.
 STATEMENT_CASE_RECORD_KEYS = {"account_given", "escalation_reason", "statement_status"}
 
 

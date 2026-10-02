@@ -185,7 +185,6 @@ _STATEMENT_FOLLOWUP = {
     },
 }
 
-# Asked once, after the customer declines to tell or asks for a person.
 STATEMENT_INSIST = {
     Language.ES: (
         "Entiendo. Esta información la va a usar el asesor que revise su caso, y con ella puede "

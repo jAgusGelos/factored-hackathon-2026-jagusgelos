@@ -112,8 +112,6 @@ EXPLANATION = {
     Language.ES: SPANISH_EXPLANATION,
     Language.PT: "Não uso Uber há meses, estou com o cartão e ontem vi a cobrança no app do banco",
 }
-# The customer's account before a handoff (app/statement.py): every
-# escalation except a technical failure asks for it first.
 STATEMENT = {
     Language.ES: SPANISH_STATEMENT,
     Language.PT: "Não reconheço esta cobrança, nunca comprei nesse comerciante e estou com o cartão",
@@ -154,12 +152,10 @@ class Step:
     action: CustomerAction | None = None
     # The mocked model's read of an explanation turn (None: a convincing one).
     assessment: dict | None = None
-    # The mocked model's read of a statement turn (None: a complete one).
     statement: dict | None = None
     # Where this turn must leave the case, as (state, human_available); None:
     # only the last turn's state is checked.
     expected_after: tuple[CaseState, bool] | None = None
-    # The most model calls this turn may make (None: not checked).
     max_model_calls: int | None = None
 
 
@@ -611,9 +607,6 @@ POLICY_ABUSE_SCENARIOS: tuple[Callable[[Path], CaseOutcome], ...] = (
 )
 
 
-# The statement before every handoff (statement-before-handoff AD-7): each
-# script escalates on policy at the first report, then plays one way the
-# statement step can go. The reason is always the pending one.
 _POLICY_REPORT = Step(DISPUTE_OPENING[Language.ES], charge_extraction(FRAUD_SCORE_CHARGE))
 _WAITING = (CaseState.AWAITING_STATEMENT, False)
 _KEY_FACT_MISSING = {
@@ -805,7 +798,6 @@ def _statement_completeness(escalated: list[CaseOutcome]) -> dict:
     }
 
 
-# Harness provenance for system_comparison only; by_group keeps its record shape.
 _COMPARISON_ONLY_FIELDS = ("decision_override",)
 
 

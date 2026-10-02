@@ -645,7 +645,6 @@ _ASSESSMENT_SYSTEM_PROMPT = (
 
 
 MAX_CONTRADICTION_CHARS = 120
-# The longest model-written summary kept (explanation and statement alike).
 MODEL_SUMMARY_MAX_CHARS = 300
 
 

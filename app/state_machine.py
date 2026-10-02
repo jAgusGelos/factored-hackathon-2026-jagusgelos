@@ -458,11 +458,7 @@ def _handle_human_request(turn: Turn, *, account: GivenAccount | None = None) ->
                 customer_reason=EscalationReason.HUMAN_REQUESTED, charge=_proposed_charge(turn),
             ))
         charge = _charge_being_explained(turn)
-        # An explanation on the case, or this turn's own, is the customer's
-        # account; without one the statement step asks first.
-        account_given = case.state == CaseState.AWAITING_EXPLANATION and (
-            account is not None or bool(case.explanation_text)
-        )
+        account_given = _account_given(case, account)
         evaluation = handoffs.human_request(turn.report, charge, explained=account_given)
         if account is not None:
             evaluation = handoffs.with_reported(evaluation, handoffs.explanation_reported(account.assessment))
@@ -496,6 +492,12 @@ def _charge_being_explained(turn: Turn) -> TransactionCandidate | None:
     if turn.case.state != CaseState.AWAITING_EXPLANATION:
         return None
     return _proposed_charge(turn)
+
+
+def _account_given(case: cases.Case, account: GivenAccount | None) -> bool:
+    return case.state == CaseState.AWAITING_EXPLANATION and (
+        account is not None or bool(case.explanation_text)
+    )
 
 
 _ACTION_ANSWERS = {

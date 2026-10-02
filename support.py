@@ -134,8 +134,6 @@ NOT_RECEIVED_ASSESSMENT = {**CONVINCING_ASSESSMENT, "reason": "not_received"}
 CONTRADICTED_ASSESSMENT = {
     **CONVINCING_ASSESSMENT, "consistent": False, "contradictions": ["El monto no coincide con el cargo."],
 }
-# What the mocked model reads from a statement before a handoff, unless a
-# test passes its own `statement`: every key fact known, so no follow-up.
 GIVEN_STATEMENT = {
     "summary": "El cliente no reconoce la compra, no conoce el comercio y tiene la tarjeta consigo.",
     "declines": False, "wants_human": False, "denies_purchase": "yes", "merchant_known": "no",
@@ -143,7 +141,6 @@ GIVEN_STATEMENT = {
 }
 OPENING = "Tengo un cargo que no reconozco"
 EXPLANATION = "No uso Uber hace meses, tengo la tarjeta conmigo y ayer vi el cargo en la app del banco"
-# The customer's statement before a handoff (app/statement.py).
 STATEMENT = "No reconozco este cargo, nunca compré en ese comercio y tengo la tarjeta conmigo"
 
 

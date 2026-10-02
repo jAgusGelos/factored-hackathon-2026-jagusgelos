@@ -86,7 +86,6 @@ class Case:
     # The customer's statement so far (their own words, app db only, like
     # `explanation_text`; the handoff carries the model's summary and facts).
     statement_text: str | None = None
-    # The validated statement facts merged across statement turns.
     statement_facts: dict | None = None
     statement_followups: int = 0
     statement_declines: int = 0

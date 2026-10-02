@@ -207,7 +207,6 @@ def _js_object_keys(lang: str, name: str) -> set[str]:
     return set(re.findall(r"(\w+): \"", _entries(lang)[name]))
 
 
-# Every statement field filled in, so each one needs a label.
 _EVERY_STATEMENT_FACT = {
     "denies_purchase": "yes", "merchant_known": "yes", "card_possession": "yes", "how_noticed": "statement",
     "noticed_on": "2026-06-14", "other_suspicious_activity": "yes",

@@ -355,7 +355,6 @@ class StatementStatus(StrEnum):
     SUMMARY_UNAVAILABLE = "summary_unavailable"
 
 
-# One advisor task per key fact the statement left unknown.
 _STATEMENT_OPEN_QUESTIONS = {
     StatementField.DENIES_PURCHASE: "Confirmar con el cliente si hizo o autorizó esta compra.",
     StatementField.MERCHANT_KNOWN: "Confirmar con el cliente si conoce el comercio o lo usó alguna vez.",
