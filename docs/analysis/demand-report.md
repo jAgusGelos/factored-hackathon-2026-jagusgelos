@@ -127,7 +127,7 @@ Four separate blocks. They measure different things, so they are never divided i
 
 ### A. Time to first action
 
-- Agent pipeline p50: 0.2724 s (simulated, n = 40 eval scenarios). Offline eval pipeline time with a mocked LLM; excludes network time.
+- Agent pipeline p50: 0.2951 s (simulated, n = 40 eval scenarios). Offline eval pipeline time with a mocked LLM; excludes network time.
 - Human first response p50 for "Cargo no reconocido": 37.0 h (measured, n = 7,567, coverage 61.5%).
 
 ### B. Measured human first-contact handle time
@@ -138,8 +138,8 @@ Four separate blocks. They measure different things, so they are never divided i
 
 ### C. Simulated agent LLM cost
 
-- Per attempted case: USD 0.001586 (simulated, n = 40).
-- Per successful resolution: USD 0.010573 (simulated, n = 6 resolutions).
+- Per attempted case: USD 0.001589 (simulated, n = 40).
+- Per successful resolution: USD 0.010595 (simulated, n = 6 resolutions).
 - Method: estimated from constructed prompt/response character counts (~4 chars/token), not measured API billing.
 - Pricing: https://www.anthropic.com/claude/haiku (Haiku 4.5, $1/$5 per M input/output tokens, verified 2026-09-28).
 - Disclosure: OFFLINE/SIMULATED: the Anthropic client is mocked deterministically for reproducibility. Measures the state machine's policy pipeline and processing latency, NOT real LLM quality, network latency, or real API cost.

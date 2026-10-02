@@ -5107,7 +5107,7 @@
   "cost": {
     "time_to_first_action": {
       "agent_pipeline_p50_seconds": {
-        "value": 0.2724,
+        "value": 0.2951,
         "n": 40,
         "kind": "simulated",
         "note": "Offline eval pipeline time with a mocked LLM; excludes network time."
@@ -5137,12 +5137,12 @@
     },
     "agent_llm_cost_usd": {
       "per_attempted_case": {
-        "value": 0.001586,
+        "value": 0.001589,
         "n": 40,
         "kind": "simulated"
       },
       "per_successful_resolution": {
-        "value": 0.010573,
+        "value": 0.010595,
         "n": 6,
         "kind": "simulated"
       },

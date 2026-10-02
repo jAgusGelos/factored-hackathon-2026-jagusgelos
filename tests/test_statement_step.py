@@ -14,19 +14,22 @@ import duckdb
 import pytest
 
 from app import cases, config, db, fixture_db, handoffs, llm, replies
-from app.case_model import CaseState, CustomerAction, EscalationReason, ReportedCharge
+from app.case_model import CaseState, CustomerAction, EscalationReason
 from app.case_turn import PendingEscalation, Turn, finish_escalated
 from app.charge_search import charge_option
 from app.llm import Language
 from app.policy import HowNoticed, StatementField, Tristate
 from app.statement import handle_statement
 from tests.support import (
+    COP_CHARGE,
     GIVEN_STATEMENT,
+    REPORT,
     STATEMENT,
+    STATEMENT_DECLINED,
+    STATEMENT_WITHOUT_CARD_FACT,
     app_db_rows,
     assert_asks_for_statement,
     charge_extraction,
-    clean_txn,
     event_sequence,
     logged_events,
     mock_anthropic_client,
@@ -34,9 +37,6 @@ from tests.support import (
     session_for,
     statement_down_client,
 )
-
-COP_CHARGE = clean_txn(amount=38500.0, currency="COP", amount_usd=9.6, merchant_name="Uber")
-REPORT = ReportedCharge(amount=38500.0, date=None, currency="COP")
 
 
 @pytest.fixture()
@@ -224,11 +224,9 @@ def _handoff(app_db, case_id) -> dict:
     return cases.get_case(case_id, db_path=app_db).handoff
 
 
-DECLINE = {**GIVEN_STATEMENT, "summary": "", "declines": True, **dict.fromkeys(
-    ("denies_purchase", "merchant_known", "card_possession", "how_noticed", "other_suspicious_activity"), "unknown",
-)}
+DECLINE = STATEMENT_DECLINED
 WANTS_HUMAN = {**DECLINE, "declines": False, "wants_human": True}
-NO_CARD_FACT = {**GIVEN_STATEMENT, "card_possession": "unknown"}
+NO_CARD_FACT = STATEMENT_WITHOUT_CARD_FACT
 
 
 @pytest.mark.parametrize("language", list(Language))
