@@ -29,8 +29,8 @@ from app.policy import (
     ExplanationAssessment,
     StatementField,
     Tristate,
-    card_possession_matters,
     known_fact,
+    open_facts,
 )
 from app.replies import format_amount
 from app.transactions import TransactionCandidate
@@ -253,8 +253,9 @@ def explanation_reported(assessment: ExplanationAssessment | None, *, too_short:
         return {"explanation_assessment": "explicación demasiado breve; no se evaluó con el modelo"}
     if assessment is None:
         return {"explanation_assessment": "no evaluable (respuesta del modelo inválida)"}
+    summary = {"explanation_summary": _model_summary(assessment.summary)} if assessment.summary else {}
     return {
-        "explanation_summary": _model_summary(assessment.summary),
+        **summary,
         "explanation_specific": _yes_no(assessment.specific),
         "explanation_consistent": _yes_no(assessment.consistent),
     }
@@ -369,15 +370,8 @@ CARD_LOST_QUESTION = (
 )
 
 
-def _is_open_question(fact: StatementField, facts: dict[str, str | None]) -> bool:
-    return not known_fact(facts.get(fact)) and (
-        fact != StatementField.CARD_POSSESSION or card_possession_matters(facts)
-    )
-
-
 def _statement_open_questions(facts: dict[str, str | None]) -> tuple[str, ...]:
-    unknown = [fact for fact in _STATEMENT_OPEN_QUESTIONS if _is_open_question(fact, facts)]
-    questions = tuple(_STATEMENT_OPEN_QUESTIONS[fact] for fact in unknown)
+    questions = tuple(_STATEMENT_OPEN_QUESTIONS[fact] for fact in open_facts(facts, _STATEMENT_OPEN_QUESTIONS))
     return (*questions, CARD_LOST_QUESTION) if facts.get(StatementField.CARD_POSSESSION) == Tristate.NO else questions
 
 

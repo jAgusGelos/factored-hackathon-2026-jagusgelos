@@ -63,7 +63,7 @@ hackathon-scope simplification, not a validated FX-aware threshold.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from enum import StrEnum
@@ -507,3 +507,13 @@ def card_possession_matters(facts: Mapping[str, object]) -> bool:
     the purchase (the statement step's follow-up and the advisor's tasks).
     """
     return facts.get(StatementField.DENIES_PURCHASE) != Tristate.NO
+
+
+def open_facts(facts: Mapping[str, object], among: Iterable[StatementField]) -> list[StatementField]:
+    """The facts of `among`, in order, the customer has not stated and that
+    still matter (the statement step's follow-up and the advisor's tasks).
+    """
+    return [
+        fact for fact in among
+        if not known_fact(facts.get(fact)) and (fact != StatementField.CARD_POSSESSION or card_possession_matters(facts))
+    ]
