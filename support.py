@@ -48,7 +48,8 @@ REAL_DEMO_USERS_PATH = REPO_ROOT / "data" / "demo_users.json"
 __all__ = [
     "AUTO_RESOLVE_CHARGE", "CARD_PRESENT_CHARGE", "CONTRADICTED_ASSESSMENT", "CONVINCING_ASSESSMENT", "DEMO_USERNAME", "DUPLICATE_ASSESSMENT",
     "DUPLICATE_CHARGES", "EXPLANATION", "FRAUD_SCORE_CHARGE", "GIVEN_STATEMENT", "NOT_RECEIVED_ASSESSMENT", "OVER_LIMIT_CHARGE",
-    "REAL_DEMO_USERS_PATH", "REAL_FIXTURE_PATH", "REPO_ROOT", "SECOND_ONLINE_CHARGE", "STATEMENT", "app_db_rows", "charge_extraction",
+    "REAL_DEMO_USERS_PATH", "REAL_FIXTURE_PATH", "REPO_ROOT", "SECOND_ONLINE_CHARGE", "STATEMENT", "STATEMENT_DECLINED",
+    "STATEMENT_WITHOUT_CARD_FACT", "app_db_rows", "charge_extraction",
     "charge_report", "demo_session", "event_sequence", "logged_events", "mock_anthropic_client", "session_for",
     "statement_down_client",
 ]
@@ -139,6 +140,10 @@ GIVEN_STATEMENT = {
     "declines": False, "wants_human": False, "denies_purchase": "yes", "merchant_known": "no",
     "card_possession": "yes", "how_noticed": "app_alert", "noticed_on": None, "other_suspicious_activity": "no",
 }
+STATEMENT_DECLINED = {**GIVEN_STATEMENT, "summary": "", "declines": True, **dict.fromkeys(
+    ("denies_purchase", "merchant_known", "card_possession", "how_noticed", "other_suspicious_activity"), "unknown",
+)}
+STATEMENT_WITHOUT_CARD_FACT = {**GIVEN_STATEMENT, "card_possession": "unknown"}
 OPENING = "Tengo un cargo que no reconozco"
 EXPLANATION = "No uso Uber hace meses, tengo la tarjeta conmigo y ayer vi el cargo en la app del banco"
 STATEMENT = "No reconozco este cargo, nunca compré en ese comercio y tengo la tarjeta conmigo"
