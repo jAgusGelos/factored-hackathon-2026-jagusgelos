@@ -80,9 +80,9 @@ class _Statement:
         """Something the customer told, even if its summary was dropped."""
         return bool(self.summary) or any(known_fact(value) for value in self.facts.values())
 
-    def missing_fact(self) -> StatementField | None:
-        """The one follow-up, in fixed priority (`policy.FOLLOWUP_FACTS`)."""
-        return next(iter(open_facts(self.facts, FOLLOWUP_FACTS)), None)
+    def missing_facts(self) -> list[StatementField]:
+        """What the one follow-up asks for, in `policy.FOLLOWUP_FACTS` order."""
+        return open_facts(self.facts, FOLLOWUP_FACTS)
 
 
 def handle_statement(turn: Turn, text: str, action: CustomerAction | None) -> ChatReply:
@@ -98,7 +98,7 @@ def handle_statement(turn: Turn, text: str, action: CustomerAction | None) -> Ch
     if action == CustomerAction.HUMAN:
         return _on_refusal(turn, pending, known, text=None, via="button", had_account=known.has_account())
     if not text.strip():
-        return _ask_more_or_finish(turn, pending, known, text=None, followup=None, needs_more=True)
+        return _ask_more_or_finish(turn, pending, known, text=None, followup=[], needs_more=True)
     try:
         assessment = llm.assess_statement(
             text, earlier=case.statement_text, charge=charge_prompt_context(turn, CaseState.AWAITING_STATEMENT, pending.charge),
@@ -121,9 +121,9 @@ def handle_statement(turn: Turn, text: str, action: CustomerAction | None) -> Ch
         )
     # Only this turn: an earlier turn here was a refusal, never part of an account.
     too_short = len(text.split()) < MIN_EXPLANATION_WORDS
-    followup = statement.missing_fact()
+    followup = statement.missing_facts()
     return _ask_more_or_finish(
-        turn, pending, statement, text=text, followup=followup, needs_more=too_short or followup is not None,
+        turn, pending, statement, text=text, followup=followup, needs_more=too_short or bool(followup),
         noted=noted,
     )
 
@@ -178,11 +178,11 @@ def _on_refusal(
 
 def _ask_more_or_finish(
     turn: Turn, pending: PendingEscalation, statement: _Statement, *, text: str | None,
-    followup: StatementField | None, needs_more: bool, noted: Sequence[tuple[str, dict]] = (),
+    followup: Sequence[StatementField], needs_more: bool, noted: Sequence[tuple[str, dict]] = (),
 ) -> ChatReply:
     if not needs_more or turn.case.statement_followups > 0:
         return _finish(turn, pending, statement, text, noted=noted)
-    asked = _outcome(pending, "handoff_statement_followup_requested", fact=followup)
+    asked = _outcome(pending, "handoff_statement_followup_requested", facts=[str(fact) for fact in followup])
     lost = _stay(turn, statement, text, events=[*noted, asked], add_statement_followup=True)
     return lost or turn.reply(CaseState.AWAITING_STATEMENT, replies.statement_followup(followup, turn.language))
 

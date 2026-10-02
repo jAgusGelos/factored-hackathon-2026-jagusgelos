@@ -40,6 +40,7 @@ import anthropic
 
 from app import config
 from app.policy import (
+    CardLoss,
     DisputeReason,
     ExplanationAssessment,
     HowNoticed,
@@ -713,6 +714,7 @@ STATEMENT_MARKER = "[ASSESS_STATEMENT]"
 
 _TRISTATE_CHOICES = "|".join(f'"{value}"' for value in Tristate)
 _HOW_NOTICED_CHOICES = "|".join(f'"{value}"' for value in HowNoticed)
+_CARD_LOSS_CHOICES = "|".join(f'"{value}"' for value in CardLoss)
 
 _STATEMENT_SYSTEM_PROMPT = (
     f"{STATEMENT_MARKER} A bank customer whose card dispute is being handed to a human advisor "
@@ -725,7 +727,8 @@ _STATEMENT_SYSTEM_PROMPT = (
     '{"summary": <string>, "declines": <true|false>, "wants_human": <true|false>, '
     f'"denies_purchase": <{_TRISTATE_CHOICES}>, "merchant_known": <{_TRISTATE_CHOICES}>, '
     f'"card_possession": <{_TRISTATE_CHOICES}>, "how_noticed": <{_HOW_NOTICED_CHOICES}>, '
-    f'"noticed_on": <"YYYY-MM-DD"|null>, "other_suspicious_activity": <{_TRISTATE_CHOICES}>}}. '
+    f'"noticed_on": <"YYYY-MM-DD"|null>, "other_suspicious_activity": <{_TRISTATE_CHOICES}>, '
+    f'"card_loss": <{_CARD_LOSS_CHOICES}>}}. '
     "summary: what the customer reports, from everything they said, as one neutral sentence in "
     "correct Spanish (translate it when the customer wrote in Portuguese; never mix the two "
     f"languages), third person, at most {MODEL_SUMMARY_MAX_WORDS} words, no names, numbers of documents, phone numbers, "
@@ -740,7 +743,8 @@ _STATEMENT_SYSTEM_PROMPT = (
     "app; statement = their account statement; sms_or_email = a text message or an email; other = "
     "another way they stated. noticed_on: the date they say they noticed it, only if they gave "
     "one. other_suspicious_activity: whether they report other charges or card activity they do "
-    "not recognize. Use \"unknown\" (or null for noticed_on) for anything the customer did not "
+    "not recognize. card_loss: only when they do not have the card: lost = they lost it; stolen = it was "
+    "stolen. Use \"unknown\" (or null for noticed_on) for anything the customer did not "
     "clearly state: never guess."
 )
 
@@ -775,6 +779,7 @@ def _parse_statement(raw: str) -> StatementAssessment | None:
         how_noticed=_closed(HowNoticed, data.get("how_noticed"), HowNoticed.UNKNOWN),
         noticed_on=_valid_iso_date(data.get("noticed_on")),
         other_suspicious_activity=_closed(Tristate, data.get("other_suspicious_activity"), Tristate.UNKNOWN),
+        card_loss=_closed(CardLoss, data.get("card_loss"), CardLoss.UNKNOWN),
     )
 
 

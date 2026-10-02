@@ -10,6 +10,7 @@ the LLM is unavailable or its reply fails a check in a conversation step
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from datetime import date
 from typing import TypedDict
 
@@ -144,45 +145,41 @@ ASK_FOR_STATEMENT = {
     ),
 }
 
-# The statement step's one follow-up: only the fact still missing (None: a
-# statement too short to tell what happened).
-_STATEMENT_FOLLOWUP = {
+# The statement step's one follow-up asks for every key fact still missing,
+# in `policy.FOLLOWUP_FACTS` order, in one sentence; with none missing (a
+# statement too short to tell what happened) it asks for a little more.
+_STATEMENT_FOLLOWUP_LEAD = {
+    Language.ES: "Gracias. Para que la persona que revise el caso tenga el contexto, indíqueme {facts}.",
+    Language.PT: "Obrigado. Para que a pessoa que revisar o caso tenha o contexto, informe {facts}.",
+}
+_STATEMENT_FOLLOWUP_FACTS = {
     Language.ES: {
-        StatementField.CARD_POSSESSION: (
-            "Gracias. Para que la persona que revise el caso tenga el contexto, indíqueme si tiene la "
-            "tarjeta consigo en este momento."
-        ),
-        StatementField.MERCHANT_KNOWN: (
-            "Gracias. Para que la persona que revise el caso tenga el contexto, indíqueme si conoce este "
-            "comercio o si hizo usted esta compra."
-        ),
-        StatementField.HOW_NOTICED: (
-            "Gracias. Para que la persona que revise el caso tenga el contexto, indíqueme cómo y cuándo "
-            "se dio cuenta del cargo."
-        ),
-        None: (
-            "Gracias. Para que la persona que revise el caso tenga el contexto, indíqueme un poco más de "
-            "lo que pasó."
-        ),
+        StatementField.DENIES_PURCHASE: "si hizo o autorizó usted esta compra",
+        StatementField.CARD_POSSESSION: "si tiene la tarjeta consigo en este momento (y, si no, si la perdió o se la robaron)",
+        StatementField.CARD_LOSS: "si perdió la tarjeta o se la robaron",
+        StatementField.MERCHANT_KNOWN: "si conoce este comercio o lo usó alguna vez",
+        StatementField.HOW_NOTICED: "cómo y cuándo se dio cuenta del cargo",
+        StatementField.OTHER_SUSPICIOUS_ACTIVITY: "si hay otros cargos o movimientos que no reconoce",
     },
     Language.PT: {
-        StatementField.CARD_POSSESSION: (
-            "Obrigado. Para que a pessoa que revisar o caso tenha o contexto, informe se está com o "
-            "cartão neste momento."
-        ),
-        StatementField.MERCHANT_KNOWN: (
-            "Obrigado. Para que a pessoa que revisar o caso tenha o contexto, informe se conhece este "
-            "comerciante ou se fez esta compra."
-        ),
-        StatementField.HOW_NOTICED: (
-            "Obrigado. Para que a pessoa que revisar o caso tenha o contexto, informe como e quando "
-            "percebeu a cobrança."
-        ),
-        None: (
-            "Obrigado. Para que a pessoa que revisar o caso tenha o contexto, conte um pouco mais do "
-            "que aconteceu."
-        ),
+        StatementField.DENIES_PURCHASE: "se você fez ou autorizou esta compra",
+        StatementField.CARD_POSSESSION: "se está com o cartão neste momento (e, se não, se o perdeu ou se foi roubado)",
+        StatementField.CARD_LOSS: "se perdeu o cartão ou se ele foi roubado",
+        StatementField.MERCHANT_KNOWN: "se conhece este comerciante ou já o usou",
+        StatementField.HOW_NOTICED: "como e quando percebeu a cobrança",
+        StatementField.OTHER_SUSPICIOUS_ACTIVITY: "se há outras cobranças ou movimentações que não reconhece",
     },
+}
+_AND = {Language.ES: "y", Language.PT: "e"}
+_STATEMENT_FOLLOWUP_GENERAL = {
+    Language.ES: (
+        "Gracias. Para que la persona que revise el caso tenga el contexto, indíqueme un poco más de "
+        "lo que pasó."
+    ),
+    Language.PT: (
+        "Obrigado. Para que a pessoa que revisar o caso tenha o contexto, conte um pouco mais do "
+        "que aconteceu."
+    ),
 }
 
 STATEMENT_INSIST = {
@@ -454,8 +451,12 @@ def explanation_followup(missing_detail: MissingDetail | None, language: Languag
     return _EXPLANATION_FOLLOWUP[language][missing_detail]
 
 
-def statement_followup(fact: StatementField | None, language: Language) -> str:
-    return _STATEMENT_FOLLOWUP[language][fact]
+def statement_followup(facts: Sequence[StatementField], language: Language) -> str:
+    if not facts:
+        return _STATEMENT_FOLLOWUP_GENERAL[language]
+    asked = [_STATEMENT_FOLLOWUP_FACTS[language][fact] for fact in facts]
+    joined = asked[0] if len(asked) == 1 else f"{', '.join(asked[:-1])} {_AND[language]} {asked[-1]}"
+    return _STATEMENT_FOLLOWUP_LEAD[language].format(facts=joined)
 
 
 def confirmation_question(matched: TransactionCandidate, language: Language) -> str:

@@ -209,9 +209,18 @@ def test_each_unknown_key_fact_becomes_one_advisor_task_and_a_missing_card_is_fl
 
     assert added == [
         "Confirmar con el cliente si conoce el comercio o lo usó alguna vez.",
+        "Confirmar con el cliente si perdió la tarjeta o se la robaron.",
         "Confirmar con el cliente si hay otros cargos o movimientos que no reconoce.",
         handoffs.CARD_LOST_QUESTION,
     ]
+
+
+def test_a_known_loss_is_reported_and_leaves_only_the_card_block_task():
+    _, handoff = _with_statement("ineligible_match", facts={**STATEMENT_FACTS, "card_loss": "stolen"})
+
+    assert handoff["customer_reported"]["card_loss"] == "stolen"
+    assert "Confirmar con el cliente si perdió la tarjeta o se la robaron." not in handoff["open_questions"]
+    assert handoffs.CARD_LOST_QUESTION in handoff["open_questions"]
 
 
 def test_the_lost_card_task_only_when_the_customer_says_they_do_not_have_it():

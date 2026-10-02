@@ -360,14 +360,13 @@ _STATEMENT_OPEN_QUESTIONS = {
     StatementField.DENIES_PURCHASE: "Confirmar con el cliente si hizo o autorizó esta compra.",
     StatementField.MERCHANT_KNOWN: "Confirmar con el cliente si conoce el comercio o lo usó alguna vez.",
     StatementField.CARD_POSSESSION: "Confirmar con el cliente si tiene la tarjeta consigo.",
+    StatementField.CARD_LOSS: "Confirmar con el cliente si perdió la tarjeta o se la robaron.",
     StatementField.HOW_NOTICED: "Confirmar con el cliente cómo y cuándo se dio cuenta del cargo.",
     StatementField.OTHER_SUSPICIOUS_ACTIVITY: (
         "Confirmar con el cliente si hay otros cargos o movimientos que no reconoce."
     ),
 }
-CARD_LOST_QUESTION = (
-    "Confirmar con el cliente si perdió la tarjeta o se la robaron, y si corresponde bloquearla."
-)
+CARD_LOST_QUESTION = "Evaluar si corresponde bloquear la tarjeta: el cliente no la tiene consigo."
 
 
 def _statement_open_questions(facts: dict[str, str | None]) -> tuple[str, ...]:

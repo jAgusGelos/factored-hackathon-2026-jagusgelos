@@ -458,12 +458,19 @@ class HowNoticed(StrEnum):
     UNKNOWN = "unknown"
 
 
+class CardLoss(StrEnum):
+    LOST = "lost"
+    STOLEN = "stolen"
+    UNKNOWN = "unknown"
+
+
 class StatementField(StrEnum):
     """The key facts of the customer's statement, as the handoff names them."""
 
     DENIES_PURCHASE = "denies_purchase"
     MERCHANT_KNOWN = "merchant_known"
     CARD_POSSESSION = "card_possession"
+    CARD_LOSS = "card_loss"
     HOW_NOTICED = "how_noticed"
     NOTICED_ON = "noticed_on"
     OTHER_SUSPICIOUS_ACTIVITY = "other_suspicious_activity"
@@ -487,19 +494,24 @@ class StatementAssessment:
     how_noticed: HowNoticed
     noticed_on: str | None
     other_suspicious_activity: Tristate
+    card_loss: CardLoss = CardLoss.UNKNOWN
 
     def facts(self) -> dict[StatementField, str | None]:
         return {field: getattr(self, field) for field in StatementField}
 
 
-# The key facts the statement step may ask its one follow-up about, in the
-# order it asks (`app/statement.py`).
-FOLLOWUP_FACTS = (StatementField.CARD_POSSESSION, StatementField.MERCHANT_KNOWN, StatementField.HOW_NOTICED)
+# Every key fact the customer can tell, which the statement step's one
+# follow-up asks for when missing, in this order (`app/statement.py`); only
+# what the customer still leaves unknown becomes an advisor task.
+FOLLOWUP_FACTS = (
+    StatementField.DENIES_PURCHASE, StatementField.CARD_POSSESSION, StatementField.CARD_LOSS,
+    StatementField.MERCHANT_KNOWN, StatementField.HOW_NOTICED, StatementField.OTHER_SUSPICIOUS_ACTIVITY,
+)
 
 
 def known_fact(value: object) -> bool:
     """A key fact the customer stated: neither None nor "unknown"."""
-    return value not in (None, Tristate.UNKNOWN, HowNoticed.UNKNOWN)
+    return value not in (None, Tristate.UNKNOWN, HowNoticed.UNKNOWN, CardLoss.UNKNOWN)
 
 
 def card_possession_matters(facts: Mapping[str, object]) -> bool:
@@ -513,7 +525,12 @@ def open_facts(facts: Mapping[str, object], among: Iterable[StatementField]) -> 
     """The facts of `among`, in order, the customer has not stated and that
     still matter (the statement step's follow-up and the advisor's tasks).
     """
-    return [
-        fact for fact in among
-        if not known_fact(facts.get(fact)) and (fact != StatementField.CARD_POSSESSION or card_possession_matters(facts))
-    ]
+    return [fact for fact in among if not known_fact(facts.get(fact)) and _fact_matters(fact, facts)]
+
+
+def _fact_matters(fact: StatementField, facts: Mapping[str, object]) -> bool:
+    if fact == StatementField.CARD_POSSESSION:
+        return card_possession_matters(facts)
+    if fact == StatementField.CARD_LOSS:
+        return facts.get(StatementField.CARD_POSSESSION) == Tristate.NO
+    return True
