@@ -777,14 +777,16 @@ def _language_summary(outcomes: list[CaseOutcome]) -> dict:
 _STATEMENT_OUTCOMES = frozenset(str(s) for s in StatementStatus)
 
 
+def _needs_statement(outcome: CaseOutcome) -> bool:
+    return outcome.escalation_reason != EscalationReason.SERVICE_ISSUE and not outcome.account_given
+
+
 def _statement_completeness(escalated: list[CaseOutcome]) -> dict:
     """Every escalation a person gets carries the customer's statement
     outcome, except a technical failure (never asked) and one that came after
     the customer explained the charge (already their account).
     """
-    expected = [
-        o for o in escalated if o.escalation_reason != EscalationReason.SERVICE_ISSUE and not o.account_given
-    ]
+    expected = [o for o in escalated if _needs_statement(o)]
     missing = [o.case_key for o in expected if o.statement_status not in _STATEMENT_OUTCOMES]
     complete = len(expected) - len(missing)
     return {

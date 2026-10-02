@@ -84,11 +84,20 @@ def _words(text: str) -> list[str]:
     return re.findall(r"\w+", text.casefold())
 
 
+def _is_content_word(word: str, charge_words: frozenset[str]) -> bool:
+    return len(word) >= 4 and not word.isdigit() and word not in _COMMON_WORDS and word not in charge_words
+
+
 def _content_words(run: tuple[str, ...], charge_words: frozenset[str]) -> int:
-    return sum(
-        1 for word in run
-        if len(word) >= 4 and not word.isdigit() and word not in _COMMON_WORDS and word not in charge_words
-    )
+    return sum(1 for word in run if _is_content_word(word, charge_words))
+
+
+def _contains_sequence(haystack: list[str], needle: list[str]) -> bool:
+    return any(haystack[i:i + len(needle)] == needle for i in range(len(haystack) - len(needle) + 1))
+
+
+def _is_copied_content(run: tuple[str, ...], runs: set[tuple[str, ...]], charge_words: frozenset[str]) -> bool:
+    return run in runs and _content_words(run, charge_words) >= _MIN_CONTENT_WORDS
 
 
 def _quotes_the_customer(summary: str, customer_text: str, charge_words: frozenset[str]) -> bool:
@@ -98,12 +107,12 @@ def _quotes_the_customer(summary: str, customer_text: str, charge_words: frozens
     if not written:
         return False
     if len(written) < _QUOTED_RUN_WORDS:
-        return any(said[i:i + len(written)] == written for i in range(len(said) - len(written) + 1))
+        return _contains_sequence(said, written)
     runs = {tuple(said[i:i + _QUOTED_RUN_WORDS]) for i in range(len(said) - _QUOTED_RUN_WORDS + 1)}
     copied = (
         tuple(written[i:i + _QUOTED_RUN_WORDS]) for i in range(len(written) - _QUOTED_RUN_WORDS + 1)
     )
-    return any(run in runs and _content_words(run, charge_words) >= _MIN_CONTENT_WORDS for run in copied)
+    return any(_is_copied_content(run, runs, charge_words) for run in copied)
 
 
 def _charge_amount_digits(charge: TransactionCandidate | None) -> frozenset[str]:
@@ -117,10 +126,13 @@ def _charge_words(charge: TransactionCandidate | None) -> frozenset[str]:
     return frozenset(_words(charge.merchant_name or "")) if charge is not None else frozenset()
 
 
+def _long_numbers(summary: str) -> tuple[str, ...]:
+    return tuple(re.sub(r"\D", "", match) for match in _LONG_NUMBER.findall(_DATE.sub(" ", summary)))
+
+
 def _names_personal_data(summary: str, charge: TransactionCandidate | None) -> bool:
     allowed = _charge_amount_digits(charge)
-    numbers = (re.sub(r"\D", "", match) for match in _LONG_NUMBER.findall(_DATE.sub(" ", summary)))
-    return any(digits not in allowed for digits in numbers) or bool(_CONTACT_OR_QUOTE.search(summary))
+    return any(digits not in allowed for digits in _long_numbers(summary)) or bool(_CONTACT_OR_QUOTE.search(summary))
 
 
 def _summary_is_safe(summary: str, customer_text: str, charge: TransactionCandidate | None) -> bool:
