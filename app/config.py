@@ -38,6 +38,9 @@ assert PENDING_TIMEOUT_SECONDS > TURN_DEADLINE_SECONDS
 # The explanation assessment is a short JSON object; a tight cap keeps it fast.
 ASSESSMENT_MAX_TOKENS = 300
 STATEMENT_MAX_TOKENS = 300
+# A case left waiting for the customer's statement this long is closed as
+# abandoned, without a handoff, the next time the customer's session reads it.
+STATEMENT_ABANDON_MINUTES = int(os.environ.get("STATEMENT_ABANDON_MINUTES", "30"))
 
 # The login screen offers an "Autocompletar" button for the demo account (AD-4 is a
 # SIMULATED identity service over synthetic data). Set to 0 to hide the

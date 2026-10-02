@@ -27,9 +27,11 @@ class CaseState(StrEnum):
     AWAITING_STATEMENT = "awaiting_statement"
     RESOLVED_AUTO = "resolved_auto"
     ESCALATED = "escalated"
+    # The customer never gave the statement: closed without a handoff.
+    ABANDONED = "abandoned"
 
 
-TERMINAL_STATES = frozenset({CaseState.RESOLVED_AUTO, CaseState.ESCALATED})
+TERMINAL_STATES = frozenset({CaseState.RESOLVED_AUTO, CaseState.ESCALATED, CaseState.ABANDONED})
 NON_TERMINAL_STATES = tuple(str(s) for s in CaseState if s not in TERMINAL_STATES)
 # The states an ordinary conversation step may move a case from: a case
 # waiting for the customer's statement holds an escalation already decided,

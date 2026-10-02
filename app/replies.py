@@ -366,12 +366,20 @@ _TERMINAL = {
             "Su caso {case_number} ya fue derivado a una persona del equipo, que le contactará en un "
             "plazo de hasta {days} días hábiles desde la derivación."
         ),
+        CaseState.ABANDONED: (
+            "Como no recibimos su respuesta, cerramos el caso {case_number} sin derivarlo a una persona. "
+            "Si quiere retomarlo, inicie un nuevo reclamo."
+        ),
     },
     Language.PT: {
         CaseState.RESOLVED_AUTO: "Seu caso já foi resolvido (referência {reference}).",
         CaseState.ESCALATED: (
             "Seu caso {case_number} já foi encaminhado a uma pessoa da equipe, que entrará em contato "
             "em até {days} dias úteis a partir do encaminhamento."
+        ),
+        CaseState.ABANDONED: (
+            "Como não recebemos sua resposta, encerramos o caso {case_number} sem encaminhá-lo a uma pessoa. "
+            "Se quiser retomá-lo, inicie uma nova reclamação."
         ),
     },
 }

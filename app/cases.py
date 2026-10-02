@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from app import db
+from app import config, db
 from app.policy import (
     CREDIT_WINDOW_DAYS,
     MAX_AUTO_CREDIT_TOTAL_USD,
@@ -167,7 +167,34 @@ def get_case_for_session(
         return None
     if case.customer_id != customer_id:
         raise CaseOwnershipError(f"Case {case_id} does not belong to this session")
+    if case.state == "awaiting_statement" and _abandon_if_idle(case, db_path=db_path):
+        return get_case(case_id, db_path=db_path)
     return case
+
+
+def _abandon_if_idle(case: Case, *, db_path: Path | None) -> bool:
+    """Closes a case that waited longer than STATEMENT_ABANDON_MINUTES for the
+    customer's statement: abandoned, never handed off. A compare-and-set on
+    the state and the last update, so a statement turn that lands first wins.
+    """
+    now = datetime.now(UTC)
+    cutoff = now - timedelta(minutes=config.STATEMENT_ABANDON_MINUTES)
+    with db.app_connection(db_path) as con:
+        cursor = con.execute(
+            "UPDATE cases SET state = 'abandoned', updated_at = ? "
+            "WHERE case_id = ? AND state = 'awaiting_statement' AND updated_at < ?",
+            [now.isoformat(), case.case_id, cutoff.isoformat()],
+        )
+        con.commit()
+    if cursor.rowcount != 1:
+        return False
+    pending_reason = (case.pending_escalation or {}).get("reason")
+    log_event(
+        uuid.uuid4().hex, case.case_id, "case_abandoned",
+        {"pending_escalation_reason": pending_reason, "after_minutes": config.STATEMENT_ABANDON_MINUTES},
+        db_path=db_path,
+    )
+    return True
 
 
 def create_case(customer_id: str, language: str, *, db_path: Path | None = None) -> Case:

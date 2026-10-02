@@ -41,6 +41,8 @@ const STRINGS = {
     stepPolicyStatement: "Antes de derivar, falta que nos cuente qué pasó",
     badgeResolved: "Resuelto",
     badgeEscalated: "Escalado",
+    badgeAbandoned: "Cerrado sin respuesta",
+    stepPolicyAbandoned: "Cerrado sin su relato; no se derivó a una persona",
     verifiedChip: (ref) => `✓ Referencia ${ref}`,
     actionCardResolvedTitle: "Verificación del sistema",
     actionCardResolvedBody: (amount, ref) =>
@@ -108,6 +110,7 @@ const STRINGS = {
     quickNewClaim: "Reportar otro cargo",
     claimResolved: "resuelto",
     claimEscalated: "derivado",
+    claimAbandoned: "cerrado sin respuesta",
     claimDivider: (ref, outcome) => `Nuevo reclamo · caso anterior ${ref ? `${ref} ` : ""}(${outcome})`,
   },
   pt: {
@@ -149,6 +152,8 @@ const STRINGS = {
     stepPolicyStatement: "Antes de encaminhar, falta você contar o que aconteceu",
     badgeResolved: "Resolvido",
     badgeEscalated: "Escalado",
+    badgeAbandoned: "Encerrado sem resposta",
+    stepPolicyAbandoned: "Encerrado sem o seu relato; não foi encaminhado a uma pessoa",
     verifiedChip: (ref) => `✓ Referência ${ref}`,
     actionCardResolvedTitle: "Verificação do sistema",
     actionCardResolvedBody: (amount, ref) =>
@@ -214,6 +219,7 @@ const STRINGS = {
     quickNewClaim: "Contestar outra cobrança",
     claimResolved: "resolvido",
     claimEscalated: "encaminhado",
+    claimAbandoned: "encerrado sem resposta",
     claimDivider: (ref, outcome) => `Nova reclamação · caso anterior ${ref ? `${ref} ` : ""}(${outcome})`,
   },
 };
@@ -251,9 +257,10 @@ const CASE_STATES = Object.freeze({
   AWAITING_STATEMENT: "awaiting_statement",
   RESOLVED_AUTO: "resolved_auto",
   ESCALATED: "escalated",
+  ABANDONED: "abandoned",
 });
 
-const TERMINAL_STATES = new Set([CASE_STATES.RESOLVED_AUTO, CASE_STATES.ESCALATED]);
+const TERMINAL_STATES = new Set([CASE_STATES.RESOLVED_AUTO, CASE_STATES.ESCALATED, CASE_STATES.ABANDONED]);
 
 // What the typing indicator says while a turn from each state is in flight.
 const WAIT_CAPTION_KEYS = Object.freeze({
@@ -643,10 +650,16 @@ function startNewClaim({ fromButton = false } = {}) {
   scrollLogToEnd();
 }
 
+const CLAIM_OUTCOME_KEYS = Object.freeze({
+  [CASE_STATES.RESOLVED_AUTO]: "claimResolved",
+  [CASE_STATES.ESCALATED]: "claimEscalated",
+  [CASE_STATES.ABANDONED]: "claimAbandoned",
+});
+
 function appendClaimDivider(closed) {
   const divider = document.createElement("div");
   divider.className = "claim-divider";
-  const outcome = t(closed.state === CASE_STATES.RESOLVED_AUTO ? "claimResolved" : "claimEscalated");
+  const outcome = t(CLAIM_OUTCOME_KEYS[closed.state]);
   divider.textContent = t("claimDivider", closed.reference, outcome);
   chatLog.appendChild(divider);
 }
@@ -875,6 +888,10 @@ function renderPanel() {
     step3Detail = t("stepPolicyExplaining");
   } else if (caseState === CASE_STATES.AWAITING_STATEMENT) {
     badge = badgeHtml("warning", t("badgeStatement"));
+    if (status && status.matched_transaction_id) {
+      step2Variant = "done"; step2Dot = "✓";
+      step2Detail = transactionFound();
+    }
     step3Variant = "warning"; step3Dot = "?";
     step3Detail = t("stepPolicyStatement");
   } else if (caseState === CASE_STATES.RESOLVED_AUTO) {
@@ -883,6 +900,10 @@ function renderPanel() {
     step2Detail = transactionFound();
     step3Variant = "done"; step3Dot = "✓";
     step3Detail = t("stepPolicyResolved");
+  } else if (caseState === CASE_STATES.ABANDONED) {
+    badge = badgeHtml("pending", t("badgeAbandoned"));
+    step3Variant = "error"; step3Dot = "✕";
+    step3Detail = t("stepPolicyAbandoned");
   } else if (caseState === CASE_STATES.ESCALATED) {
     badge = badgeHtml("info", t("badgeEscalated"));
     // With an escalation object, only the charge the customer identified (the

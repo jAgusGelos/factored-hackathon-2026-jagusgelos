@@ -116,7 +116,13 @@ run of the customer's own words is dropped (`handoff_statement_summary_dropped`)
 counts as summary_unavailable. Technical failures (`SERVICE_ISSUE`) never ask, nor do escalations
 after the customer already explained the charge in the explanation step, including an explanation
 specific enough to assess that also asked for a person (logged as `handoff_statement_skipped`). If the summary call fails, the case is handed
-off with its original reason, never relabelled as a technical problem.
+off with its original reason, never relabelled as a technical problem. A case that waits more than
+`STATEMENT_ABANDON_MINUTES` (30 by default) without the customer's reply is closed as `abandoned`
+the next time the customer's session reads it, with a compare-and-set on the state and the last
+update (`case_abandoned`): nothing is handed off, and the customer is told "Como no recibimos su
+respuesta, cerramos el caso … sin derivarlo a una persona. Si quiere retomarlo, inicie un nuevo
+reclamo." A new claim on the same charge starts fresh; this opens no retry with a new story, because
+a case only waits for the statement before the customer's explanation was assessed.
 
 ## Dispute policy: the evidence decides, not the claim (AD-13)
 
@@ -437,6 +443,10 @@ rates.
   a Portuguese statement came back in imperfect Spanish ("el tarjeta"). The prompt now asks
   explicitly for correct Spanish, which helped, but 1 of 2 Portuguese runs after that change still
   had a slip; the structured fields are closed values and were right in every run.
+- **A customer who never answers the statement question is not handed off.** After
+  `STATEMENT_ABANDON_MINUTES` the case is closed as `abandoned`, a product decision: a person only
+  gets cases the customer is still pursuing. There is no background job; the case closes when the
+  customer's session next reads it, so until then it stays in `awaiting_statement`.
 - **Real-model latency varies a lot.** A first typed report makes two model calls and took 4-22 s
   in manual runs (median 8.9 s for the "38.500 pesos" report); the slowest turns sit close to the
   chat's 25 s retry. The model calls of a turn share a 20 s budget and a timed-out turn is replayed,

@@ -7,12 +7,13 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import duckdb
 import pytest
 
-from app import cases, fixture_db, handoffs, llm, replies
+from app import cases, config, db, fixture_db, handoffs, llm, replies
 from app.case_model import CaseState, CustomerAction, EscalationReason, ReportedCharge
 from app.case_turn import PendingEscalation, Turn, finish_escalated
 from app.charge_search import charge_option
@@ -654,3 +655,69 @@ def test_a_dropped_summary_on_the_last_refusal_is_logged_once(session, app_db):
     assert event_sequence(app_db, held["case_id"])[-3:] == [
         "handoff_statement_summary_dropped", "handoff_statement_declined", "case_escalated",
     ]
+
+
+# -- A statement that never comes ---------------------------------------------------
+
+
+def _idle_for(app_db, case_id, minutes):
+    since = (datetime.now(UTC) - timedelta(minutes=minutes)).isoformat()
+    with db.app_connection(app_db) as con:
+        con.execute("UPDATE cases SET updated_at = ? WHERE case_id = ?", [since, case_id])
+        con.commit()
+
+
+@pytest.mark.parametrize("language", list(Language))
+def test_a_case_left_waiting_for_the_statement_is_closed_as_abandoned_and_the_customer_told(
+    session, app_db, language,
+):
+    held, _ = _held(session, app_db, language)
+    _idle_for(app_db, held["case_id"], config.STATEMENT_ABANDON_MINUTES + 1)
+    prompts: list[str] = []
+
+    reply = _say(session, app_db, held["case_id"], prompts=prompts, language=language)
+
+    assert reply["state"] == CaseState.ABANDONED
+    assert reply["reply"] == replies.terminal_case(
+        CaseState.ABANDONED, case_number=held["case_id"], reference=None, language=language,
+    )
+    assert reply["human_available"] is False and reply["escalation"] is None
+    case = cases.get_case(held["case_id"], db_path=app_db)
+    assert case.handoff is None and case.escalation_reason is None
+    assert _statement_calls(prompts) == 0
+    assert "case_escalated" not in event_sequence(app_db, held["case_id"])
+    assert logged_events(app_db, "case_abandoned") == [
+        {"pending_escalation_reason": EscalationReason.NEEDS_REVIEW, "after_minutes": config.STATEMENT_ABANDON_MINUTES}
+    ]
+
+
+def test_a_statement_inside_the_window_is_still_handed_off(session, app_db):
+    held, _ = _held(session, app_db)
+    _idle_for(app_db, held["case_id"], config.STATEMENT_ABANDON_MINUTES - 1)
+
+    reply = _say(session, app_db, held["case_id"])
+
+    assert reply["state"] == CaseState.ESCALATED
+    assert logged_events(app_db, "case_abandoned") == []
+
+
+def test_reading_an_idle_case_closes_it_once(session, app_db):
+    held, _ = _held(session, app_db)
+    _idle_for(app_db, held["case_id"], config.STATEMENT_ABANDON_MINUTES + 1)
+
+    first = cases.get_case_for_session(held["case_id"], session.customer_id, db_path=app_db)
+    again = cases.get_case_for_session(held["case_id"], session.customer_id, db_path=app_db)
+
+    assert first.state == again.state == CaseState.ABANDONED
+    assert event_sequence(app_db, held["case_id"]).count("case_abandoned") == 1
+
+
+def test_an_abandoned_case_answers_every_later_message_with_its_closing(session, app_db):
+    held, _ = _held(session, app_db)
+    _idle_for(app_db, held["case_id"], config.STATEMENT_ABANDON_MINUTES + 1)
+    closed = _say(session, app_db, held["case_id"])
+
+    later = _say(session, app_db, held["case_id"], "¿Hola?")
+
+    assert later["state"] == CaseState.ABANDONED and later["reply"] == closed["reply"]
+    assert later["options"] == []

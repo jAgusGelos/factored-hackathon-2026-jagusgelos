@@ -9,13 +9,25 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import anthropic
 import duckdb
 import pytest
 
-from app import case_turn, cases, db, explanation, handoffs, llm, replies, state_machine, turns
+from app import (
+    case_turn,
+    cases,
+    config,
+    db,
+    explanation,
+    handoffs,
+    llm,
+    replies,
+    state_machine,
+    turns,
+)
 from app.case_model import (
     CaseEvaluation,
     CaseState,
@@ -30,6 +42,7 @@ from tests.support import (
     AUTO_RESOLVE_CHARGE,
     CONTACT_DEADLINE,
     CONTRADICTED_ASSESSMENT,
+    CONVINCING_ASSESSMENT,
     DUPLICATE_ASSESSMENT,
     EXPLANATION,
     FRAUD_SCORE_CHARGE,
@@ -663,3 +676,24 @@ def test_an_unknown_stored_reason_is_answered_like_a_legacy_row():
         _case(state=CaseState.ESCALATED, escalation_reason="renamed_reason"), Language.ES,
     )
     assert notice == replies.escalation_summary(CASE_NUMBER, None, charge=None, language=Language.ES)
+
+
+def _abandon(case_id, app_db):
+    since = (datetime.now(UTC) - timedelta(minutes=config.STATEMENT_ABANDON_MINUTES + 1)).isoformat()
+    with db.app_connection(app_db) as con:
+        con.execute("UPDATE cases SET updated_at = ? WHERE case_id = ?", [since, case_id])
+        con.commit()
+
+
+@requires_real_fixture
+def test_a_charge_abandoned_before_any_explanation_can_still_be_explained(session, real_fixture_app_db):
+    case_id = reach_explaining(session, real_fixture_app_db)
+    _unlock(case_id, real_fixture_app_db, CaseState.AWAITING_EXPLANATION)
+    cases.update_case(case_id, state=CaseState.AWAITING_STATEMENT, db_path=real_fixture_app_db)
+    _abandon(case_id, real_fixture_app_db)
+    assert cases.get_case_for_session(case_id, session.customer_id, db_path=real_fixture_app_db).state == "abandoned"
+
+    retry_id = reach_explaining(session, real_fixture_app_db)
+    resolved = mocked_turn(session, real_fixture_app_db, EXPLANATION, retry_id, mock={"assessment": CONVINCING_ASSESSMENT})
+
+    assert retry_id != case_id and resolved["state"] == CaseState.RESOLVED_AUTO
