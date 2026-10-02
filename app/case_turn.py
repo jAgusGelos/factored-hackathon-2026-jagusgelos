@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from datetime import date
 from pathlib import Path
 from typing import TypedDict
 
@@ -249,30 +248,16 @@ class PendingEscalation:
     charge: TransactionCandidate | None
 
     def to_dict(self) -> dict:
-        charge = self.charge
         return {
             "reason": str(self.reason),
             "handoff": self.handoff,
-            "charge": None if charge is None else {
-                "transaction_id": charge.transaction_id, "date": iso_day(charge), "amount": charge.amount,
-                "currency": charge.currency, "merchant_name": charge.merchant_name,
-                "merchant_category": charge.merchant_category, "channel": charge.channel,
-                "transaction_status": charge.transaction_status, "amount_usd": charge.amount_usd,
-                "is_synthetic": charge.is_synthetic, "transaction_type": charge.transaction_type,
-            },
+            "charge": None if self.charge is None else self.charge.to_snapshot(),
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> PendingEscalation:
         snapshot = data["charge"]
-        charge = None if snapshot is None else TransactionCandidate(
-            transaction_id=snapshot["transaction_id"], transaction_date=date.fromisoformat(snapshot["date"]),
-            amount=snapshot["amount"], currency=snapshot["currency"], amount_usd=snapshot.get("amount_usd"),
-            fraud_score=None, transaction_status=snapshot["transaction_status"],
-            merchant_name=snapshot["merchant_name"], merchant_category=snapshot["merchant_category"],
-            channel=snapshot["channel"], is_synthetic=snapshot.get("is_synthetic", False),
-            transaction_type=snapshot.get("transaction_type"),
-        )
+        charge = None if snapshot is None else TransactionCandidate.from_snapshot(snapshot)
         return cls(reason=EscalationReason(data["reason"]), handoff=data["handoff"], charge=charge)
 
 

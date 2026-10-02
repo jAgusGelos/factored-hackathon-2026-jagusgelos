@@ -21,7 +21,7 @@ Function inventory (kept in sync with the signature-inspection test):
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from pathlib import Path
 
@@ -43,6 +43,28 @@ class TransactionCandidate:
     channel: str | None
     is_synthetic: bool
     transaction_type: str | None = None
+
+    def to_snapshot(self) -> dict:
+        """The charge as stored JSON: every field but the fraud score, the
+        day under `date` (`cases.Case.pending_escalation`).
+        """
+        snapshot = asdict(self)
+        del snapshot["fraud_score"]
+        # DuckDB hands back a datetime for the date column; the snapshot keeps the day.
+        snapshot["date"] = snapshot.pop("transaction_date").isoformat()[:10]
+        return snapshot
+
+    @classmethod
+    def from_snapshot(cls, data: dict) -> TransactionCandidate:
+        # Older snapshots may lack amount_usd, is_synthetic and transaction_type.
+        return cls(
+            transaction_id=data["transaction_id"], transaction_date=date.fromisoformat(data["date"]),
+            amount=data["amount"], currency=data["currency"], amount_usd=data.get("amount_usd"),
+            fraud_score=None, transaction_status=data["transaction_status"],
+            merchant_name=data["merchant_name"], merchant_category=data["merchant_category"],
+            channel=data["channel"], is_synthetic=data.get("is_synthetic", False),
+            transaction_type=data.get("transaction_type"),
+        )
 
 
 @dataclass(frozen=True)
