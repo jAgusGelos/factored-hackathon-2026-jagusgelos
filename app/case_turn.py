@@ -3,12 +3,18 @@ send, and the moves every conversation step shares (a compare-and-set
 transition, the answer when another request moved the case first, and
 escalation).
 
-Below `app/credit.py`, `app/explanation.py` and `app/state_machine.py`:
-this module never imports any of them.
+Escalation has two phases (statement-before-handoff AD-2): unless the
+customer already explained the charge, `finish_escalated` only holds the
+decided escalation and asks what happened; `finish_pending_escalation`
+hands it off once the statement step (`app/statement.py`) is done.
+
+Below `app/credit.py`, `app/explanation.py`, `app/statement.py` and
+`app/state_machine.py`: this module never imports any of them.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TypedDict
@@ -16,14 +22,14 @@ from typing import TypedDict
 from app import cases, handoffs, llm, register, replies
 from app.auth import Session
 from app.case_model import (
-    NON_TERMINAL_STATES,
+    OPEN_STATES,
     TERMINAL_STATES,
     CaseEvaluation,
     CaseState,
     EscalationReason,
     ReportedCharge,
 )
-from app.charge_search import ChargeOption, charge_option, offered_charges
+from app.charge_search import ChargeOption, charge_option, iso_day, offered_charges
 from app.llm import Language
 from app.policy import MAX_CLARIFICATION_ROUNDS
 from app.transactions import TransactionCandidate
@@ -162,10 +168,12 @@ def where_the_case_is(case: cases.Case, language: Language) -> tuple[CaseState, 
 
 
 def transition(
-    turn: Turn, state: CaseState, *, expected_states: tuple[str, ...] = NON_TERMINAL_STATES, **fields,
+    turn: Turn, state: CaseState, *, expected_states: tuple[str, ...] = OPEN_STATES, **fields,
 ) -> ChatReply | None:
     """Claims the transition (compare-and-set). Returns None when it was
     claimed, or the reply to send when another request got there first.
+    By default never from `awaiting_statement`: only the statement step moves
+    a case on from there, passing that state explicitly.
     A turn that deferred a request for a person unlocks the handoff in this
     same update, so the next request escalates (plan.md AD-8).
     """
@@ -195,6 +203,18 @@ def _escalation_reply(
     return turn.reply(CaseState.ESCALATED, text, escalation=notice)
 
 
+def charge_prompt_context(turn: Turn, state: str, charge: TransactionCandidate | None) -> llm.PromptContext:
+    """The allowlisted facts of the charge a step asks the model about (AD-5)."""
+    if charge is None:
+        return llm.build_prompt_context(case_state=state, language=turn.language)
+    return llm.build_prompt_context(
+        case_state=state, language=turn.language,
+        candidate_amount=charge.amount, candidate_currency=charge.currency,
+        candidate_date=iso_day(charge), candidate_merchant_name=charge.merchant_name,
+        candidate_merchant_category=charge.merchant_category, candidate_channel=charge.channel,
+    )
+
+
 def force_escalation(
     turn: Turn, *, event_type: str, failed_call: str, action_taken: str, error: llm.LLMUnavailable | None = None,
     charge: TransactionCandidate | None = None,
@@ -214,12 +234,46 @@ def force_escalation(
     return _escalation_reply(turn, reason, charge=charge)
 
 
+@dataclass(frozen=True)
+class PendingEscalation:
+    """An escalation decided in code and held while the customer gives their
+    statement (`cases.Case.pending_escalation`): the exact handoff and reason
+    it will be handed off with, and the charge its notice names. The charge
+    is a snapshot (every field but the fraud score), so finishing the
+    escalation never reads the fixture (a failed read there must not become a SERVICE_ISSUE).
+    """
+
+    reason: EscalationReason
+    handoff: dict
+    charge: TransactionCandidate | None
+
+    def to_dict(self) -> dict:
+        return {
+            "reason": str(self.reason),
+            "handoff": self.handoff,
+            "charge": None if self.charge is None else self.charge.to_snapshot(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> PendingEscalation:
+        snapshot = data["charge"]
+        charge = None if snapshot is None else TransactionCandidate.from_snapshot(snapshot)
+        return cls(reason=EscalationReason(data["reason"]), handoff=data["handoff"], charge=charge)
+
+
 def finish_escalated(
     turn: Turn, evaluation: CaseEvaluation, report: ReportedCharge,
     *, expected_offered: tuple[str, ...] | None = None, drop_proposed_match: bool = False,
-    charge: TransactionCandidate | None = None,
+    charge: TransactionCandidate | None = None, account_given: bool = False,
 ) -> ChatReply:
-    """`drop_proposed_match`: the customer rejected the proposed charge, so it
+    """Escalates at once only when `account_given`: the customer already
+    explained the charge in this case. Otherwise the escalation is held as
+    pending in the same compare-and-set that would have escalated, the case
+    waits in `awaiting_statement` and the reply asks what happened (a fixed
+    text, no model call); `app/statement.py` hands it off later with this
+    same reason and handoff.
+
+    `drop_proposed_match`: the customer rejected the proposed charge, so it
     stays in the handoff evidence but is no longer the case's match.
     `charge`: a charge the customer identified that the verdict does not carry
     (e.g. the one they confirmed, when its re-verification failed); otherwise
@@ -232,17 +286,63 @@ def finish_escalated(
         raise ValueError(f"Escalation without a customer reason (case {turn.case.case_id})")
     handoff = evaluation.handoff.to_dict()
     matched = evaluation.matched_transaction
-    lost = transition(
-        turn, CaseState.ESCALATED, handoff=handoff, escalation_reason=reason,
+    notice_charge = charge if charge is not None else matched
+    fields = dict(
         matched_transaction_id=matched.transaction_id if matched is not None else None,
         clear_fields=("matched_transaction_id",) if drop_proposed_match else (),
         expected_offered_transaction_ids=expected_offered, **report.update_fields(),
     )
+    if not account_given:
+        return _ask_for_statement(turn, PendingEscalation(reason, handoff, notice_charge), fields)
+    lost = transition(turn, CaseState.ESCALATED, handoff=handoff, escalation_reason=reason, **fields)
     if lost:
         return lost
+    # The one record of why no statement was asked (the eval reads it).
+    turn.log_event("handoff_statement_skipped", {"reason": "account_given", "escalation_reason": reason})
     turn.log_event("case_escalated", handoff)
-    return _escalation_reply(turn, reason, charge=charge if charge is not None else matched)
+    return _escalation_reply(turn, reason, charge=notice_charge)
 
 
-def escalate(turn: Turn, evaluation: CaseEvaluation, *, charge: TransactionCandidate | None = None) -> ChatReply:
-    return finish_escalated(turn, evaluation, turn.report, charge=charge)
+def _ask_for_statement(turn: Turn, pending: PendingEscalation, fields: dict) -> ChatReply:
+    # The question is the whole reply: a request for a person this turn
+    # deferred gets no "ask again" offer, the next step hands the case off.
+    turn = replace(turn, human_requested=False)
+    lost = transition(turn, CaseState.AWAITING_STATEMENT, pending_escalation=pending.to_dict(), **fields)
+    if lost:
+        return lost
+    # Closed values only: never the customer's words.
+    turn.log_event(
+        "handoff_statement_requested",
+        {"pending_escalation_reason": pending.reason, "source_state": turn.case.state},
+    )
+    return turn.reply(CaseState.AWAITING_STATEMENT, replies.ASK_FOR_STATEMENT[turn.language])
+
+
+def finish_pending_escalation(
+    turn: Turn, pending: PendingEscalation, handoff: dict, *, claimed_events: Sequence[tuple[str, dict]] = (),
+    **fields,
+) -> ChatReply:
+    """Hands off the escalation the statement step held, with its own reason
+    and `handoff` (the pending one plus the statement fields), from
+    `awaiting_statement` only: a stale or concurrent statement turn loses the
+    compare-and-set instead of escalating twice. `claimed_events`: the
+    statement step's outcome, logged only once the hand-off is claimed.
+    `fields`: the statement step's own columns and guards (`cases.update_case`).
+    """
+    lost = transition(
+        turn, CaseState.ESCALATED, expected_states=(CaseState.AWAITING_STATEMENT,), handoff=handoff,
+        escalation_reason=pending.reason, **fields,
+    )
+    if lost:
+        return lost
+    for event_type, payload in claimed_events:
+        turn.log_event(event_type, payload)
+    turn.log_event("case_escalated", handoff)
+    return _escalation_reply(turn, pending.reason, charge=pending.charge)
+
+
+def escalate(
+    turn: Turn, evaluation: CaseEvaluation, *, charge: TransactionCandidate | None = None,
+    account_given: bool = False,
+) -> ChatReply:
+    return finish_escalated(turn, evaluation, turn.report, charge=charge, account_given=account_given)

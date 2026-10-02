@@ -5107,8 +5107,8 @@
   "cost": {
     "time_to_first_action": {
       "agent_pipeline_p50_seconds": {
-        "value": 0.2228,
-        "n": 29,
+        "value": 0.2951,
+        "n": 40,
         "kind": "simulated",
         "note": "Offline eval pipeline time with a mocked LLM; excludes network time."
       },
@@ -5137,12 +5137,12 @@
     },
     "agent_llm_cost_usd": {
       "per_attempted_case": {
-        "value": 0.001235,
-        "n": 29,
+        "value": 0.001589,
+        "n": 40,
         "kind": "simulated"
       },
       "per_successful_resolution": {
-        "value": 0.00597,
+        "value": 0.010595,
         "n": 6,
         "kind": "simulated"
       },
@@ -5180,11 +5180,11 @@
           "note": "Baseline: 1 amount and date match in a sample of 2,000 dataset complaints (eval snapshot). The dataset generates complaints and transactions independently, so it gives no basis for any share above 0."
         },
         {
-          "value": 0.2069,
-          "n": 29,
+          "value": 0.15,
+          "n": 40,
           "kind": "simulated",
           "label": "scenario-suite outcome, not a population estimate",
-          "note": "6 of 29 constructed eval scenarios ended in a safe automated resolution."
+          "note": "6 of 40 constructed eval scenarios ended in a safe automated resolution."
         },
         {
           "value": 0.5,
@@ -5203,8 +5203,8 @@
         },
         {
           "hourly_rate_usd": 5,
-          "automation_share": 0.2069,
-          "value": 0.2225,
+          "automation_share": 0.15,
+          "value": 0.2385,
           "n": null,
           "kind": "projection"
         },
@@ -5224,8 +5224,8 @@
         },
         {
           "hourly_rate_usd": 10,
-          "automation_share": 0.2069,
-          "value": 0.445,
+          "automation_share": 0.15,
+          "value": 0.4769,
           "n": null,
           "kind": "projection"
         },
@@ -5245,8 +5245,8 @@
         },
         {
           "hourly_rate_usd": 20,
-          "automation_share": 0.2069,
-          "value": 0.89,
+          "automation_share": 0.15,
+          "value": 0.9539,
           "n": null,
           "kind": "projection"
         },

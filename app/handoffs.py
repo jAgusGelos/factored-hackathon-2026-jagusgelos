@@ -10,6 +10,7 @@ plan.md AD-4). The builders that cover several causes (`confirmation_outcome`,
 
 from __future__ import annotations
 
+from dataclasses import replace
 from enum import StrEnum
 
 from app import cases
@@ -22,7 +23,15 @@ from app.case_model import (
 )
 from app.charge_search import iso_day
 from app.llm import ConfirmationAnswer
-from app.policy import MATCH_DATE_TOLERANCE_DAYS, MAX_CASE_TURNS, ExplanationAssessment
+from app.policy import (
+    MATCH_DATE_TOLERANCE_DAYS,
+    MAX_CASE_TURNS,
+    ExplanationAssessment,
+    StatementField,
+    Tristate,
+    known_fact,
+    open_facts,
+)
 from app.replies import format_amount
 from app.transactions import TransactionCandidate
 
@@ -141,15 +150,22 @@ def _escalation(
     )
 
 
-def human_request(report: ReportedCharge, charge: TransactionCandidate | None = None) -> CaseEvaluation:
-    """`charge`: one the customer already confirmed or picked, if any."""
+def human_request(
+    report: ReportedCharge, charge: TransactionCandidate | None = None, *, explained: bool = False,
+) -> CaseEvaluation:
+    """`charge`: one the customer already confirmed or picked, if any.
+    `explained`: they also explained it before asking for a person.
+    """
+    if charge is None:
+        question = "¿Qué cargo quiere revisar el cliente y qué pasó con él?"
+    elif explained:
+        question = EXPLANATION_REVIEW_QUESTION
+    else:
+        question = "¿Qué pasó con este cargo? El cliente pidió una persona antes de explicarlo."
     return _escalation(
         report, "Cliente solicitó explícitamente hablar con un agente humano.",
         customer_reason=EscalationReason.HUMAN_REQUESTED, charge=charge,
-        evidence=_charge_evidence(charge),
-        open_questions=("¿Qué cargo quiere revisar el cliente y qué pasó con él?",) if charge is None else (
-            "¿Qué pasó con este cargo? El cliente pidió una persona antes de explicarlo.",
-        ),
+        evidence=_charge_evidence(charge), open_questions=(question,),
     )
 
 
@@ -216,10 +232,20 @@ def prior_escalation_same_charge(
     )
 
 
+def _model_summary(summary: str) -> str:
+    return f"{summary} (resumen del modelo)"
+
+
 ASSESSMENT_FAILED = (
     "No se pudo evaluar la explicación: la respuesta del modelo no respetó el formato esperado. "
     "Leer la explicación del cliente en los mensajes del caso."
 )
+
+
+def with_reported(evaluation: CaseEvaluation, extra: dict[str, str]) -> CaseEvaluation:
+    """The same verdict with more of what the customer reported (or the model read from it)."""
+    reported = {**evaluation.handoff.customer_reported, **extra}
+    return replace(evaluation, handoff=replace(evaluation.handoff, customer_reported=reported))
 
 
 def explanation_reported(assessment: ExplanationAssessment | None, *, too_short: bool = False) -> dict[str, str]:
@@ -227,8 +253,9 @@ def explanation_reported(assessment: ExplanationAssessment | None, *, too_short:
         return {"explanation_assessment": "explicación demasiado breve; no se evaluó con el modelo"}
     if assessment is None:
         return {"explanation_assessment": "no evaluable (respuesta del modelo inválida)"}
+    summary = {"explanation_summary": _model_summary(assessment.summary)} if assessment.summary else {}
     return {
-        "explanation_summary": f"{assessment.summary} (resumen del modelo)",
+        **summary,
         "explanation_specific": _yes_no(assessment.specific),
         "explanation_consistent": _yes_no(assessment.consistent),
     }
@@ -319,6 +346,54 @@ def reverification_failed(
         open_question=question, customer_reason=EscalationReason.NEEDS_REVIEW,
         charge=charge, policy_reasons=evaluation.resolution_reasons,
     )
+
+
+class StatementStatus(StrEnum):
+    """How the statement step ended (`customer_reported["statement_status"]`)."""
+
+    GIVEN = "given"
+    DECLINED = "declined"
+    SUMMARY_UNAVAILABLE = "summary_unavailable"
+
+
+_STATEMENT_OPEN_QUESTIONS = {
+    StatementField.DENIES_PURCHASE: "Confirmar con el cliente si hizo o autorizó esta compra.",
+    StatementField.MERCHANT_KNOWN: "Confirmar con el cliente si conoce el comercio o lo usó alguna vez.",
+    StatementField.CARD_POSSESSION: "Confirmar con el cliente si tiene la tarjeta consigo.",
+    StatementField.HOW_NOTICED: "Confirmar con el cliente cómo y cuándo se dio cuenta del cargo.",
+    StatementField.OTHER_SUSPICIOUS_ACTIVITY: (
+        "Confirmar con el cliente si hay otros cargos o movimientos que no reconoce."
+    ),
+}
+CARD_LOST_QUESTION = (
+    "Confirmar con el cliente si perdió la tarjeta o se la robaron, y si corresponde bloquearla."
+)
+
+
+def _statement_open_questions(facts: dict[str, str | None]) -> tuple[str, ...]:
+    questions = tuple(_STATEMENT_OPEN_QUESTIONS[fact] for fact in open_facts(facts, _STATEMENT_OPEN_QUESTIONS))
+    return (*questions, CARD_LOST_QUESTION) if facts.get(StatementField.CARD_POSSESSION) == Tristate.NO else questions
+
+
+def with_statement(
+    handoff: dict, *, status: StatementStatus, summary: str = "", facts: dict[str, str | None] | None = None,
+) -> dict:
+    """A pending handoff (`case_turn.PendingEscalation.handoff`) with the
+    statement step's outcome: its status, the model's summary (only when
+    given) and every known key fact in `customer_reported`, and one advisor
+    task per fact still unknown in `open_questions`. Every other field is the
+    pending one, untouched: the statement never changes the decision.
+    """
+    facts = facts or {}
+    reported = {"statement_status": str(status)}
+    if status == StatementStatus.GIVEN:
+        reported["statement_summary"] = _model_summary(summary)
+    reported |= {fact: str(value) for fact, value in facts.items() if known_fact(value)}
+    return {
+        **handoff,
+        "customer_reported": {**handoff["customer_reported"], **reported},
+        "open_questions": [*handoff["open_questions"], *_statement_open_questions(facts)],
+    }
 
 
 def service_failure(

@@ -9,7 +9,8 @@ The agent tries first, once per request (plan.md AD-8): the first request
 to talk to a person keeps the case where it is (charge list, pending
 confirmation, explanation), spends no round, unlocks the handoff in the same
 compare-and-set and ends the reply with an offer; the second request (typed
-or the button) escalates. The handoff is also unlocked silently when the
+or the button) hands the case to a person, after the statement step unless
+the customer already explained the charge. The handoff is also unlocked silently when the
 customer gave details the agent could not resolve (`_offer` /
 `_ask_for_details`) or the clarification rounds are used up, and then the
 first request escalates at once. Policy escalations (fraud score, amount,
@@ -26,6 +27,10 @@ States (stored per case; every transition is a compare-and-set):
   awaiting_explanation   -> escalated      (not convincing, or a reason a person must handle)
   confirming      -> selecting      (customer says it is not that charge)
   confirming      -> escalated      (customer asks for a human)
+  any of the above -> awaiting_statement -> escalated
+                  (every escalation except a technical failure first asks the
+                   customer what happened and why they want the refund, unless
+                   they already explained the charge: `app/statement.py`)
 
 `selecting` (Milestone 8) replaces the free-text "tell me the amount and date"
 question: the customer is shown their OWN charges (`app/charge_search.py`) and
@@ -46,7 +51,8 @@ belongs to (an old button still on screen) changes nothing, and a turn sent
 with a `turn_id` is applied at most once (`app/turns.py`).
 
 The explanation step lives in `app/explanation.py` (it receives this
-module's `_policy_verdict`) and the credit it may grant in `app/credit.py`;
+module's `_policy_verdict`), the credit it may grant in `app/credit.py`, and
+the customer's statement before any handoff in `app/statement.py`;
 what every step shares (`Turn`, the compare-and-set transition, escalation)
 is in `app/case_turn.py`.
 
@@ -68,7 +74,7 @@ import duckdb
 from app import cases, classifier, config, handoffs, llm, replies, turns
 from app.auth import Session
 from app.case_model import (
-    NON_TERMINAL_STATES,
+    OPEN_STATES,
     TERMINAL_STATES,
     CaseEvaluation,
     CaseState,
@@ -98,7 +104,7 @@ from app.charge_search import (
     recent_charges,
     txn_day,
 )
-from app.explanation import ask_for_explanation, handle_explanation
+from app.explanation import GivenAccount, ask_for_explanation, handle_explanation
 from app.llm import Language, PromptScene
 from app.policy import (
     ABUSE_GUARD_WINDOW_DAYS,
@@ -117,6 +123,7 @@ from app.policy import (
     evaluate_resolution,
     match_amount_tolerance,
 )
+from app.statement import handle_statement
 from app.transactions import (
     CustomerProfile,
     TransactionCandidate,
@@ -344,7 +351,7 @@ def _unlocks_handoff(report: ReportedCharge, search: ChargeSearch, *, spend_roun
 
 def _offer(
     turn: Turn, search: ChargeSearch, report: ReportedCharge, *, spend_round: bool,
-    human_deferred: bool = False, expected_states: tuple[str, ...] = NON_TERMINAL_STATES,
+    human_deferred: bool = False, expected_states: tuple[str, ...] = OPEN_STATES,
 ) -> ChatReply:
     """Shows the customer their own charges to pick from (AD-11 Row 3's
     clarification, as a list instead of a free-text question). A round is
@@ -386,7 +393,7 @@ def _offer(
 
 
 def _offer_recent_charges(
-    turn: Turn, report: ReportedCharge, *, expected_states: tuple[str, ...] = NON_TERMINAL_STATES,
+    turn: Turn, report: ReportedCharge, *, expected_states: tuple[str, ...] = OPEN_STATES,
 ) -> ChatReply:
     """The customer asked to see their charges: a request, not a failed
     attempt, so no round is spent.
@@ -396,7 +403,7 @@ def _offer_recent_charges(
 
 def _ask_for_details(
     turn: Turn, report: ReportedCharge, *, spend_round: bool,
-    expected_states: tuple[str, ...] = NON_TERMINAL_STATES, human_deferred: bool = False,
+    expected_states: tuple[str, ...] = OPEN_STATES, human_deferred: bool = False,
 ) -> ChatReply:
     """Only for a customer with no outgoing charges to list at all."""
     lost = transition(
@@ -433,7 +440,7 @@ def _introduce(turn: Turn, scene: PromptScene) -> ChatReply:
 # -- Handlers ------------------------------------------------------------------
 
 
-def _handle_human_request(turn: Turn) -> ChatReply:
+def _handle_human_request(turn: Turn, *, account: GivenAccount | None = None) -> ChatReply:
     """One "let me try first" per request (plan.md AD-8): the first request
     keeps the case where it is (the charge list, the pending confirmation or
     the explanation) with a fixed text, spends no round and unlocks the
@@ -450,11 +457,17 @@ def _handle_human_request(turn: Turn) -> ChatReply:
                 open_question="El cliente prefirió hablar con una persona antes de confirmar el cargo propuesto.",
                 customer_reason=EscalationReason.HUMAN_REQUESTED, charge=_proposed_charge(turn),
             ))
-        explained = _charge_being_explained(turn)
-        return escalate(turn, handoffs.human_request(turn.report, explained), charge=explained)
+        charge = _charge_being_explained(turn)
+        account_given = _account_given(case, account)
+        evaluation = handoffs.human_request(turn.report, charge, explained=account_given)
+        if account is not None:
+            evaluation = handoffs.with_reported(evaluation, handoffs.explanation_reported(account.assessment))
+        return escalate(turn, evaluation, charge=charge, account_given=account_given)
     turn = replace(turn, human_requested=True)
     state = CaseState(case.state)
     if state in (CaseState.AWAITING_EXPLANATION, CaseState.CONFIRMING):
+        # Never stored as the explanation, even with an account: the text asks
+        # for a person, and the next assessment would read that again.
         lost = transition(turn, state, expected_states=(state,))
         deferred = (
             replies.HUMAN_DEFERRED_WHILE_EXPLAINING if state == CaseState.AWAITING_EXPLANATION
@@ -479,6 +492,12 @@ def _charge_being_explained(turn: Turn) -> TransactionCandidate | None:
     if turn.case.state != CaseState.AWAITING_EXPLANATION:
         return None
     return _proposed_charge(turn)
+
+
+def _account_given(case: cases.Case, account: GivenAccount | None) -> bool:
+    return case.state == CaseState.AWAITING_EXPLANATION and (
+        account is not None or bool(case.explanation_text)
+    )
 
 
 _ACTION_ANSWERS = {
@@ -759,6 +778,11 @@ def _run_turn(
 def _route(
     turn: Turn, text: str, selected_transaction_id: str | None, action: CustomerAction | None,
 ) -> ChatReply:
+    # Before the human button: in this state a request for a person is part
+    # of the statement step, never a new HUMAN_REQUESTED escalation. A tapped
+    # charge falls through to `_handle_selection`, which refuses it.
+    if turn.case.state == CaseState.AWAITING_STATEMENT and selected_transaction_id is None:
+        return handle_statement(turn, text, action)
     if action == CustomerAction.HUMAN:
         return _handle_human_request(turn)
     if selected_transaction_id is not None:

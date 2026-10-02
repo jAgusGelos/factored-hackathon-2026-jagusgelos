@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from app import db
+from app import config, db
 from app.policy import (
     CREDIT_WINDOW_DAYS,
     MAX_AUTO_CREDIT_TOTAL_USD,
@@ -77,6 +77,18 @@ class Case:
     # The charges last shown to the customer to pick from; a selection is only
     # ever accepted if it is one of these (and it is re-checked as their own).
     offered_transaction_ids: tuple[str, ...] = ()
+    # An escalation decided in code but not yet handed off: the case waits in
+    # `awaiting_statement` for the customer's own account first. Holds the
+    # handoff, the reason and a snapshot of the charge the notice names, so
+    # finishing it never re-decides or re-reads anything. Kept after the
+    # hand-off as the record of what was decided before the statement.
+    pending_escalation: dict | None = None
+    # The customer's statement so far (their own words, app db only, like
+    # `explanation_text`; the handoff carries the model's summary and facts).
+    statement_text: str | None = None
+    statement_facts: dict | None = None
+    statement_followups: int = 0
+    statement_declines: int = 0
 
 
 @dataclass(frozen=True)
@@ -121,7 +133,20 @@ def _row_to_case(row: sqlite3.Row) -> Case:
         credit_key=row["credit_key"],
         escalation_reason=row["escalation_reason"],
         offered_transaction_ids=tuple(json.loads(row["offered_transaction_ids"] or "[]")),
+        pending_escalation=_json_or_none(row["pending_escalation_json"]),
+        statement_text=row["statement_text"],
+        statement_facts=_json_or_none(row["statement_facts_json"]),
+        statement_followups=row["statement_followups"],
+        statement_declines=row["statement_declines"],
     )
+
+
+def _json_or_none(value: str | None) -> dict | None:
+    return json.loads(value) if value else None
+
+
+def _dumps_or_none(value: dict | None) -> str | None:
+    return json.dumps(value, ensure_ascii=False) if value is not None else None
 
 
 def get_case(case_id: str, *, db_path: Path | None = None) -> Case | None:
@@ -142,7 +167,38 @@ def get_case_for_session(
         return None
     if case.customer_id != customer_id:
         raise CaseOwnershipError(f"Case {case_id} does not belong to this session")
+    if case.state == "awaiting_statement" and _abandon_if_idle(case, db_path=db_path):
+        return get_case(case_id, db_path=db_path)
     return case
+
+
+def _abandon_if_idle(case: Case, *, db_path: Path | None) -> bool:
+    """Closes a case that waited longer than STATEMENT_ABANDON_MINUTES for the
+    customer's statement: abandoned, never handed off. A compare-and-set on
+    the state and the last update, and never while a chat turn on the case is
+    still running (`app/turns.py`), so a statement sent just in time wins.
+    """
+    now = datetime.now(UTC)
+    cutoff = now - timedelta(minutes=config.STATEMENT_ABANDON_MINUTES)
+    live_since = now - timedelta(seconds=config.PENDING_TIMEOUT_SECONDS)
+    with db.app_connection(db_path) as con:
+        cursor = con.execute(
+            "UPDATE cases SET state = 'abandoned', updated_at = ? "
+            "WHERE case_id = ? AND state = 'awaiting_statement' AND updated_at < ? "
+            "AND NOT EXISTS (SELECT 1 FROM chat_turns WHERE chat_turns.case_id = cases.case_id "
+            "AND completed_at IS NULL AND failed_at IS NULL AND created_at > ?)",
+            [now.isoformat(), case.case_id, cutoff.isoformat(), live_since.isoformat()],
+        )
+        con.commit()
+    if cursor.rowcount != 1:
+        return False
+    pending_reason = (case.pending_escalation or {}).get("reason")
+    log_event(
+        uuid.uuid4().hex, case.case_id, "case_abandoned",
+        {"pending_escalation_reason": pending_reason, "after_minutes": config.STATEMENT_ABANDON_MINUTES},
+        db_path=db_path,
+    )
+    return True
 
 
 def create_case(customer_id: str, language: str, *, db_path: Path | None = None) -> Case:
@@ -184,14 +240,20 @@ def update_case(
     expected_states: tuple[str, ...] | None = None,
     expected_offered_transaction_ids: tuple[str, ...] | None = None,
     expected_matched_transaction_id: str | None = None,
+    expected_statement_counts: tuple[int, int] | None = None,
     credit: CreditGrant | None = None,
     escalation_reason: str | None = None,
+    pending_escalation: dict | None = None,
+    append_statement: str | None = None,
+    statement_facts: dict | None = None,
+    add_statement_followup: bool = False,
+    add_statement_decline: bool = False,
     db_path: Path | None = None,
 ) -> bool:
     """A compare-and-set: returns False (and writes nothing) when the case no
     longer matches `expected_states` / `expected_offered_transaction_ids` /
-    `expected_matched_transaction_id`, so
-    two concurrent requests on the same case cannot both win a transition.
+    `expected_matched_transaction_id` / `expected_statement_counts` (follow-ups,
+    declines), so two concurrent requests on the same case cannot both win a transition.
     None arguments leave a column as it is; `clear_fields` resets one to NULL.
     Raises DuplicateCreditError if the write would credit an already-credited
     transaction (or duplicate pair) a second time. With `credit`, the write
@@ -205,6 +267,7 @@ def update_case(
 
     guards, guard_params = _expectation_guards(
         expected_states, expected_offered_transaction_ids, expected_matched_transaction_id,
+        expected_statement_counts,
     )
     now = datetime.now(UTC)
     credit_params: list[object] = [None, None, None]
@@ -238,18 +301,27 @@ def update_case(
                     credited_amount_usd = COALESCE(?, credited_amount_usd),
                     credited_at = COALESCE(?, credited_at),
                     escalation_reason = COALESCE(?, escalation_reason),
+                    pending_escalation_json = COALESCE(?, pending_escalation_json),
+                    statement_text = CASE WHEN ? IS NULL THEN statement_text
+                        ELSE COALESCE(statement_text || char(10), '') || ? END,
+                    statement_facts_json = COALESCE(?, statement_facts_json),
+                    statement_followups = statement_followups + ?,
+                    statement_declines = statement_declines + ?,
                     updated_at = ?
                 WHERE case_id = ?{guards}
                 """,
                 [
                     state, reported_amount, reported_currency, reported_date, reported_merchant,
                     *matched_params, resolution_reference,
-                    json.dumps(handoff, ensure_ascii=False) if handoff is not None else None,
+                    _dumps_or_none(handoff),
                     json.dumps(list(offered_transaction_ids)) if offered_transaction_ids is not None else None,
                     clarification_rounds, 1 if add_clarification_round else 0,
                     1 if unlock_handoff else 0,
                     dispute_reason, append_explanation, append_explanation, 1 if add_explanation_attempt else 0,
-                    *credit_params, escalation_reason, now.isoformat(), case_id, *guard_params,
+                    *credit_params, escalation_reason, _dumps_or_none(pending_escalation),
+                    append_statement, append_statement, _dumps_or_none(statement_facts),
+                    1 if add_statement_followup else 0, 1 if add_statement_decline else 0,
+                    now.isoformat(), case_id, *guard_params,
                 ],
             )
             con.commit()
@@ -262,6 +334,7 @@ def _expectation_guards(
     expected_states: tuple[str, ...] | None,
     expected_offered_transaction_ids: tuple[str, ...] | None,
     expected_matched_transaction_id: str | None,
+    expected_statement_counts: tuple[int, int] | None,
 ) -> tuple[str, list[object]]:
     """The compare-and-set part of update_case's WHERE clause, and its parameters."""
     guards = ""
@@ -275,6 +348,9 @@ def _expectation_guards(
     if expected_matched_transaction_id is not None:
         guards += " AND matched_transaction_id = ?"
         params.append(expected_matched_transaction_id)
+    if expected_statement_counts is not None:
+        guards += " AND statement_followups = ? AND statement_declines = ?"
+        params += list(expected_statement_counts)
     return guards, params
 
 

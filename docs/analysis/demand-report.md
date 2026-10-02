@@ -127,7 +127,7 @@ Four separate blocks. They measure different things, so they are never divided i
 
 ### A. Time to first action
 
-- Agent pipeline p50: 0.2228 s (simulated, n = 29 eval scenarios). Offline eval pipeline time with a mocked LLM; excludes network time.
+- Agent pipeline p50: 0.2951 s (simulated, n = 40 eval scenarios). Offline eval pipeline time with a mocked LLM; excludes network time.
 - Human first response p50 for "Cargo no reconocido": 37.0 h (measured, n = 7,567, coverage 61.5%).
 
 ### B. Measured human first-contact handle time
@@ -138,8 +138,8 @@ Four separate blocks. They measure different things, so they are never divided i
 
 ### C. Simulated agent LLM cost
 
-- Per attempted case: USD 0.001235 (simulated, n = 29).
-- Per successful resolution: USD 0.00597 (simulated, n = 6 resolutions).
+- Per attempted case: USD 0.001589 (simulated, n = 40).
+- Per successful resolution: USD 0.010595 (simulated, n = 6 resolutions).
 - Method: estimated from constructed prompt/response character counts (~4 chars/token), not measured API billing.
 - Pricing: https://www.anthropic.com/claude/haiku (Haiku 4.5, $1/$5 per M input/output tokens, verified 2026-09-28).
 - Disclosure: OFFLINE/SIMULATED: the Anthropic client is mocked deterministically for reproducibility. Measures the state machine's policy pipeline and processing latency, NOT real LLM quality, network latency, or real API cost.
@@ -148,14 +148,14 @@ Four separate blocks. They measure different things, so they are never divided i
 
 *Label: projection.* Formula: expected human handle cost per case (USD) = (1 - automation share) x anchor handle hours x hourly rate, with the 202 s anchor from block B. Each cell is the expected human handle cost of one case, not a total over any period.
 
-| Hourly rate (assumed) | Share 0.0 (baseline, assumed) | Share 0.2069 (scenario-suite outcome, not a population estimate, simulated) | Share 0.5 (illustrative, assumed) |
+| Hourly rate (assumed) | Share 0.0 (baseline, assumed) | Share 0.15 (scenario-suite outcome, not a population estimate, simulated) | Share 0.5 (illustrative, assumed) |
 |---|---|---|---|
-| USD 5 | USD 0.2806 | USD 0.2225 | USD 0.1403 |
-| USD 10 | USD 0.5611 | USD 0.4450 | USD 0.2806 |
-| USD 20 | USD 1.1222 | USD 0.8900 | USD 0.5611 |
+| USD 5 | USD 0.2806 | USD 0.2385 | USD 0.1403 |
+| USD 10 | USD 0.5611 | USD 0.4769 | USD 0.2806 |
+| USD 20 | USD 1.1222 | USD 0.9539 | USD 0.5611 |
 
 - Share 0.0: assumed, baseline. Baseline: 1 amount and date match in a sample of 2,000 dataset complaints (eval snapshot). The dataset generates complaints and transactions independently, so it gives no basis for any share above 0.
-- Share 0.2069: simulated, scenario-suite outcome, not a population estimate. 6 of 29 constructed eval scenarios ended in a safe automated resolution.
+- Share 0.15: simulated, scenario-suite outcome, not a population estimate. 6 of 40 constructed eval scenarios ended in a safe automated resolution.
 - Share 0.5: assumed, illustrative.
 
 **Prerequisite:** Real complaint-to-transaction linkage or a redesigned intake is required before any automation share can be claimed.

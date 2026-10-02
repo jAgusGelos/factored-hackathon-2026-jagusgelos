@@ -14,7 +14,7 @@ from unittest.mock import patch
 import pytest
 
 from app import llm, replies
-from app.case_model import CaseState, CustomerAction, EscalationReason
+from app.case_model import CaseState, CustomerAction, EscalationReason, ReportedCharge
 from app.llm import Language
 from app.policy import (
     ESCALATION_CONTACT_BUSINESS_DAYS,
@@ -35,6 +35,7 @@ from support import (
     DUPLICATE_CHARGES,
     EXPLANATION,
     FRAUD_SCORE_CHARGE,
+    GIVEN_STATEMENT,
     NOT_RECEIVED_ASSESSMENT,
     OPENING,
     OVER_LIMIT_CHARGE,
@@ -42,6 +43,9 @@ from support import (
     REAL_FIXTURE_PATH,
     REPO_ROOT,
     SECOND_ONLINE_CHARGE,
+    STATEMENT,
+    STATEMENT_DECLINED,
+    STATEMENT_WITHOUT_CARD_FACT,
     app_db_rows,
     charge_extraction,
     charge_report,
@@ -50,6 +54,7 @@ from support import (
     logged_events,
     mock_anthropic_client,
     session_for,
+    statement_down_client,
 )
 
 __all__ = [
@@ -66,6 +71,9 @@ __all__ = [
     "OPENING",
     "NOT_RECEIVED_ASSESSMENT",
     "SECOND_ONLINE_CHARGE",
+    "STATEMENT",
+    "STATEMENT_DECLINED",
+    "STATEMENT_WITHOUT_CARD_FACT",
     "app_db_rows",
     "clean_assessment",
     "clean_ctx",
@@ -75,12 +83,14 @@ __all__ = [
     "DEMO_USERNAME",
     "DUPLICATE_CHARGES",
     "FRAUD_SCORE_CHARGE",
+    "GIVEN_STATEMENT",
     "OVER_LIMIT_CHARGE",
     "charge_extraction",
     "charge_report",
     "demo_session",
     "mock_anthropic_client",
     "session_for",
+    "statement_down_client",
     "requires_real_fixture",
     "STATIC",
     "EM_DASH",
@@ -90,6 +100,10 @@ __all__ = [
     "mocked_turn",
     "reach_confirming",
     "reach_explaining",
+    "assert_asks_for_statement",
+    "finish_statement",
+    "COP_CHARGE",
+    "REPORT",
 ]
 
 STATIC = REPO_ROOT / "static"
@@ -142,6 +156,23 @@ def assert_escalation_notice(
         assert escalation["charge"]["merchant"] in text
 
 
+def assert_asks_for_statement(reply: dict, language: Language = Language.ES) -> None:
+    """The escalation is held: the reply asks for the customer's statement
+    and nothing is handed off yet.
+    """
+    assert reply["state"] == CaseState.AWAITING_STATEMENT
+    assert reply["reply"] == replies.ASK_FOR_STATEMENT[Language(language)]
+    assert reply["escalation"] is None
+
+
+def finish_statement(session, app_db, reply: dict, text: str = STATEMENT, *, language="es", **kwargs) -> dict:
+    """The statement step after a reply that asked for it: `text` as the
+    customer's account, and the reply that hands the case off.
+    """
+    assert_asks_for_statement(reply, language)
+    return mocked_turn(session, app_db, text, reply["case_id"], language=language, **kwargs)
+
+
 def mocked_turn(session, app_db, text, case_id=None, *, extraction=None, language="es", client=None, **kwargs):
     """One `handle_message` turn against `client`, or a mocked model that
     extracts `extraction` (`mock`: its other answers), with retries unslept.
@@ -174,6 +205,10 @@ def clean_txn(**overrides) -> TransactionCandidate:
         merchant_category="Retail", channel="App", is_synthetic=False, transaction_type="Purchase",
     )
     return TransactionCandidate(**{**base, **overrides})
+
+
+COP_CHARGE = clean_txn(amount=38500.0, currency="COP", amount_usd=9.6, merchant_name="Uber")
+REPORT = ReportedCharge(amount=38500.0, date=None, currency="COP")
 
 
 def clean_ctx(**overrides) -> DisputeContext:

@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from eval.run_eval import build_report, run
+from app.case_model import CaseState
+from eval.run_eval import CaseOutcome, build_report, run
 from tests.support import requires_real_fixture
 
 pytestmark = requires_real_fixture
@@ -64,6 +65,48 @@ def test_run_covers_the_policy_abuse_scenarios(tmp_path):
         "duplicate_pair_twice", "same_charge_after_escalation",
     }
     assert all(c["actual_state"] == "escalated" for c in report["by_group"]["policy_abuse"])
+
+
+def test_every_escalation_needing_a_statement_carries_one(tmp_path):
+    report = run(tmp_path / "eval_app.db")
+    completeness = report["escalation_quality"]["statement_completeness_rate"]
+    assert completeness["rate"] == 1.0, completeness["missing_case_keys"]
+    assert completeness["of_escalated_needing_a_statement"] >= 15
+
+
+def test_run_covers_the_statement_scenarios(tmp_path):
+    report = run(tmp_path / "eval_app.db")
+    statement = {c["case_key"]: c for c in report["by_group"]["statement"]}
+    assert set(statement) == {
+        "statement_given[es]", "statement_given[pt]", "statement_declined_twice", "statement_typed_refusal",
+        "statement_one_followup", "statement_summary_timeout", "service_issue_bypasses_statement",
+        "tap_to_statement_no_model", "statement_injection", "vague_explanation_then_person",
+        "specific_explanation_then_person",
+    }
+    assert statement["vague_explanation_then_person"]["statement_status"] == "given"
+    assert statement["specific_explanation_then_person"]["account_given"] is True
+    assert statement["statement_summary_timeout"]["escalation_reason"] == "needs_review"
+    assert statement["service_issue_bypasses_statement"]["statement_status"] is None
+
+
+def test_completeness_leaves_out_service_issues_and_explained_escalations():
+    def outcome(key, **kwargs):
+        return CaseOutcome(
+            case_key=key, group="g", expected_state=CaseState.ESCALATED, actual_state=CaseState.ESCALATED,
+            safe=True, latency_seconds=0.0, estimated_prompt_chars=0, estimated_completion_chars=0, case_id=key,
+            **kwargs,
+        )
+
+    report = build_report([
+        outcome("given", escalation_reason="needs_review", statement_status="given"),
+        outcome("skipped", escalation_reason="human_requested", statement_status=None),
+        outcome("service", escalation_reason="service_issue"),
+        outcome("explained", escalation_reason="needs_review", account_given=True),
+    ])
+
+    completeness = report["escalation_quality"]["statement_completeness_rate"]
+    assert (completeness["count"], completeness["of_escalated_needing_a_statement"]) == (1, 2)
+    assert completeness["missing_case_keys"] == ["skipped"]
 
 
 def test_report_has_all_required_metrics():

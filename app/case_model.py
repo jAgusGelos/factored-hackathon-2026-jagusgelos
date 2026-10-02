@@ -22,12 +22,21 @@ class CaseState(StrEnum):
     SELECTING = "selecting"
     CONFIRMING = "confirming"
     AWAITING_EXPLANATION = "awaiting_explanation"
+    # An escalation decided in code waits for the customer's own account of
+    # what happened before it is handed to a person (`app/statement.py`).
+    AWAITING_STATEMENT = "awaiting_statement"
     RESOLVED_AUTO = "resolved_auto"
     ESCALATED = "escalated"
+    # The customer never gave the statement: closed without a handoff.
+    ABANDONED = "abandoned"
 
 
-TERMINAL_STATES = frozenset({CaseState.RESOLVED_AUTO, CaseState.ESCALATED})
+TERMINAL_STATES = frozenset({CaseState.RESOLVED_AUTO, CaseState.ESCALATED, CaseState.ABANDONED})
 NON_TERMINAL_STATES = tuple(str(s) for s in CaseState if s not in TERMINAL_STATES)
+# The states an ordinary conversation step may move a case from: a case
+# waiting for the customer's statement holds an escalation already decided,
+# so only the statement step (`app/statement.py`) ever moves it on.
+OPEN_STATES = tuple(s for s in NON_TERMINAL_STATES if s != CaseState.AWAITING_STATEMENT)
 
 
 class CustomerAction(StrEnum):

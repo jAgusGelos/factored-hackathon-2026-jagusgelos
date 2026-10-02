@@ -15,10 +15,10 @@ from html.parser import HTMLParser
 
 import pytest
 
-from app import replies
-from app.case_model import CustomerAction
+from app import handoffs, replies
+from app.case_model import CaseState, CustomerAction
 from app.llm import ConfirmationAnswer, Language
-from app.policy import DisputeReason
+from app.policy import DisputeReason, HowNoticed, Tristate
 from tests.support import STATIC, chat_js_language_block
 from tests.test_handoff_shape import PRODUCERS
 
@@ -31,6 +31,7 @@ NEW_KEYS = (
     "turnError", "retry", "quickNewClaim", "claimResolved", "claimEscalated", "claimDivider",
     "caseNumberLabel", "escalationStepDone", "escalationStepPending", "escalationDeadline",
     "stepDone", "stepPending", "escalationCharge", "escalationReason", "escalationNote",
+    "waitStatement", "badgeStatement", "stepPolicyStatement",
 )
 
 
@@ -206,11 +207,19 @@ def _js_object_keys(lang: str, name: str) -> set[str]:
     return set(re.findall(r"(\w+): \"", _entries(lang)[name]))
 
 
+_EVERY_STATEMENT_FACT = {
+    "denies_purchase": "yes", "merchant_known": "yes", "card_possession": "yes", "how_noticed": "statement",
+    "noticed_on": "2026-06-14", "other_suspicious_activity": "yes",
+}
+
+
 def _handoff_field_keys() -> set[str]:
     keys: set[str] = set()
     for build in PRODUCERS.values():
-        handoff = build()
-        keys |= set(handoff.verified_facts) | set(handoff.customer_reported)
+        handoff = handoffs.with_statement(
+            build().to_dict(), status=handoffs.StatementStatus.GIVEN, summary="s", facts=_EVERY_STATEMENT_FACT,
+        )
+        keys |= set(handoff["verified_facts"]) | set(handoff["customer_reported"])
     return keys
 
 
@@ -223,7 +232,27 @@ def test_every_handoff_field_has_a_label_in_both_languages(lang):
 @pytest.mark.parametrize("lang", ["es", "pt"])
 def test_coded_handoff_values_are_labelled_in_both_languages(lang):
     codes = {str(v) for v in DisputeReason} | {str(v) for v in ConfirmationAnswer}
-    assert codes <= _js_object_keys(lang, "handoffValues")
+    # An unknown statement fact is left out of the handoff, so it needs no label.
+    statement_codes = {str(v) for v in (*handoffs.StatementStatus, *Tristate, *HowNoticed)} - {"unknown"}
+    assert codes | statement_codes <= _js_object_keys(lang, "handoffValues")
+
+
+def test_the_client_states_match_the_server_ones():
+    block = CHAT_JS[CHAT_JS.index("const CASE_STATES"):CHAT_JS.index("const TERMINAL_STATES")]
+    assert set(re.findall(r'"(\w+)"', block)) == {str(s) for s in CaseState}
+
+
+def test_the_statement_step_has_its_wait_caption_and_panel_state():
+    captions = CHAT_JS[CHAT_JS.index("const WAIT_CAPTION_KEYS"):CHAT_JS.index("const TURN_OUTCOMES")]
+    assert '[CASE_STATES.AWAITING_STATEMENT]: "waitStatement"' in captions
+    panel = _function_body("renderPanel")
+    assert "CASE_STATES.AWAITING_STATEMENT" in panel and 't("badgeStatement")' in panel
+
+
+def test_a_handoff_without_statement_fields_renders_like_before():
+    # Escalated before the statement step existed: nothing in the card needs them.
+    body = CHAT_JS[CHAT_JS.index("function handoffSections"):CHAT_JS.index("function renderHandoffCard")]
+    assert "statement" not in body
 
 
 def test_the_internal_view_never_prints_a_raw_field_key():

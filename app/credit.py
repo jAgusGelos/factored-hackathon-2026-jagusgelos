@@ -70,13 +70,13 @@ def finish_resolved(
         turn.log_event("credit_already_granted", {"credit_key": grant.key, "credited_in_case": credited_in})
         return finish_escalated(turn, handoffs.already_credited(
             report, matched, credited_in, how_identified=handoffs.ChargeIdentification.EXPLANATION,
-        ), report)
+        ), report, account_given=True)
     if not claimed:
         current = cases.get_case(turn.case.case_id, db_path=turn.db_path)
         if current.state == turn.case.state and current.matched_transaction_id == turn.case.matched_transaction_id:
             # Nothing else moved the case: the credit limits refused it.
             turn.log_event("credit_limit_reached", {"matched_transaction_id": matched.transaction_id})
-            return finish_escalated(turn, handoffs.credit_limit_reached(report, matched), report)
+            return finish_escalated(turn, handoffs.credit_limit_reached(report, matched), report, account_given=True)
         return reply_for_lost_race(turn, CaseState.RESOLVED_AUTO)
     _simulate_provisional_credit(turn, matched, reference, reason)
     turn.log_event(

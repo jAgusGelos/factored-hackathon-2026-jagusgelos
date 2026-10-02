@@ -21,6 +21,8 @@ from app.state_machine import CaseState, handle_message
 from tests.support import (
     AUTO_RESOLVE_CHARGE,
     FRAUD_SCORE_CHARGE,
+    STATEMENT,
+    assert_asks_for_statement,
     assert_escalation_notice,
     charge_extraction,
     demo_session,
@@ -59,6 +61,10 @@ def test_pt_toggle_reaches_the_expected_state(real_fixture_app_db, charge, expec
     captured: list[str] = []
 
     reply = _pt_turn(session, real_fixture_app_db, charge_extraction(charge), captured)
+    if expected_state == CaseState.ESCALATED:
+        # The statement step comes first, in Portuguese too.
+        assert_asks_for_statement(reply, Language.PT)
+        reply = _pt_turn(session, real_fixture_app_db, charge_extraction(), captured, reply["case_id"], STATEMENT)
 
     assert reply["state"] == expected_state
     _only_portuguese_prompts(captured)

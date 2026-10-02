@@ -16,7 +16,12 @@ from typing import TypedDict
 from app.case_model import CaseState, EscalationReason
 from app.charge_search import ChargeOption, ListFilter, charge_option, iso_day, txn_day
 from app.llm import Language
-from app.policy import ESCALATION_CONTACT_BUSINESS_DAYS, DisputeReason, MissingDetail
+from app.policy import (
+    ESCALATION_CONTACT_BUSINESS_DAYS,
+    DisputeReason,
+    MissingDetail,
+    StatementField,
+)
 from app.transactions import TransactionCandidate
 
 WELCOME = {
@@ -123,6 +128,72 @@ ASK_FOR_EXPLANATION = {
         "Já localizei a cobrança: {charge}. Me conte com suas palavras o que aconteceu: como você "
         "percebeu, se reconhece o comerciante, se está com o cartão, se pagou algo e não recebeu. "
         "Com isso decido se posso reembolsar agora."
+    ),
+}
+
+# The statement step (`app/statement.py`): asked before an escalation that is
+# already decided, so it never promises the account changes the outcome.
+ASK_FOR_STATEMENT = {
+    Language.ES: (
+        "Antes de derivar su caso, cuénteme qué pasó y por qué solicita la devolución. La persona "
+        "que lo revise usará esta información."
+    ),
+    Language.PT: (
+        "Antes de encaminhar seu caso, conte o que aconteceu e por que solicita o reembolso. A "
+        "pessoa que for revisar vai usar essas informações."
+    ),
+}
+
+# The statement step's one follow-up: only the fact still missing (None: a
+# statement too short to tell what happened).
+_STATEMENT_FOLLOWUP = {
+    Language.ES: {
+        StatementField.CARD_POSSESSION: (
+            "Gracias. Para que la persona que revise el caso tenga el contexto, indíqueme si tiene la "
+            "tarjeta consigo en este momento."
+        ),
+        StatementField.MERCHANT_KNOWN: (
+            "Gracias. Para que la persona que revise el caso tenga el contexto, indíqueme si conoce este "
+            "comercio o si hizo usted esta compra."
+        ),
+        StatementField.HOW_NOTICED: (
+            "Gracias. Para que la persona que revise el caso tenga el contexto, indíqueme cómo y cuándo "
+            "se dio cuenta del cargo."
+        ),
+        None: (
+            "Gracias. Para que la persona que revise el caso tenga el contexto, indíqueme un poco más de "
+            "lo que pasó."
+        ),
+    },
+    Language.PT: {
+        StatementField.CARD_POSSESSION: (
+            "Obrigado. Para que a pessoa que revisar o caso tenha o contexto, informe se está com o "
+            "cartão neste momento."
+        ),
+        StatementField.MERCHANT_KNOWN: (
+            "Obrigado. Para que a pessoa que revisar o caso tenha o contexto, informe se conhece este "
+            "comerciante ou se fez esta compra."
+        ),
+        StatementField.HOW_NOTICED: (
+            "Obrigado. Para que a pessoa que revisar o caso tenha o contexto, informe como e quando "
+            "percebeu a cobrança."
+        ),
+        None: (
+            "Obrigado. Para que a pessoa que revisar o caso tenha o contexto, conte um pouco mais do "
+            "que aconteceu."
+        ),
+    },
+}
+
+STATEMENT_INSIST = {
+    Language.ES: (
+        "Entiendo. Esta información la va a usar el asesor que revise su caso, y con ella puede "
+        "avanzar sin volver a contactarle. ¿Me cuenta brevemente qué pasó con este cargo?"
+    ),
+    Language.PT: (
+        "Entendo. Essas informações vão ser usadas pela pessoa que for revisar seu caso, e com elas "
+        "ela pode avançar sem precisar entrar em contato de novo. Pode me contar brevemente o que "
+        "aconteceu com essa cobrança?"
     ),
 }
 
@@ -295,12 +366,20 @@ _TERMINAL = {
             "Su caso {case_number} ya fue derivado a una persona del equipo, que le contactará en un "
             "plazo de hasta {days} días hábiles desde la derivación."
         ),
+        CaseState.ABANDONED: (
+            "Como no recibimos su respuesta, cerramos el caso {case_number} sin derivarlo a una persona. "
+            "Si quiere retomarlo, inicie un nuevo reclamo."
+        ),
     },
     Language.PT: {
         CaseState.RESOLVED_AUTO: "Seu caso já foi resolvido (referência {reference}).",
         CaseState.ESCALATED: (
             "Seu caso {case_number} já foi encaminhado a uma pessoa da equipe, que entrará em contato "
             "em até {days} dias úteis a partir do encaminhamento."
+        ),
+        CaseState.ABANDONED: (
+            "Como não recebemos sua resposta, encerramos o caso {case_number} sem encaminhá-lo a uma pessoa. "
+            "Se quiser retomá-lo, inicie uma nova reclamação."
         ),
     },
 }
@@ -373,6 +452,10 @@ def ask_for_explanation(matched: TransactionCandidate, language: Language) -> st
 
 def explanation_followup(missing_detail: MissingDetail | None, language: Language) -> str:
     return _EXPLANATION_FOLLOWUP[language][missing_detail]
+
+
+def statement_followup(fact: StatementField | None, language: Language) -> str:
+    return _STATEMENT_FOLLOWUP[language][fact]
 
 
 def confirmation_question(matched: TransactionCandidate, language: Language) -> str:

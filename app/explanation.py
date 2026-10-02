@@ -8,14 +8,20 @@ check for the reason it names (`policy_verdict`, supplied by
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 from app import config, handoffs, llm, replies
 from app.case_model import CaseEvaluation, CaseState, EscalationReason, ReportedCharge
-from app.case_turn import ChatReply, Turn, escalate, finish_escalated, force_escalation, transition
-from app.charge_search import iso_day
+from app.case_turn import (
+    ChatReply,
+    Turn,
+    charge_prompt_context,
+    escalate,
+    finish_escalated,
+    force_escalation,
+    transition,
+)
 from app.credit import finish_resolved
 from app.llm import PromptScene
 from app.policy import (
@@ -29,7 +35,22 @@ from app.policy import (
     MissingDetail,
     evaluate_explanation,
 )
+from app.summary_guard import summary_drop
 from app.transactions import TransactionCandidate, get_own_transaction
+
+
+@dataclass(frozen=True)
+class GivenAccount:
+    """A text that asked for a person and also told what happened (the
+    assessment found it specific): when that request hands the case off, it
+    is the customer's account and no statement is asked.
+    """
+
+    assessment: ExplanationAssessment
+
+
+class HumanRequest(Protocol):
+    def __call__(self, turn: Turn, *, account: GivenAccount | None) -> ChatReply: ...
 
 
 class PolicyVerdict(Protocol):
@@ -38,15 +59,6 @@ class PolicyVerdict(Protocol):
         how_identified: handoffs.ChargeIdentification,
         *, reason: DisputeReason | None = None,
     ) -> CaseEvaluation: ...
-
-
-def _charge_context(turn: Turn, state: str, matched: TransactionCandidate) -> llm.PromptContext:
-    return llm.build_prompt_context(
-        case_state=state, language=turn.language,
-        candidate_amount=matched.amount, candidate_currency=matched.currency,
-        candidate_date=iso_day(matched), candidate_merchant_name=matched.merchant_name,
-        candidate_merchant_category=matched.merchant_category, candidate_channel=matched.channel,
-    )
 
 
 def ask_for_explanation(
@@ -65,7 +77,9 @@ def ask_for_explanation(
         return lost
     turn.log_event("explanation_requested", {"matched_transaction_id": matched.transaction_id})
     fallback = replies.ask_for_explanation(matched, turn.language)
-    reply = turn.generate_reply(_charge_context(turn, CaseState.AWAITING_EXPLANATION, matched), fallback=fallback)
+    reply = turn.generate_reply(
+        charge_prompt_context(turn, CaseState.AWAITING_EXPLANATION, matched), fallback=fallback,
+    )
     if not replies.names_the_facts(reply, matched, turn.language):
         turn.log_event("explanation_request_replaced", {"reason": "facts_missing"})
         reply = fallback
@@ -83,10 +97,15 @@ def _assess(turn: Turn, explanation: str, matched: TransactionCandidate) -> Expl
     if _too_short(explanation):
         return _TOO_SHORT
     assessment = llm.assess_explanation(
-        explanation, charge=_charge_context(turn, CaseState.AWAITING_EXPLANATION, matched),
+        explanation, charge=charge_prompt_context(turn, CaseState.AWAITING_EXPLANATION, matched),
     )
     if assessment is None:
         turn.log_event("explanation_parse_failed", {"call": "assess_explanation"})
+        return None
+    dropped = summary_drop(assessment.summary, explanation, matched) if assessment.summary else None
+    if dropped is not None:
+        turn.log_event("explanation_summary_dropped", {"cause": dropped})
+        return replace(assessment, summary="")
     return assessment
 
 
@@ -124,7 +143,7 @@ def _asks_for_a_person(turn: Turn, text: str) -> bool:
 
 
 def handle_explanation(
-    turn: Turn, text: str, *, policy_verdict: PolicyVerdict, on_human_request: Callable[[Turn], ChatReply],
+    turn: Turn, text: str, *, policy_verdict: PolicyVerdict, on_human_request: HumanRequest,
 ) -> ChatReply:
     """The customer's account of what happened. The model only assesses it;
     `policy.evaluate_explanation` may ask for one more detail or escalate, and
@@ -137,14 +156,16 @@ def handle_explanation(
     """
     case = turn.case
     matched = get_own_transaction(turn.session, case.matched_transaction_id) if case.matched_transaction_id else None
-    if matched is None:
-        return escalate(turn, handoffs.unidentified_charge(turn.report, case))
     explanation = f"{case.explanation_text}\n{text}" if case.explanation_text else text
+    if matched is None:
+        return escalate(
+            turn, handoffs.unidentified_charge(turn.report, case), account_given=bool(case.explanation_text),
+        )
     too_short = _too_short(explanation)
     # Only when the assessment will not run (it reads `wants_human` itself):
     # at most one model call per turn, inside the shared turn budget.
     if too_short and _asks_for_a_person(turn, text):
-        return on_human_request(turn)
+        return on_human_request(turn, account=None)
     try:
         assessment = _assess(turn, explanation, matched)
     except llm.LLMUnavailable as exc:
@@ -155,7 +176,8 @@ def handle_explanation(
         )
     if assessment is not None and assessment.wants_human:
         turn.log_event("human_request_detected", {"via": "assessment"})
-        return on_human_request(turn)
+        account = GivenAccount(assessment) if assessment.specific else None
+        return on_human_request(turn, account=account)
     attempts_left = case.explanation_attempts + 1 < MAX_EXPLANATION_ATTEMPTS
     decision = _explanation_verdict(assessment, attempts_left=attempts_left)
     turn.log_event(
@@ -175,7 +197,7 @@ def handle_explanation(
                 report, matched, decision.reason_to_escalate, assessment, too_short=too_short,
                 customer_reason=_customer_reason(assessment, decision),
             ),
-            report,
+            report, account_given=True,
         )
     # The explanation raised no red flag; the evidence check for the reason it
     # names decides (a persuasive story alone never credits anything).
@@ -187,11 +209,8 @@ def handle_explanation(
             turn, matched, reason=assessment.reason, twins=evaluation.duplicate_twins,
             expected_states=(CaseState.AWAITING_EXPLANATION,), expected_match=matched.transaction_id,
         )
-    reported = {
-        **evaluation.handoff.customer_reported, **handoffs.explanation_reported(assessment, too_short=too_short),
-    }
-    handoff = replace(evaluation.handoff, customer_reported=reported)
-    return finish_escalated(turn, replace(evaluation, handoff=handoff), report)
+    explained = handoffs.with_reported(evaluation, handoffs.explanation_reported(assessment, too_short=too_short))
+    return finish_escalated(turn, explained, report, account_given=True)
 
 
 # The dispute reasons a person handles, as the customer is told them.

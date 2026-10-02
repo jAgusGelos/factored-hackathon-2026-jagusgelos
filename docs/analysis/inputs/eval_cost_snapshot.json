@@ -1,21 +1,21 @@
 {
   "source": "data/eval_report.json",
   "disclosure": "OFFLINE/SIMULATED: the Anthropic client is mocked deterministically for reproducibility. Measures the state machine's policy pipeline and processing latency, NOT real LLM quality, network latency, or real API cost.",
-  "sample_size": 29,
+  "sample_size": 40,
   "safe_automated_resolution_rate": {
     "count": 6,
-    "of_attempted": 29,
-    "rate": 0.2069
+    "of_attempted": 40,
+    "rate": 0.15
   },
   "estimated_cost_usd": {
-    "per_attempted_case_mean": 0.001235,
-    "per_successful_resolution": 0.00597,
+    "per_attempted_case_mean": 0.001589,
+    "per_successful_resolution": 0.010595,
     "pricing_source": "https://www.anthropic.com/claude/haiku (Haiku 4.5, $1/$5 per M input/output tokens, verified 2026-09-28)",
     "method": "estimated from constructed prompt/response character counts (~4 chars/token), not measured API billing"
   },
   "latency_seconds": {
-    "p50": 0.2228,
-    "p95": 0.3989
+    "p50": 0.2951,
+    "p95": 0.4949
   },
   "real_data_match_rate_finding": {
     "sample_size": 2000,

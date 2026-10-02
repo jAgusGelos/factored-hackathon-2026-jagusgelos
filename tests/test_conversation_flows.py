@@ -32,11 +32,13 @@ from tests.support import (
     OPENING,
     OVER_LIMIT_CHARGE,
     SECOND_ONLINE_CHARGE,
+    assert_asks_for_statement,
     assert_escalation_notice,
     charge_extraction,
     charge_report,
     demo_session,
     event_sequence,
+    finish_statement,
     logged_events,
     mock_anthropic_client,
     requires_real_fixture,
@@ -121,7 +123,8 @@ def test_duplicate_charges_are_listed_for_the_customer_to_pick(real_fixture_app_
 
 def test_escalation_case_confident_match_ineligible_produces_structured_handoff(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
-    reply = _say(session, real_fixture_app_db, charge_extraction(FRAUD_SCORE_CHARGE))
+    asked = _say(session, real_fixture_app_db, charge_extraction(FRAUD_SCORE_CHARGE))
+    reply = finish_statement(session, real_fixture_app_db, asked)
 
     assert reply["state"] == CaseState.ESCALATED
     case = cases.get_case(reply["case_id"], db_path=real_fixture_app_db)
@@ -142,7 +145,7 @@ def test_an_early_human_request_gets_the_agent_to_try_once(real_fixture_app_db):
 
     again = _say(session, real_fixture_app_db, charge_extraction(wants_human=True), "Quiero hablar con una persona",
                  case_id=reply["case_id"])
-    assert again["state"] == CaseState.ESCALATED
+    assert finish_statement(session, real_fixture_app_db, again)["state"] == CaseState.ESCALATED
 
 
 def test_a_human_request_is_honored_after_details_the_agent_could_not_match(real_fixture_app_db):
@@ -150,8 +153,9 @@ def test_a_human_request_is_honored_after_details_the_agent_could_not_match(real
     unmatched = _say(session, real_fixture_app_db, charge_extraction(date="2024-04-22"), "fue el 22/04/2024")
     assert unmatched["human_available"] is True
 
-    reply = _say(session, real_fixture_app_db, charge_extraction(wants_human=True), "Quiero hablar con una persona",
+    asked = _say(session, real_fixture_app_db, charge_extraction(wants_human=True), "Quiero hablar con una persona",
                  case_id=unmatched["case_id"])
+    reply = finish_statement(session, real_fixture_app_db, asked)
 
     assert reply["state"] == CaseState.ESCALATED
 
@@ -184,10 +188,11 @@ def test_picking_an_ineligible_charge_escalates_with_the_policy_reasons(real_fix
     session = demo_session(real_fixture_app_db)
     listed = _open_list(session, real_fixture_app_db)
 
-    reply = _say(
+    asked = _say(
         session, real_fixture_app_db, charge_extraction(), "Boutique", case_id=listed["case_id"],
         selected_transaction_id=OVER_LIMIT_CHARGE,
     )
+    reply = finish_statement(session, real_fixture_app_db, asked)
 
     assert reply["state"] == CaseState.ESCALATED
     handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
@@ -250,10 +255,11 @@ def test_not_in_the_list_after_details_escalates_with_what_was_shown_as_evidence
     session = demo_session(real_fixture_app_db)
     listed = _say(session, real_fixture_app_db, charge_extraction(date="2026-06-14"), "fue el 14 de junio")
 
-    reply = _say(
+    asked = _say(
         session, real_fixture_app_db, charge_extraction(), "No está en la lista",
         case_id=listed["case_id"], action="none_of_these",
     )
+    reply = finish_statement(session, real_fixture_app_db, asked)
 
     assert reply["state"] == CaseState.ESCALATED
     handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
@@ -267,8 +273,9 @@ def test_human_button_escalates_once_the_agent_tried(real_fixture_app_db):
                     case_id=early["case_id"], action="human")
     assert deferred["state"] == CaseState.SELECTING
 
-    reply = _say(session, real_fixture_app_db, charge_extraction(), "Hablar con una persona",
+    asked = _say(session, real_fixture_app_db, charge_extraction(), "Hablar con una persona",
                  case_id=early["case_id"], action="human")
+    reply = finish_statement(session, real_fixture_app_db, asked)
 
     assert reply["state"] == CaseState.ESCALATED
     assert "humano" in cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff["actions_taken"][0]
@@ -332,10 +339,11 @@ def test_turns_with_nothing_new_eventually_escalate(real_fixture_app_db):
         reply = _say(session, real_fixture_app_db, charge_extraction(), "no sé", case_id=case_id)
         case_id = reply["case_id"]
         states.append(reply["state"])
-        if reply["state"] == CaseState.ESCALATED:
+        if reply["state"] == CaseState.AWAITING_STATEMENT:
             break
-    assert states[-1] == CaseState.ESCALATED
+    assert states[-1] == CaseState.AWAITING_STATEMENT
     assert states.count(CaseState.SELECTING) == 2
+    assert finish_statement(session, real_fixture_app_db, reply)["state"] == CaseState.ESCALATED
 
 
 def test_conversation_is_capped_at_max_case_turns(real_fixture_app_db):
@@ -346,9 +354,10 @@ def test_conversation_is_capped_at_max_case_turns(real_fixture_app_db):
     con.commit()
     con.close()
 
-    reply = _say(session, real_fixture_app_db, charge_extraction(date="2026-06-01"), "otra fecha", case_id=first["case_id"])
+    asked = _say(session, real_fixture_app_db, charge_extraction(date="2026-06-01"), "otra fecha", case_id=first["case_id"])
 
-    assert reply["state"] == CaseState.ESCALATED
+    assert_asks_for_statement(asked)
+    assert finish_statement(session, real_fixture_app_db, asked)["state"] == CaseState.ESCALATED
 
 
 def test_clarification_reply_without_a_currency_keeps_the_originally_reported_one(real_fixture_app_db):
@@ -437,6 +446,8 @@ def test_the_same_charge_is_never_credited_twice(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
     for _ in range(2):
         reply = _pick_and_explain(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
+    # The second pick is screened as already credited: a handoff, after the statement.
+    reply = finish_statement(session, real_fixture_app_db, reply)
 
     assert reply["state"] == CaseState.ESCALATED
     handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
@@ -451,7 +462,8 @@ def test_a_typed_report_of_an_already_credited_charge_escalates_instead_of_confi
          action="confirm_yes")
     _explain(session, real_fixture_app_db, first["case_id"])
 
-    again = _say(session, real_fixture_app_db, charge_extraction(AUTO_RESOLVE_CHARGE))
+    asked = _say(session, real_fixture_app_db, charge_extraction(AUTO_RESOLVE_CHARGE))
+    again = finish_statement(session, real_fixture_app_db, asked)
 
     assert again["state"] == CaseState.ESCALATED
     assert_escalation_notice(again, EscalationReason.ALREADY_CREDITED, charge_named=True)
@@ -464,8 +476,9 @@ def test_a_rejected_proposal_is_not_kept_as_the_match(real_fixture_app_db):
                   action="confirm_no")
     assert cases.get_case(first["case_id"], db_path=real_fixture_app_db).matched_transaction_id is None
 
-    reply = _say(session, real_fixture_app_db, charge_extraction(), "No está en la lista",
+    asked = _say(session, real_fixture_app_db, charge_extraction(), "No está en la lista",
                  case_id=listed["case_id"], action="none_of_these")
+    reply = finish_statement(session, real_fixture_app_db, asked)
 
     case = cases.get_case(reply["case_id"], db_path=real_fixture_app_db)
     assert case.matched_transaction_id is None
@@ -501,8 +514,9 @@ def test_repeating_the_same_merchant_is_not_new_information(real_fixture_app_db)
     turns = [_say(session, real_fixture_app_db, extraction, "un taxi", case_id=first["case_id"]) for _ in range(3)]
 
     # Same as saying nothing new: two rounds spent, then the third escalates.
-    assert [r["state"] for r in turns] == [CaseState.SELECTING, CaseState.SELECTING, CaseState.ESCALATED]
-    assert_escalation_notice(turns[-1], EscalationReason.CHARGE_NOT_IDENTIFIED, charge_named=False)
+    assert [r["state"] for r in turns] == [CaseState.SELECTING, CaseState.SELECTING, CaseState.AWAITING_STATEMENT]
+    final = finish_statement(session, real_fixture_app_db, turns[-1])
+    assert_escalation_notice(final, EscalationReason.CHARGE_NOT_IDENTIFIED, charge_named=False)
 
 
 def test_a_full_report_still_ambiguous_after_the_rounds_escalates_without_naming_a_charge(real_fixture_app_db):
@@ -516,8 +530,9 @@ def test_a_full_report_still_ambiguous_after_the_rounds_escalates_without_naming
         for _ in range(3)
     ]
 
-    assert turns[-1]["state"] == CaseState.ESCALATED
-    assert_escalation_notice(turns[-1], EscalationReason.CHARGE_NOT_IDENTIFIED, charge_named=False)
+    final = finish_statement(session, real_fixture_app_db, turns[-1])
+    assert final["state"] == CaseState.ESCALATED
+    assert_escalation_notice(final, EscalationReason.CHARGE_NOT_IDENTIFIED, charge_named=False)
 
 
 def test_greetings_do_not_count_towards_the_turn_cap(real_fixture_app_db):
@@ -537,7 +552,8 @@ def test_turn_cap_handoff_keeps_what_the_customer_reported(real_fixture_app_db):
     con.commit()
     con.close()
 
-    reply = _say(session, real_fixture_app_db, charge_extraction(), "otra cosa", case_id=first["case_id"])
+    asked = _say(session, real_fixture_app_db, charge_extraction(), "otra cosa", case_id=first["case_id"])
+    reply = finish_statement(session, real_fixture_app_db, asked)
 
     handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
     assert handoff["customer_reported"]["date"] == "2026-06-14"
@@ -613,32 +629,38 @@ def test_insisting_on_a_person_without_details_reaches_one_on_the_second_request
         case_id = reply["case_id"]
         states.append(reply["state"])
 
-    assert states == [CaseState.SELECTING, CaseState.ESCALATED]
+    assert states == [CaseState.SELECTING, CaseState.AWAITING_STATEMENT]
+    assert finish_statement(session, real_fixture_app_db, reply)["state"] == CaseState.ESCALATED
 
 
 def test_repeating_not_in_the_list_without_details_eventually_escalates(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
     listed = _open_list(session, real_fixture_app_db)
-    states = [
+    replies = [
         _say(session, real_fixture_app_db, charge_extraction(), "No está en la lista",
-             case_id=listed["case_id"], action="none_of_these")["state"]
+             case_id=listed["case_id"], action="none_of_these")
         for _ in range(3)
     ]
+    states = [r["state"] for r in replies]
 
-    assert states[-1] == CaseState.ESCALATED
+    assert states[-1] == CaseState.AWAITING_STATEMENT
     assert CaseState.SELECTING in states
+    # A later tap on the old button changes nothing: the first one that asks is the handoff.
+    asked = next(r for r in replies if r["state"] == CaseState.AWAITING_STATEMENT)
+    assert finish_statement(session, real_fixture_app_db, asked)["state"] == CaseState.ESCALATED
 
 
 def test_insisting_on_a_person_while_confirming_escalates_on_the_second_request(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
     first = _say(session, real_fixture_app_db, charge_extraction(AUTO_RESOLVE_CHARGE))
-    states = [
+    replies = [
         _say(session, real_fixture_app_db, charge_extraction(), "Hablar con una persona",
-             case_id=first["case_id"], action="human")["state"]
+             case_id=first["case_id"], action="human")
         for _ in range(2)
     ]
 
-    assert states == [CaseState.CONFIRMING, CaseState.ESCALATED]
+    assert [r["state"] for r in replies] == [CaseState.CONFIRMING, CaseState.AWAITING_STATEMENT]
+    assert finish_statement(session, real_fixture_app_db, replies[-1])["state"] == CaseState.ESCALATED
 
 
 def test_a_human_request_with_details_tries_the_details_first(real_fixture_app_db):
@@ -659,8 +681,9 @@ def test_a_customer_with_no_charges_can_reach_a_person_after_giving_a_detail(rea
     assert asked["state"] == CaseState.CLARIFYING
     assert asked["human_available"] is True
 
-    reply = _say(other, real_fixture_app_db, charge_extraction(), "Hablar con una persona",
-                 case_id=asked["case_id"], action="human")
+    held = _say(other, real_fixture_app_db, charge_extraction(), "Hablar con una persona",
+                case_id=asked["case_id"], action="human")
+    reply = finish_statement(other, real_fixture_app_db, held)
 
     assert reply["state"] == CaseState.ESCALATED
 
@@ -814,7 +837,7 @@ def test_a_vague_explanation_gets_one_follow_up_then_escalates(real_fixture_app_
 
 def test_a_high_fraud_score_escalates_before_asking_for_an_explanation(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
-    reply = _pick(session, real_fixture_app_db, FRAUD_SCORE_CHARGE)
+    reply = finish_statement(session, real_fixture_app_db, _pick(session, real_fixture_app_db, FRAUD_SCORE_CHARGE))
 
     assert reply["state"] == CaseState.ESCALATED
     assert logged_events(real_fixture_app_db, "explanation_requested") == []
@@ -887,7 +910,8 @@ def test_a_credit_granted_before_the_new_columns_counts_towards_the_limits(real_
     cases.update_case(legacy.case_id, state="resolved_auto", resolution_reference="REF-LEGACY", db_path=real_fixture_app_db)
 
     history = cases.credit_history(session.customer_id, db_path=real_fixture_app_db)
-    reply = _pick_and_explain(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
+    # Screening at the pick already counts the legacy credit: a handoff, after the statement.
+    reply = finish_statement(session, real_fixture_app_db, _pick_and_explain(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE))
 
     assert history.unrecognized_count == 1 and history.total_usd > 0
     assert reply["state"] == CaseState.ESCALATED
@@ -1065,7 +1089,7 @@ def test_a_new_case_on_a_charge_already_escalated_after_an_explanation_escalates
     session = demo_session(real_fixture_app_db)
     prior = _escalated_after_explaining(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
 
-    retry = _pick(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
+    retry = finish_statement(session, real_fixture_app_db, _pick(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE))
 
     assert retry["state"] == CaseState.ESCALATED
     assert retry["case_id"] != prior["case_id"]
@@ -1086,7 +1110,8 @@ def test_a_typed_report_of_a_charge_escalated_after_an_explanation_escalates(rea
     session = demo_session(real_fixture_app_db)
     prior = _escalated_after_explaining(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
 
-    retry = _say(session, real_fixture_app_db, charge_extraction(AUTO_RESOLVE_CHARGE))
+    asked = _say(session, real_fixture_app_db, charge_extraction(AUTO_RESOLVE_CHARGE))
+    retry = finish_statement(session, real_fixture_app_db, asked)
 
     assert retry["state"] == CaseState.ESCALATED
     handoff = cases.get_case(retry["case_id"], db_path=real_fixture_app_db).handoff
@@ -1099,9 +1124,10 @@ def test_a_charge_escalated_on_a_request_for_a_person_can_still_be_explained(rea
     """
     session = demo_session(real_fixture_app_db)
     first = _say(session, real_fixture_app_db, charge_extraction(AUTO_RESOLVE_CHARGE))
-    for _ in range(3):
-        handed_off = _say(session, real_fixture_app_db, charge_extraction(), "Hablar con una persona",
-                          case_id=first["case_id"], action="human")
+    for _ in range(2):
+        asked = _say(session, real_fixture_app_db, charge_extraction(), "Hablar con una persona",
+                     case_id=first["case_id"], action="human")
+    handed_off = finish_statement(session, real_fixture_app_db, asked)
     assert handed_off["state"] == CaseState.ESCALATED
     prior = cases.get_case(first["case_id"], db_path=real_fixture_app_db)
     assert prior.matched_transaction_id == AUTO_RESOLVE_CHARGE and prior.dispute_reason is None
@@ -1124,7 +1150,7 @@ def test_a_new_case_on_a_charge_still_open_after_an_explanation_attempt_escalate
     open_case = cases.get_case(prior["case_id"], db_path=real_fixture_app_db)
     assert open_case.explanation_attempts == 1 and open_case.dispute_reason is None
 
-    retry = _pick(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE)
+    retry = finish_statement(session, real_fixture_app_db, _pick(session, real_fixture_app_db, AUTO_RESOLVE_CHARGE))
 
     assert retry["state"] == CaseState.ESCALATED
     assert retry["case_id"] != prior["case_id"]

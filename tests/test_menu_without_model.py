@@ -23,6 +23,9 @@ from tests.support import (
     EXPLANATION,
     FRAUD_SCORE_CHARGE,
     OPENING,
+    STATEMENT,
+    app_db_rows,
+    assert_asks_for_statement,
     assert_escalation_notice,
     charge_extraction,
     demo_session,
@@ -42,6 +45,15 @@ def _turn(session, app_db, text, case_id=None, *, extraction=None, **kwargs):
     with patch("app.llm.anthropic.Anthropic", return_value=client):
         reply = handle_message(session, case_id, text, db_path=app_db, **kwargs)
     return reply, client.messages.create.call_count
+
+
+def _hand_off(session, app_db, asked):
+    """A tap that escalates now asks for the customer's statement (no model
+    call); the typed statement that follows is its own turn, with its own client.
+    """
+    assert_asks_for_statement(asked)
+    reply, _ = _turn(session, app_db, STATEMENT, asked["case_id"])
+    return reply
 
 
 def _show_charges(session, app_db):
@@ -151,14 +163,15 @@ def test_the_human_button_is_answered_without_the_model(session, real_fixture_ap
     deferred, deferred_calls = _turn(
         session, real_fixture_app_db, "Hablar con una persona", listed["case_id"], action=CustomerAction.HUMAN,
     )
-    escalated, escalated_calls = _turn(
+    asked, asked_calls = _turn(
         session, real_fixture_app_db, "Hablar con una persona", listed["case_id"], action=CustomerAction.HUMAN,
     )
 
-    assert (deferred_calls, escalated_calls) == (0, 0)
+    assert (deferred_calls, asked_calls) == (0, 0)
     assert deferred["state"] == CaseState.SELECTING
     assert deferred["reply"] == f"{replies.HUMAN_DEFERRED['es']} {replies.HUMAN_OFFER['es']}"
     assert deferred["human_available"] is True
+    escalated = _hand_off(session, real_fixture_app_db, asked)
     assert escalated["state"] == CaseState.ESCALATED
     assert_escalation_notice(escalated, EscalationReason.HUMAN_REQUESTED, charge_named=False)
 
@@ -211,9 +224,10 @@ def _escalated_by_a_tap(session, app_db):
 
 
 def test_tapping_a_charge_that_fails_the_policy_escalates_without_the_model(session, real_fixture_app_db):
-    reply, calls = _escalated_by_a_tap(session, real_fixture_app_db)
+    asked, calls = _escalated_by_a_tap(session, real_fixture_app_db)
 
     assert calls == 0
+    reply = _hand_off(session, real_fixture_app_db, asked)
     assert reply["state"] == CaseState.ESCALATED
     assert_escalation_notice(reply, EscalationReason.NEEDS_REVIEW, charge_named=True)
 
@@ -221,18 +235,20 @@ def test_tapping_a_charge_that_fails_the_policy_escalates_without_the_model(sess
 def test_not_in_the_list_after_a_detail_escalates_without_the_model(session, real_fixture_app_db):
     listed, _ = _turn(session, real_fixture_app_db, "fue el 14 de junio", extraction=charge_extraction(date="2026-06-14"))
 
-    reply, calls = _turn(
+    asked, calls = _turn(
         session, real_fixture_app_db, "No está en la lista", listed["case_id"],
         action=CustomerAction.NONE_OF_THESE,
     )
 
     assert calls == 0
+    reply = _hand_off(session, real_fixture_app_db, asked)
     assert reply["state"] == CaseState.ESCALATED
     assert_escalation_notice(reply, EscalationReason.CHARGE_NOT_IDENTIFIED, charge_named=False)
 
 
 def test_the_show_charges_button_on_a_closed_case_gets_the_closed_case_reply(session, real_fixture_app_db):
-    escalated, _ = _escalated_by_a_tap(session, real_fixture_app_db)
+    asked, _ = _escalated_by_a_tap(session, real_fixture_app_db)
+    escalated = _hand_off(session, real_fixture_app_db, asked)
 
     reply, calls = _turn(
         session, real_fixture_app_db, "Ver mis últimos cargos", escalated["case_id"],
@@ -287,3 +303,28 @@ def test_a_not_that_one_tap_that_loses_the_race_does_not_move_the_case(session, 
     case = cases.get_case(proposed["case_id"], db_path=real_fixture_app_db)
     assert (case.state, case.matched_transaction_id) == (CaseState.AWAITING_EXPLANATION, AUTO_RESOLVE_CHARGE)
     assert reply["state"] == CaseState.AWAITING_EXPLANATION
+
+
+@pytest.mark.parametrize(
+    "tap",
+    [
+        dict(selected_transaction_id=AUTO_RESOLVE_CHARGE),
+        dict(action=CustomerAction.NONE_OF_THESE),
+        dict(action=CustomerAction.SHOW_CHARGES),
+        dict(action=CustomerAction.CONFIRM_YES),
+        dict(action=CustomerAction.CONFIRM_NO),
+    ],
+    ids=["charge", "none_of_these", "show_charges", "confirm_yes", "confirm_no"],
+)
+def test_an_old_tap_while_waiting_for_the_statement_changes_nothing(session, real_fixture_app_db, tap):
+    asked, _ = _escalated_by_a_tap(session, real_fixture_app_db)
+    before = cases.get_case(asked["case_id"], db_path=real_fixture_app_db)
+    events_before = len(app_db_rows(real_fixture_app_db, "SELECT id FROM events"))
+
+    reply, calls = _turn(session, real_fixture_app_db, "botón viejo", asked["case_id"], **tap)
+
+    assert calls == 0
+    assert reply["state"] == CaseState.AWAITING_STATEMENT
+    assert cases.get_case(asked["case_id"], db_path=real_fixture_app_db) == before
+    new_events = app_db_rows(real_fixture_app_db, "SELECT event_type FROM events WHERE id > ?", [events_before])
+    assert {e[0] for e in new_events} <= {"action_rejected", "selection_rejected"}
