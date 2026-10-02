@@ -18,7 +18,7 @@ from app.case_model import CaseState, CustomerAction, EscalationReason
 from app.case_turn import PendingEscalation, Turn, finish_escalated
 from app.charge_search import charge_option
 from app.llm import Language
-from app.policy import FOLLOWUP_FACTS, HowNoticed, StatementField, Tristate, open_facts
+from app.policy import HowNoticed, StatementField, Tristate
 from app.statement import handle_statement
 from tests.support import (
     COP_CHARGE,
@@ -248,16 +248,16 @@ def test_a_complete_statement_is_handed_off_with_its_summary_and_facts(session, 
     assert logged_events(app_db, "handoff_statement_available") == [{"pending_escalation_reason": "needs_review"}]
 
 
-def test_a_missing_key_fact_gets_exactly_one_follow_up(session, app_db):
+def test_a_missing_key_fact_is_asked_once_and_never_again(session, app_db):
     held, _ = _held(session, app_db)
 
     asked = _say(session, app_db, held["case_id"], statement=NO_CARD_FACT)
     final = _say(session, app_db, held["case_id"], "no sé", statement={**NO_CARD_FACT, "summary": ""})
 
     assert asked["state"] == CaseState.AWAITING_STATEMENT
-    assert asked["reply"] == replies.statement_followup([StatementField.CARD_POSSESSION], Language.ES)
+    assert asked["reply"] == replies.statement_followup(StatementField.CARD_POSSESSION, Language.ES, first=True)
     assert logged_events(app_db, "handoff_statement_followup_requested") == [
-        {"pending_escalation_reason": "needs_review", "facts": ["card_possession"]},
+        {"pending_escalation_reason": "needs_review", "fact": "card_possession"},
     ]
     assert final["state"] == CaseState.ESCALATED
     handoff = _handoff(app_db, held["case_id"])
@@ -270,21 +270,28 @@ def test_a_missing_key_fact_gets_exactly_one_follow_up(session, app_db):
 
 
 @pytest.mark.parametrize("language", list(Language))
-def test_one_follow_up_asks_for_every_missing_key_fact_at_once(session, app_db, language):
+def test_each_missing_fact_gets_its_own_short_question_read_against_the_answer(session, app_db, language):
     held, _ = _held(session, app_db, language)
     two_missing = {**GIVEN_STATEMENT, "card_possession": "unknown", "how_noticed": "unknown"}
-    answered = {**GIVEN_STATEMENT, "summary": ""}
+    card_answered = {**two_missing, "summary": "", "card_possession": "no", "card_loss": "stolen"}
+    prompts: list[str] = []
 
-    asked = _say(session, app_db, held["case_id"], statement=two_missing, language=language)
-    final = _say(session, app_db, held["case_id"], "La tengo y lo vi en la app ayer", statement=answered,
+    first = _say(session, app_db, held["case_id"], statement=two_missing, language=language)
+    second = _say(session, app_db, held["case_id"], "No, me la robaron", statement=card_answered,
+                  language=language, prompts=prompts)
+    final = _say(session, app_db, held["case_id"], "Ayer, por la app", statement={**card_answered, "how_noticed": "app_alert"},
                  language=language)
 
-    missing = [StatementField.CARD_POSSESSION, StatementField.HOW_NOTICED]
-    assert asked["reply"] == replies.statement_followup(missing, language)
-    assert logged_events(app_db, "handoff_statement_followup_requested") == [
-        {"pending_escalation_reason": "needs_review", "facts": ["card_possession", "how_noticed"]},
+    card_question = replies.statement_question(StatementField.CARD_POSSESSION, language)
+    assert first["reply"] == replies.statement_followup(StatementField.CARD_POSSESSION, language, first=True)
+    assert second["reply"] == replies.statement_question(StatementField.HOW_NOTICED, language)
+    assert f"Question the agent just asked:\n{card_question}" in prompts[-1]
+    assert [e["fact"] for e in logged_events(app_db, "handoff_statement_followup_requested")] == [
+        "card_possession", "how_noticed",
     ]
     assert final["state"] == CaseState.ESCALATED
+    reported = _handoff(app_db, held["case_id"])["customer_reported"]
+    assert (reported["card_possession"], reported["card_loss"]) == ("no", "stolen")
     open_questions = " ".join(_handoff(app_db, held["case_id"])["open_questions"])
     assert "tarjeta consigo" not in open_questions and "se dio cuenta" not in open_questions
 
@@ -310,7 +317,7 @@ def test_card_possession_is_not_asked_when_the_customer_made_the_purchase(sessio
 
     asked = _say(session, app_db, held["case_id"], statement=made_it)
 
-    assert asked["reply"] == replies.statement_followup([StatementField.MERCHANT_KNOWN], Language.ES)
+    assert asked["reply"] == replies.statement_followup(StatementField.MERCHANT_KNOWN, Language.ES, first=True)
 
 
 def test_a_too_short_statement_gets_the_follow_up(session, app_db):
@@ -319,7 +326,7 @@ def test_a_too_short_statement_gets_the_follow_up(session, app_db):
     asked = _say(session, app_db, held["case_id"], "no fui yo")
 
     assert asked["state"] == CaseState.AWAITING_STATEMENT
-    assert asked["reply"] == replies.statement_followup([], Language.ES)
+    assert asked["reply"] == replies.statement_followup(None, Language.ES, first=True)
 
 
 @pytest.mark.parametrize("refusal", [DECLINE, WANTS_HUMAN], ids=["declines", "wants_human"])
@@ -534,7 +541,7 @@ def test_a_refusal_after_a_follow_up_to_no_account_still_gets_the_insistence(ses
     insisted = _say(session, app_db, held["case_id"], "Hablar con una persona", action=CustomerAction.HUMAN)
     final = _say(session, app_db, held["case_id"], "Hablar con una persona", action=CustomerAction.HUMAN)
 
-    assert asked["reply"] == replies.statement_followup(open_facts({}, FOLLOWUP_FACTS), Language.ES)
+    assert asked["reply"] == replies.statement_followup(StatementField.DENIES_PURCHASE, Language.ES, first=True)
     assert insisted["reply"] == replies.STATEMENT_INSIST[Language.ES]
     assert final["state"] == CaseState.ESCALATED
     assert _handoff(app_db, held["case_id"])["customer_reported"]["statement_status"] == "declined"
@@ -547,17 +554,17 @@ def test_a_short_answer_after_an_insistence_still_gets_the_follow_up(session, ap
     asked = _say(session, app_db, held["case_id"], "no fui yo")
 
     assert asked["state"] == CaseState.AWAITING_STATEMENT
-    assert asked["reply"] == replies.statement_followup([], Language.ES)
+    assert asked["reply"] == replies.statement_followup(None, Language.ES, first=True)
 
 
-def test_a_blank_statement_gets_the_general_follow_up_without_the_model(session, app_db):
+def test_a_blank_statement_gets_the_first_short_question_without_the_model(session, app_db):
     held, _ = _held(session, app_db)
     prompts: list[str] = []
 
     asked = _say(session, app_db, held["case_id"], "   ", prompts=prompts)
 
     assert prompts == []
-    assert asked["reply"] == replies.statement_followup([], Language.ES)
+    assert asked["reply"] == replies.statement_followup(StatementField.DENIES_PURCHASE, Language.ES, first=True)
 
 
 def test_a_turn_that_loses_the_race_logs_no_outcome(session, app_db):

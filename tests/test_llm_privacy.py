@@ -110,7 +110,7 @@ def test_the_statement_prompt_carries_only_allowlisted_charge_facts(monkeypatch)
 
     assert sent == [
         "Charge facts:\ncandidate_amount: 38500.0\ncandidate_merchant_name: Uber\n\n"
-        "Earlier in this step:\nlo anterior\n\nLatest message:\nlo último"
+        "Earlier in this step:\nlo anterior\n\nQuestion the agent just asked:\n(none)\n\nLatest message:\nlo último"
     ]
 
 

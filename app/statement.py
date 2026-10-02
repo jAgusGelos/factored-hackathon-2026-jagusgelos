@@ -8,9 +8,9 @@ to its handoff and then hands it off with the same reason. It never changes
 the decision, the reason or any credit.
 
 The model only reads (`llm.assess_statement`, one call per typed turn); code
-decides every branch, and the step is bounded: at most one follow-up for a
-missing key fact and one insistence after a refusal, then the case is handed
-off whatever the customer says. The human button is a refusal, with no model
+decides every branch, and the step is bounded: one short question per key
+fact still missing, each asked at most once, and one insistence after a
+refusal, then the case is handed off whatever the customer says. The human button is a refusal, with no model
 call, never a new HUMAN_REQUESTED escalation.
 """
 
@@ -60,29 +60,43 @@ class _Statement:
 
     summary: str
     facts: dict[str, str | None]
+    asked: tuple[str, ...] = ()
+    # The fact the agent's last message asked about, so a short answer
+    # ("no") is read against it; None after any other message.
+    question: str | None = None
 
     @classmethod
     def from_case(cls, stored: dict | None) -> _Statement:
         stored = stored or {}
-        return cls(summary=stored.get("summary", ""), facts=stored.get("facts", {}))
+        return cls(
+            summary=stored.get("summary", ""), facts=stored.get("facts", {}),
+            asked=tuple(stored.get("asked", ())), question=stored.get("question"),
+        )
 
     def to_dict(self) -> dict:
-        return {"summary": self.summary, "facts": self.facts}
+        return {"summary": self.summary, "facts": self.facts, "asked": list(self.asked), "question": self.question}
 
     def merged(self, assessment: StatementAssessment) -> _Statement:
         """A fact the customer already gave is never lost to a later turn that
         does not repeat it.
         """
         known = {str(fact): str(value) for fact, value in assessment.facts().items() if known_fact(value)}
-        return _Statement(summary=assessment.summary or self.summary, facts={**self.facts, **known})
+        return _Statement(
+            summary=assessment.summary or self.summary, facts={**self.facts, **known}, asked=self.asked,
+        )
+
+    def asking(self, fact: StatementField) -> _Statement:
+        return replace(self, asked=(*self.asked, str(fact)), question=str(fact))
 
     def has_account(self) -> bool:
         """Something the customer told, even if its summary was dropped."""
         return bool(self.summary) or any(known_fact(value) for value in self.facts.values())
 
-    def missing_facts(self) -> list[StatementField]:
-        """What the one follow-up asks for, in `policy.FOLLOWUP_FACTS` order."""
-        return open_facts(self.facts, FOLLOWUP_FACTS)
+    def next_question(self) -> StatementField | None:
+        """The next key fact still missing that was not asked yet, in
+        `policy.FOLLOWUP_FACTS` order.
+        """
+        return next((fact for fact in open_facts(self.facts, FOLLOWUP_FACTS) if fact not in self.asked), None)
 
 
 def handle_statement(turn: Turn, text: str, action: CustomerAction | None) -> ChatReply:
@@ -98,10 +112,12 @@ def handle_statement(turn: Turn, text: str, action: CustomerAction | None) -> Ch
     if action == CustomerAction.HUMAN:
         return _on_refusal(turn, pending, known, text=None, via="button", had_account=known.has_account())
     if not text.strip():
-        return _ask_more_or_finish(turn, pending, known, text=None, followup=[], needs_more=True)
+        return _ask_more_or_finish(turn, pending, known, text=None, too_short=True)
+    question = replies.statement_question(StatementField(known.question), turn.language) if known.question else None
     try:
         assessment = llm.assess_statement(
-            text, earlier=case.statement_text, charge=charge_prompt_context(turn, CaseState.AWAITING_STATEMENT, pending.charge),
+            text, earlier=case.statement_text, question=question,
+            charge=charge_prompt_context(turn, CaseState.AWAITING_STATEMENT, pending.charge),
         )
     except llm.LLMUnavailable as exc:
         failure = _Unavailable.DEADLINE if isinstance(exc, llm.LLMDeadlineExceeded) else _Unavailable.UNAVAILABLE
@@ -121,11 +137,7 @@ def handle_statement(turn: Turn, text: str, action: CustomerAction | None) -> Ch
         )
     # Only this turn: an earlier turn here was a refusal, never part of an account.
     too_short = len(text.split()) < MIN_EXPLANATION_WORDS
-    followup = statement.missing_facts()
-    return _ask_more_or_finish(
-        turn, pending, statement, text=text, followup=followup, needs_more=too_short or bool(followup),
-        noted=noted,
-    )
+    return _ask_more_or_finish(turn, pending, statement, text=text, too_short=too_short, noted=noted)
 
 
 def _outcome(pending: PendingEscalation, event_type: str, **payload) -> tuple[str, dict]:
@@ -170,21 +182,31 @@ def _on_refusal(
             turn, pending, statement, text, status=handoffs.StatementStatus.DECLINED, events=[declined], noted=noted,
         )
     lost = _stay(
-        turn, statement, text, events=[*noted, declined, _outcome(pending, "handoff_statement_insisted")],
+        turn, replace(statement, question=None), text,
+        events=[*noted, declined, _outcome(pending, "handoff_statement_insisted")],
         add_statement_decline=True,
     )
     return lost or turn.reply(CaseState.AWAITING_STATEMENT, replies.STATEMENT_INSIST[turn.language])
 
 
 def _ask_more_or_finish(
-    turn: Turn, pending: PendingEscalation, statement: _Statement, *, text: str | None,
-    followup: Sequence[StatementField], needs_more: bool, noted: Sequence[tuple[str, dict]] = (),
+    turn: Turn, pending: PendingEscalation, statement: _Statement, *, text: str | None, too_short: bool,
+    noted: Sequence[tuple[str, dict]] = (),
 ) -> ChatReply:
-    if not needs_more or turn.case.statement_followups > 0:
+    """The next short question for a key fact still missing; a statement too
+    short to tell what happened, before any question, gets a general one.
+    """
+    first = turn.case.statement_followups == 0
+    fact = statement.next_question()
+    if fact is None and not (too_short and first):
         return _finish(turn, pending, statement, text, noted=noted)
-    asked = _outcome(pending, "handoff_statement_followup_requested", facts=[str(fact) for fact in followup])
+    if fact is not None:
+        statement = statement.asking(fact)
+    asked = _outcome(pending, "handoff_statement_followup_requested", fact=fact)
     lost = _stay(turn, statement, text, events=[*noted, asked], add_statement_followup=True)
-    return lost or turn.reply(CaseState.AWAITING_STATEMENT, replies.statement_followup(followup, turn.language))
+    return lost or turn.reply(
+        CaseState.AWAITING_STATEMENT, replies.statement_followup(fact, turn.language, first=first),
+    )
 
 
 def _finish_without_assessment(

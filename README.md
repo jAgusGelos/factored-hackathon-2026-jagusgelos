@@ -105,11 +105,12 @@ it as pending (handoff, reason and a snapshot of the charge the notice names) in
 compare-and-set that would have escalated, and the case waits in `awaiting_statement`. A typed reply
 gets one model call, `llm.assess_statement`, which only returns a neutral summary of at most 25 words
 and closed fields (whether they deny the purchase, know the merchant, have the card and, if not, whether
-it was lost or stolen, how and when they noticed, other unrecognized activity); unknown is never guessed. Code then decides: one follow-up that
-asks, in a single question, for every key fact still missing (whether they made the purchase, the card
-and its loss or theft, the merchant, how and when they noticed, other unrecognized activity), so the
-advisor's open questions keep only what the customer still did not say and the advisor's own decisions
-(the refund, blocking a card the customer no longer has), one
+it was lost or stolen, how and when they noticed, other unrecognized activity); unknown is never guessed. Code then decides: one short question
+per key fact still missing, one per turn and each asked at most once ("¿Tiene la tarjeta consigo en
+este momento?", then "¿La perdió o se la robaron?" if not, "¿Cómo y cuándo se dio cuenta del
+cargo?"...), with the question passed to the model so a bare "no" is read against it; the advisor's
+open questions keep only what the customer still did not say and the advisor's own decisions (the
+refund, blocking a card the customer no longer has). One
 insistence if they decline or ask for a person (the "Hablar con una persona" button counts as
 declining, with no model call), and then the hand-off with the original reason and the unchanged
 notice, whatever they answer. The handoff gains `statement_status` (given, declined or
@@ -443,8 +444,10 @@ rates.
   on the text, `app/llm.py::stated_currency`), and a mocked test plus 3 real runs per language pin
   the same state. Other wordings may still differ between languages; the eval reports results by
   language, but its Portuguese sample is 8 cases against 32 in Spanish.
-- **The statement adds one to three turns before most handoffs** (all but technical failures and
-  escalations after the customer's explanation). A customer who already asked twice
+- **The statement adds turns before most handoffs** (all but technical failures and escalations
+  after the customer's explanation): one per key fact the customer left out, up to six short
+  questions, and the customer can stop at any of them (a refusal or the button hands off what they
+  already said). A customer who already asked twice
   for a person is asked what happened, and a refusal gets one insistence before the hand-off. The summary is the model's, labelled as such, and in manual runs
   a Portuguese statement came back in imperfect Spanish ("el tarjeta"). The prompt now asks
   explicitly for correct Spanish, which helped, but 1 of 2 Portuguese runs after that change still
