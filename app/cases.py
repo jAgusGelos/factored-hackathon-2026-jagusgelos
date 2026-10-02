@@ -175,15 +175,19 @@ def get_case_for_session(
 def _abandon_if_idle(case: Case, *, db_path: Path | None) -> bool:
     """Closes a case that waited longer than STATEMENT_ABANDON_MINUTES for the
     customer's statement: abandoned, never handed off. A compare-and-set on
-    the state and the last update, so a statement turn that lands first wins.
+    the state and the last update, and never while a chat turn on the case is
+    still running (`app/turns.py`), so a statement sent just in time wins.
     """
     now = datetime.now(UTC)
     cutoff = now - timedelta(minutes=config.STATEMENT_ABANDON_MINUTES)
+    live_since = now - timedelta(seconds=config.PENDING_TIMEOUT_SECONDS)
     with db.app_connection(db_path) as con:
         cursor = con.execute(
             "UPDATE cases SET state = 'abandoned', updated_at = ? "
-            "WHERE case_id = ? AND state = 'awaiting_statement' AND updated_at < ?",
-            [now.isoformat(), case.case_id, cutoff.isoformat()],
+            "WHERE case_id = ? AND state = 'awaiting_statement' AND updated_at < ? "
+            "AND NOT EXISTS (SELECT 1 FROM chat_turns WHERE chat_turns.case_id = cases.case_id "
+            "AND completed_at IS NULL AND failed_at IS NULL AND created_at > ?)",
+            [now.isoformat(), case.case_id, cutoff.isoformat(), live_since.isoformat()],
         )
         con.commit()
     if cursor.rowcount != 1:

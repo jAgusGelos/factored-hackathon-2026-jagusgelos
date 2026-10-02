@@ -50,8 +50,9 @@ _MAX_DIGIT_WORDS_IN_A_ROW = 4
 _CONTACT = re.compile(r"@|https?:|www\.|\.com\b|\barroba\b|\b(?:punto|ponto|dot)\s+com\b", re.IGNORECASE)
 # An apostrophe inside a word (McDonald's) is no quote.
 _QUOTE = re.compile(r"[\"“”«»‘„`]|(?<!\w)['’]|['’](?!\w)")
-# Two capitalized words together read as a person's full name; the
-# merchant's name is replaced before the check (`_normalized`).
+# Two capitalized words together, written by the customer too, read as a
+# person's full name: the model is never told the customer's name, so it can
+# only echo it. A place or a brand the customer did not write is no name.
 _FULL_NAME = re.compile(r"\b[A-ZÁÉÍÓÚÑÂÊÔÃÕÇ][a-záéíóúñâêôãõç]+\s+[A-ZÁÉÍÓÚÑÂÊÔÃÕÇ][a-záéíóúñâêôãõç]+")
 # A copied run only counts when it carries the customer's own content, not
 # just the charge's facts in the words anyone would use for them.
@@ -74,7 +75,7 @@ def summary_drop(summary: str, customer_text: str, charge: TransactionCandidate 
         return SummaryDrop.NUMBER
     if _CONTACT.search(text) or _QUOTE.search(text):
         return SummaryDrop.CONTACT_OR_QUOTE
-    if _FULL_NAME.search(text):
+    if _echoes_a_full_name(text, customer_text):
         return SummaryDrop.NAME
     if _quotes_the_customer(text, _normalized(customer_text, charge)):
         return SummaryDrop.COPIED
@@ -91,6 +92,17 @@ def _normalized(text: str, charge: TransactionCandidate | None) -> str:
         return text
     merchant = rf"(?:{_QUOTE.pattern})?{re.escape(charge.merchant_name)}(?:{_QUOTE.pattern})?"
     return re.sub(merchant, "comercio", text, flags=re.IGNORECASE)
+
+
+def _echoes_a_full_name(text: str, customer_text: str) -> bool:
+    said = _folded(customer_text)
+    return any(_folded(name) in said for name in _FULL_NAME.findall(text))
+
+
+def _folded(text: str) -> str:
+    """Case and accents dropped, whitespace collapsed."""
+    stripped = "".join(c for c in unicodedata.normalize("NFD", text) if not unicodedata.combining(c))
+    return " ".join(stripped.casefold().split())
 
 
 def _names_a_number(text: str, charge: TransactionCandidate | None) -> bool:

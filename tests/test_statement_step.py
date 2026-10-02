@@ -13,7 +13,7 @@ from unittest.mock import patch
 import duckdb
 import pytest
 
-from app import cases, config, db, fixture_db, handoffs, llm, replies
+from app import cases, config, db, fixture_db, handoffs, llm, replies, turns
 from app.case_model import CaseState, CustomerAction, EscalationReason
 from app.case_turn import PendingEscalation, Turn, finish_escalated
 from app.charge_search import charge_option
@@ -730,3 +730,15 @@ def test_an_abandoned_case_answers_every_later_message_with_its_closing(session,
 
     assert later["state"] == CaseState.ABANDONED and later["reply"] == closed["reply"]
     assert later["options"] == []
+
+
+def test_an_idle_case_is_not_closed_while_a_statement_turn_is_running(session, app_db):
+    held, _ = _held(session, app_db)
+    _idle_for(app_db, held["case_id"], config.STATEMENT_ABANDON_MINUTES + 1)
+    assert turns.claim(session.customer_id, "t-live", db_path=app_db).status == turns.TurnStatus.NEW
+    turns.attach_case(session.customer_id, "t-live", held["case_id"], db_path=app_db)
+
+    case = cases.get_case_for_session(held["case_id"], session.customer_id, db_path=app_db)
+
+    assert case.state == CaseState.AWAITING_STATEMENT
+    assert logged_events(app_db, "case_abandoned") == []

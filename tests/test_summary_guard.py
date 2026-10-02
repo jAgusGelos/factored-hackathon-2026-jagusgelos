@@ -34,11 +34,16 @@ UBER = clean_txn(amount=38500.0, currency="COP", amount_usd=9.6, merchant_name="
         ("Llamar al 300 555 1234.", SummaryDrop.NUMBER),
         ("El cliente María José Gómez no reconoce el cargo.", SummaryDrop.NAME),
         ("Escribir a cliente arroba correo punto com.", SummaryDrop.CONTACT_OR_QUOTE),
+        ("La compra figura en Buenos Aires y en Google Play.", None),
+        ("O cliente não reconhece a compra em São Paulo.", None),
+        ("El cliente no reconoce el pedido de Uber, hecho desde Mercado Libre.", None),
     ],
-    ids=["charge_facts", "quoted_merchant_and_date_in_words", "phone", "full_name", "spelled_email"],
+    ids=["charge_facts", "quoted_merchant_and_date_in_words", "phone", "full_name", "spelled_email",
+         "places_and_brands", "a_city_in_portuguese", "a_shortened_merchant"],
 )
 def test_the_drop_cause_names_the_check_that_failed(summary, cause):
-    assert summary_drop(summary, "No reconozco ese cargo", UBER) == cause
+    said = "Soy maria jose gomez y no reconozco ese cargo"
+    assert summary_drop(summary, said, UBER) == cause
 
 
 @pytest.fixture()
