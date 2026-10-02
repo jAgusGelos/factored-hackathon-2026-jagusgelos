@@ -33,7 +33,6 @@ from app.case_model import (
     CaseState,
     CustomerAction,
     EscalationReason,
-    ReportedCharge,
 )
 from app.case_turn import Turn, transition
 from app.llm import Language
@@ -43,14 +42,15 @@ from tests.support import (
     CONTACT_DEADLINE,
     CONTRADICTED_ASSESSMENT,
     CONVINCING_ASSESSMENT,
+    COP_CHARGE,
     DUPLICATE_ASSESSMENT,
     EXPLANATION,
     FRAUD_SCORE_CHARGE,
     NOT_RECEIVED_ASSESSMENT,
+    REPORT,
     app_db_rows,
     assert_escalation_notice,
     charge_extraction,
-    clean_txn,
     demo_session,
     event_sequence,
     finish_statement,
@@ -63,7 +63,6 @@ from tests.support import (
 )
 
 CASE_NUMBER = "CASE-ABCDEF123456"
-COP_CHARGE = clean_txn(amount=38500.0, currency="COP", amount_usd=9.6, merchant_name="Uber")
 _FORBIDDEN = ("fraud", "score", "umbral", "threshold", "USD", "classifier", "escalad")
 
 
@@ -123,7 +122,6 @@ def test_the_terminal_reply_of_an_escalated_case_names_the_case_and_the_deadline
 # -- The reason each builder sets ---------------------------------------------------
 
 
-REPORT = ReportedCharge(amount=38500.0, date=None, currency="COP")
 PICKED = handoffs.ChargeIdentification.PICK
 
 

@@ -48,7 +48,7 @@ PRE_EXISTING_TOP_LEVEL_KEYS = {
 PRE_EXISTING_NESTED_KEYS = {
     "safe_automated_resolution_rate": {"count", "of_attempted", "rate"},
     "containment_rate": {"count", "note", "of_concluded", "rate"},
-    "escalation_quality": {"escalated_count", "real_data_match_rate_finding", "statement_completeness_rate"},
+    "escalation_quality": {"escalated_count", "real_data_match_rate_finding"},
     "unsafe_outcomes": {"cases", "count", "note", "of_attempted"},
     "latency_seconds": {"note", "p50", "p95"},
     "estimated_cost_usd": {"method", "per_attempted_case_mean", "per_successful_resolution", "pricing_source"},
@@ -59,6 +59,7 @@ PRE_EXISTING_CASE_RECORD_KEYS = {
     "group", "language", "latency_seconds", "safe", "turns",
 }
 STATEMENT_CASE_RECORD_KEYS = {"account_given", "escalation_reason", "statement_status"}
+STATEMENT_NESTED_KEYS = {"escalation_quality": {"statement_completeness_rate"}}
 
 
 # -- Variants on the decision seam (no fixture needed) ------------------------------
@@ -245,7 +246,7 @@ def test_the_pre_existing_report_keys_are_unchanged(comparison):
     report, _ = comparison
     assert set(report) == PRE_EXISTING_TOP_LEVEL_KEYS | {"system_comparison"}
     for block, keys in PRE_EXISTING_NESTED_KEYS.items():
-        assert set(report[block]) == keys, block
+        assert set(report[block]) == keys | STATEMENT_NESTED_KEYS.get(block, set()), block
     assert all(set(summary) == PRE_EXISTING_LANGUAGE_SUMMARY_KEYS for summary in report["by_language"].values())
     assert all(
         set(record) == PRE_EXISTING_CASE_RECORD_KEYS | STATEMENT_CASE_RECORD_KEYS for records in report["by_group"].values() for record in records

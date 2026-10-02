@@ -14,7 +14,7 @@ from unittest.mock import patch
 import pytest
 
 from app import llm, replies
-from app.case_model import CaseState, CustomerAction, EscalationReason
+from app.case_model import CaseState, CustomerAction, EscalationReason, ReportedCharge
 from app.llm import Language
 from app.policy import (
     ESCALATION_CONTACT_BUSINESS_DAYS,
@@ -44,6 +44,8 @@ from support import (
     REPO_ROOT,
     SECOND_ONLINE_CHARGE,
     STATEMENT,
+    STATEMENT_DECLINED,
+    STATEMENT_WITHOUT_CARD_FACT,
     app_db_rows,
     charge_extraction,
     charge_report,
@@ -70,6 +72,8 @@ __all__ = [
     "NOT_RECEIVED_ASSESSMENT",
     "SECOND_ONLINE_CHARGE",
     "STATEMENT",
+    "STATEMENT_DECLINED",
+    "STATEMENT_WITHOUT_CARD_FACT",
     "app_db_rows",
     "clean_assessment",
     "clean_ctx",
@@ -98,6 +102,8 @@ __all__ = [
     "reach_explaining",
     "assert_asks_for_statement",
     "finish_statement",
+    "COP_CHARGE",
+    "REPORT",
 ]
 
 STATIC = REPO_ROOT / "static"
@@ -199,6 +205,10 @@ def clean_txn(**overrides) -> TransactionCandidate:
         merchant_category="Retail", channel="App", is_synthetic=False, transaction_type="Purchase",
     )
     return TransactionCandidate(**{**base, **overrides})
+
+
+COP_CHARGE = clean_txn(amount=38500.0, currency="COP", amount_usd=9.6, merchant_name="Uber")
+REPORT = ReportedCharge(amount=38500.0, date=None, currency="COP")
 
 
 def clean_ctx(**overrides) -> DisputeContext:

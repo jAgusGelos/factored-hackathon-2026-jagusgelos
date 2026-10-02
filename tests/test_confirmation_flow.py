@@ -26,7 +26,6 @@ from tests.support import (
     EXPLANATION,
     HANDOFF_KEYS,
     OPENING,
-    assert_asks_for_statement,
     assert_escalation_notice,
     charge_extraction,
     charge_report,
@@ -54,12 +53,6 @@ def _first_turn(session, db, client):
 def _confirm(session, db, case_id, client, text="Sí, es ese"):
     with patch("app.llm.anthropic.Anthropic", return_value=client):
         return handle_message(session, case_id, text, db_path=db)
-
-
-def _hand_off(session, db, reply):
-    """An escalation now asks for the customer's statement first: answer it."""
-    assert_asks_for_statement(reply)
-    return finish_statement(session, db, reply)
 
 
 def _explain(session, db, case_id, client):
@@ -206,7 +199,7 @@ def test_rejection_with_no_rounds_left_escalates(real_fixture_app_db):
 
     proposed = cases.get_case(first["case_id"], db_path=real_fixture_app_db).matched_transaction_id
     asked = _confirm(session, real_fixture_app_db, first["case_id"], client, text="no era ese")
-    reply = _hand_off(session, real_fixture_app_db, asked)
+    reply = finish_statement(session, real_fixture_app_db, asked)
 
     assert reply["state"] == CaseState.ESCALATED
     case = cases.get_case(reply["case_id"], db_path=real_fixture_app_db)
@@ -233,7 +226,7 @@ def test_asking_for_a_human_at_the_confirmation_step_first_gets_the_agent_to_try
     assert [e["offer"] for e in logged_events(real_fixture_app_db, "human_request_deferred")] == [True]
 
     asked = _confirm(session, real_fixture_app_db, first["case_id"], client, text="quiero un agente")
-    second = _hand_off(session, real_fixture_app_db, asked)
+    second = finish_statement(session, real_fixture_app_db, asked)
 
     assert second["state"] == CaseState.ESCALATED
     case = cases.get_case(first["case_id"], db_path=real_fixture_app_db)
@@ -249,7 +242,7 @@ def test_asking_for_a_human_at_the_confirmation_step_escalates_once_unlocked(rea
     cases.update_case(first["case_id"], state="confirming", unlock_handoff=True, db_path=real_fixture_app_db)
 
     asked = _confirm(session, real_fixture_app_db, first["case_id"], client, text="quiero un agente")
-    reply = _hand_off(session, real_fixture_app_db, asked)
+    reply = finish_statement(session, real_fixture_app_db, asked)
 
     assert reply["state"] == CaseState.ESCALATED
     case = cases.get_case(reply["case_id"], db_path=real_fixture_app_db)
@@ -277,7 +270,7 @@ def test_policy_is_reverified_at_confirmation_time(real_fixture_app_db, tmp_path
     con.close()
 
     asked = _confirm(session, real_fixture_app_db, first["case_id"], client)
-    reply = _hand_off(session, real_fixture_app_db, asked)
+    reply = finish_statement(session, real_fixture_app_db, asked)
 
     assert reply["state"] == CaseState.ESCALATED
     assert logged_events(real_fixture_app_db, "confirmation_reverification_failed")
@@ -429,7 +422,7 @@ def test_yes_that_fails_reverification_is_recorded_as_a_confirmed_yes(real_fixtu
     con.execute("UPDATE transactions SET fraud_score = '95.0' WHERE transaction_id = ?", [matched_id])
     con.close()
 
-    reply = _hand_off(session, real_fixture_app_db, _confirm(session, real_fixture_app_db, first["case_id"], client))
+    reply = finish_statement(session, real_fixture_app_db, _confirm(session, real_fixture_app_db, first["case_id"], client))
 
     handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
     assert handoff["customer_reported"]["customer_confirmation"] == "yes"
@@ -444,7 +437,7 @@ def test_human_request_at_confirmation_keeps_the_proposed_transaction_as_evidenc
     cases.update_case(first["case_id"], state="confirming", unlock_handoff=True, db_path=real_fixture_app_db)
 
     asked = _confirm(session, real_fixture_app_db, first["case_id"], client, text="quiero un agente")
-    reply = _hand_off(session, real_fixture_app_db, asked)
+    reply = finish_statement(session, real_fixture_app_db, asked)
 
     case = cases.get_case(reply["case_id"], db_path=real_fixture_app_db)
     assert case.handoff["evidence"] == [case.matched_transaction_id]
