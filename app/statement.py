@@ -16,7 +16,6 @@ call, never a new HUMAN_REQUESTED escalation.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
@@ -36,10 +35,10 @@ from app.policy import (
     MIN_EXPLANATION_WORDS,
     StatementAssessment,
     StatementField,
-    card_possession_matters,
     known_fact,
+    open_facts,
 )
-from app.transactions import TransactionCandidate
+from app.summary_guard import summary_drop
 
 
 class _Unavailable(StrEnum):
@@ -51,95 +50,6 @@ class _Unavailable(StrEnum):
     UNAVAILABLE = "unavailable"
     INVALID_OUTPUT = "invalid_output"
     EMPTY_SUMMARY = "empty_summary"
-
-
-# The model's summary is the only free text this step adds to a handoff, so
-# code checks it too, with a margin over what the prompt asks: one that does
-# not hold is dropped.
-_SUMMARY_MAX_WORDS = llm.STATEMENT_SUMMARY_MAX_WORDS + 15
-_QUOTED_RUN_WORDS = 6
-# A summary names no number but a date or the charge's own amount (the prompt
-# asks for no other; the charge's facts are on record): any other long run of
-# digits, however it is separated, may be a document, phone, card or account
-# number, so the summary is dropped rather than guessed safe.
-_DATE = re.compile(
-    r"(?<![\d./-])(?<!\d\s)(?:\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])"
-    r"|(?:0?[1-9]|[12]\d|3[01])[./-](?:0?[1-9]|1[0-2])[./-](?:\d{4}|\d{2}))(?![./\s-]?\d)"
-)
-# Any separator that is not a letter (a word breaks the run).
-_LONG_NUMBER = re.compile(r"\d(?:(?:[^\w]|_){0,3}\d){5,}")
-_CONTACT_OR_QUOTE = re.compile(r"@|https?://|[\"“”]")
-# A copied run only counts when it carries the customer's own content, not
-# just the charge's facts in the words anyone would use for them.
-_MIN_CONTENT_WORDS = 2
-_COMMON_WORDS = frozenset({
-    "cliente", "cargo", "cargos", "compra", "tarjeta", "banco", "comercio", "este", "esta", "ese", "esa",
-    "para", "pero", "como", "porque", "desde", "hasta", "sobre", "entre", "cuando", "donde", "pesos",
-    "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre",
-    "noviembre", "diciembre",
-})
-
-
-def _words(text: str) -> list[str]:
-    return re.findall(r"\w+", text.casefold())
-
-
-def _is_content_word(word: str, charge_words: frozenset[str]) -> bool:
-    return len(word) >= 4 and not word.isdigit() and word not in _COMMON_WORDS and word not in charge_words
-
-
-def _content_words(run: tuple[str, ...], charge_words: frozenset[str]) -> int:
-    return sum(1 for word in run if _is_content_word(word, charge_words))
-
-
-def _contains_sequence(haystack: list[str], needle: list[str]) -> bool:
-    return any(haystack[i:i + len(needle)] == needle for i in range(len(haystack) - len(needle) + 1))
-
-
-def _is_copied_content(run: tuple[str, ...], runs: set[tuple[str, ...]], charge_words: frozenset[str]) -> bool:
-    return run in runs and _content_words(run, charge_words) >= _MIN_CONTENT_WORDS
-
-
-def _quotes_the_customer(summary: str, customer_text: str, charge_words: frozenset[str]) -> bool:
-    """The whole summary copied, or a run of the customer's own words."""
-    written = _words(summary)
-    said = _words(customer_text)
-    if not written:
-        return False
-    if len(written) < _QUOTED_RUN_WORDS:
-        return _contains_sequence(said, written)
-    runs = {tuple(said[i:i + _QUOTED_RUN_WORDS]) for i in range(len(said) - _QUOTED_RUN_WORDS + 1)}
-    copied = (
-        tuple(written[i:i + _QUOTED_RUN_WORDS]) for i in range(len(written) - _QUOTED_RUN_WORDS + 1)
-    )
-    return any(_is_copied_content(run, runs, charge_words) for run in copied)
-
-
-def _charge_amount_digits(charge: TransactionCandidate | None) -> frozenset[str]:
-    """The charge's own amount as the model may write it (with or without cents)."""
-    if charge is None:
-        return frozenset()
-    return frozenset({str(int(charge.amount)), re.sub(r"\D", "", f"{charge.amount:.2f}")})
-
-
-def _charge_words(charge: TransactionCandidate | None) -> frozenset[str]:
-    return frozenset(_words(charge.merchant_name or "")) if charge is not None else frozenset()
-
-
-def _long_numbers(summary: str) -> tuple[str, ...]:
-    return tuple(re.sub(r"\D", "", match) for match in _LONG_NUMBER.findall(_DATE.sub(" ", summary)))
-
-
-def _names_personal_data(summary: str, charge: TransactionCandidate | None) -> bool:
-    allowed = _charge_amount_digits(charge)
-    return any(digits not in allowed for digits in _long_numbers(summary)) or bool(_CONTACT_OR_QUOTE.search(summary))
-
-
-def _summary_is_safe(summary: str, customer_text: str, charge: TransactionCandidate | None) -> bool:
-    return (
-        len(summary.split()) <= _SUMMARY_MAX_WORDS and not _names_personal_data(summary, charge)
-        and not _quotes_the_customer(summary, customer_text, _charge_words(charge))
-    )
 
 
 @dataclass(frozen=True)
@@ -172,12 +82,7 @@ class _Statement:
 
     def missing_fact(self) -> StatementField | None:
         """The one follow-up, in fixed priority (`policy.FOLLOWUP_FACTS`)."""
-        for fact in FOLLOWUP_FACTS:
-            if fact == StatementField.CARD_POSSESSION and not card_possession_matters(self.facts):
-                continue
-            if not known_fact(self.facts.get(fact)):
-                return fact
-        return None
+        return next(iter(open_facts(self.facts, FOLLOWUP_FACTS)), None)
 
 
 def handle_statement(turn: Turn, text: str, action: CustomerAction | None) -> ChatReply:
@@ -205,8 +110,9 @@ def handle_statement(turn: Turn, text: str, action: CustomerAction | None) -> Ch
         return _finish_without_assessment(turn, pending, known, text, failure=_Unavailable.INVALID_OUTPUT)
     noted: list[tuple[str, dict]] = []
     customer_text = f"{case.statement_text or ''}\n{text}"
-    if assessment.summary and not _summary_is_safe(assessment.summary, customer_text, pending.charge):
-        noted.append(_outcome(pending, "handoff_statement_summary_dropped"))
+    dropped = summary_drop(assessment.summary, customer_text, pending.charge) if assessment.summary else None
+    if dropped is not None:
+        noted.append(_outcome(pending, "handoff_statement_summary_dropped", cause=dropped))
         assessment = replace(assessment, summary="")
     statement = known.merged(assessment)
     if assessment.declines or assessment.wants_human:

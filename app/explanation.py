@@ -35,6 +35,7 @@ from app.policy import (
     MissingDetail,
     evaluate_explanation,
 )
+from app.summary_guard import summary_drop
 from app.transactions import TransactionCandidate, get_own_transaction
 
 
@@ -100,6 +101,11 @@ def _assess(turn: Turn, explanation: str, matched: TransactionCandidate) -> Expl
     )
     if assessment is None:
         turn.log_event("explanation_parse_failed", {"call": "assess_explanation"})
+        return None
+    dropped = summary_drop(assessment.summary, explanation, matched) if assessment.summary else None
+    if dropped is not None:
+        turn.log_event("explanation_summary_dropped", {"cause": dropped})
+        return replace(assessment, summary="")
     return assessment
 
 

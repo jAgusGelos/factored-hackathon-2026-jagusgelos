@@ -604,6 +604,8 @@ _STATE_INSTRUCTION = {
 
 
 ASSESSMENT_MARKER = "[ASSESS_EXPLANATION]"
+# What both prompts ask of the summary (`app/summary_guard.py` checks it with a margin).
+MODEL_SUMMARY_MAX_WORDS = 25
 
 _REASON_CHOICES = "|".join(f'"{reason}"' for reason in DisputeReason)
 _MISSING_DETAIL_CHOICES = "|".join(f'"{detail}"' for detail in MissingDetail)
@@ -633,7 +635,7 @@ _ASSESSMENT_SYSTEM_PROMPT = (
     "contradicts the charge facts (merchant, amount, date, channel); list each contradiction in "
     "contradictions as a short neutral Spanish phrase about the charge facts, with no quotes from the "
     "customer and no personal data. summary: one neutral sentence in Spanish, third person, at most "
-    "25 words, no personal data. missing_detail: when specific is false, the ONE detail that would "
+    f"{MODEL_SUMMARY_MAX_WORDS} words, no personal data. missing_detail: when specific is false, the ONE detail that would "
     "help most and that the customer has NOT already given: how_noticed = how they noticed the "
     "charge; card_possession = whether they still have the card; merchant_known = whether they know "
     "or ever used the merchant; item_received = whether they received what they paid for. Never "
@@ -712,9 +714,6 @@ STATEMENT_MARKER = "[ASSESS_STATEMENT]"
 _TRISTATE_CHOICES = "|".join(f'"{value}"' for value in Tristate)
 _HOW_NOTICED_CHOICES = "|".join(f'"{value}"' for value in HowNoticed)
 
-# What the statement prompt asks of the summary (`app/statement.py` checks it with a margin).
-STATEMENT_SUMMARY_MAX_WORDS = 25
-
 _STATEMENT_SYSTEM_PROMPT = (
     f"{STATEMENT_MARKER} A bank customer whose card dispute is being handed to a human advisor "
     "was asked what happened and why they want a refund. You are given the charge facts (if a "
@@ -729,7 +728,7 @@ _STATEMENT_SYSTEM_PROMPT = (
     f'"noticed_on": <"YYYY-MM-DD"|null>, "other_suspicious_activity": <{_TRISTATE_CHOICES}>}}. '
     "summary: what the customer reports, from everything they said, as one neutral sentence in "
     "correct Spanish (translate it when the customer wrote in Portuguese; never mix the two "
-    f"languages), third person, at most {STATEMENT_SUMMARY_MAX_WORDS} words, no names, numbers of documents, phone numbers, "
+    f"languages), third person, at most {MODEL_SUMMARY_MAX_WORDS} words, no names, numbers of documents, phone numbers, "
     "emails or other personal data, no amounts or other numbers except dates (the charge's facts are "
     "already on record), and no quotes; an empty string if they reported nothing. "
     "declines: true only if the LATEST message refuses or prefers not to tell what happened. "
