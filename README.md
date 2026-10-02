@@ -6,6 +6,9 @@ eligible cases automatically under an explicit policy, shows the customer their 
 from when the report is ambiguous, declines requests outside its scope, and hands off complex/high-risk cases to a human agent with a structured,
 verified case file. Built for the [Factored AI & Data Hackathon 2026](docs/challenge/challenge-brief.md).
 
+**Live demo: <https://factored-hackaton-latest.onrender.com/>** (Render free plan: the first visit after ~15 minutes idle takes about a
+minute to wake up; the login screen offers the synthetic demo account). See [`DEPLOY.md`](DEPLOY.md).
+
 Architecture decisions of every feature, condensed: [`docs/architecture-decisions.md`](docs/architecture-decisions.md).
 The research and review record behind them is a local planning folder that is not part of the
 repo. This README summarizes what's relevant to run, evaluate, and understand the shipped system.
@@ -455,6 +458,10 @@ rates.
   profile's currency as if the customer had said it, and handoffs had a different shape. Those rows
   live only in a local `data/app.db`; they are not migrated (the Vista Interna still renders the old
   handoff shape, and `/api/case` leaves out their open questions, where the policy reasons used to be).
+- **The live demo runs on Render's free plan:** no persistent disk, so sessions and cases are
+  lost on every restart or redeploy (the restart-persistence design, AD-4, was verified with a
+  Docker volume locally, not on this deployment), and the service sleeps after ~15 minutes idle.
+  A starter plan with a disk at `/app/data` restores persistence with no code change.
 - **Single-host deployment, no load/concurrency testing.** Designed for sequential demo/judge
   traffic on one machine — stated explicitly, not silently assumed away.
 - **The rolling-aggregate classifier feature (AD-6 stretch goal) was not attempted**, per the
@@ -491,11 +498,8 @@ data/           Local ETL artifacts, fixture, trained model (gitignored — neve
 ## Submission checklist (per challenge rules)
 
 - [x] Public GitHub repo named `factored-hackathon-2026-jagusgelos`
-- [ ] Deployed tool link — pending a deployment-platform decision (Fly.io vs. Render; Fly.io
-      requires a credit card on file; see dispute-agent AD-7 in `docs/architecture-decisions.md`).
-      Deploy artifacts are ready (`Dockerfile`, `docker-entrypoint.sh`, `fly.toml`, `render.yaml`)
-      and locally verified (a real Docker build + a real container-restart persistence test) —
-      see `DEPLOY.md` for the exact remaining commands and what's proven vs. still pending.
+- [x] Deployed tool link: <https://factored-hackaton-latest.onrender.com/> (Render, free plan, prebuilt image from a private Docker Hub
+      repository; see `DEPLOY.md` for what was verified there and what the free plan gives up).
 - [ ] 4-6 slide presentation
 - [ ] Short mandatory video pitch demonstrating the working solution, recorded against `localhost`
       (never the deployed link, per AD-7 — avoids demo-day network flakiness in the recorded artifact)

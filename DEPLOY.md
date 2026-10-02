@@ -1,11 +1,23 @@
 # Deployment guide (Task 6.1 / 6.2)
 
-> **Status: artifacts prepared, deploy NOT executed.** Fly.io requires a credit card on
-> file (dispute-agent AD-7 in `docs/architecture-decisions.md`). Provisioning a paid account is a
-> decision + action reserved for the user, so this session stops at "ready to deploy"
-> and documents the exact steps below instead of running them. Everything in this file
-> is verified consistent with the actual code (paths, ports, env vars) but the
-> deploy-and-restart test itself has not been run against a real platform.
+> **Status: deployed on Render (2026-10-02): <https://factored-hackaton-latest.onrender.com/>.** Path B below, with the
+> image `docker.io/agustingelos1/factored-hackaton:latest` (also tagged with the commit,
+> `:2ebc27b`) in a **private** Docker Hub repository (the image carries the demo fixture and
+> the trained classifier, AD-2), pulled by Render with a read-only access token stored as the
+> registry credential `dockerhub`. Free plan, so no persistent disk (see "On the deployed
+> instance" below). Fly.io (Path A) was not used: it requires a credit card on file.
+>
+> **On the deployed instance (2026-10-02):** `GET /` 200; login with the demo account, `/api/me`
+> 200; "No reconozco una compra en Tienda Online Global" asked for the statement
+> (`awaiting_statement`), the account was handed off (`escalated`, `statement_status` given,
+> the notice naming the charge) and `/api/case` returned the handoff without the policy
+> reasons; the same report in Portuguese asked for the statement in Portuguese. The first
+> turn took ~15 s (cold start plus the first model call), later turns 1-2 s. The service is
+> configured with `PORT`, `SESSION_TTL_HOURS`, `SHOW_DEMO_CREDENTIALS` and `ANTHROPIC_API_KEY`
+> only, no `AWS_*` variable; the same image was checked locally to receive no AWS variable
+> (`docker exec ... env`). **Not proven there:** restart persistence. The free plan has no
+> disk, so `data/app.db` starts empty on every restart; the volume design was verified with a
+> Docker volume locally (below).
 
 ## What's prepared
 
@@ -140,11 +152,12 @@ running it). `render.yaml` is written against a **prebuilt image** instead:
 ```bash
 # 1. Build and tag locally (same prerequisites as Path A — the 3 seed files must exist
 #    on disk first; reuses the same Dockerfile already validated in "Local verification")
-docker build -t <your-registry-user>/dispute-agent:latest .
+docker build --network host -t agustingelos1/factored-hackaton:latest .
 
-# 2. Push to a registry Render can pull from (Docker Hub shown; GHCR works too)
+# 2. Push to the PRIVATE Docker Hub repository (create it as private before the first push:
+#    a push to a missing repository creates it with the account's default visibility)
 docker login
-docker push <your-registry-user>/dispute-agent:latest
+docker push agustingelos1/factored-hackaton:latest
 
 # 3. Update render.yaml's `image.url` to that exact tag, then in the Render dashboard:
 #    New → Blueprint → pick this repo → it reads the committed render.yaml.
