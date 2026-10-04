@@ -70,7 +70,7 @@
   {
    "id": "how2",
    "scene": "how",
-   "text": "We built it on a focused slice: thirty days of transactions. A dispute only needs recent history, and the live app never touches the raw data."
+   "text": "We built it on a focused slice: one month of transactions. A dispute only needs recent history, and the live app never touches the raw data."
   },
   {
    "id": "how3",

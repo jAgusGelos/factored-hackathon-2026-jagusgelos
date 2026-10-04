@@ -1,0 +1,1484 @@
+{
+ "voice": "en-US-AndrewNeural-Male",
+ "rate": 0.95,
+ "lines": [
+  {
+   "id": "cold1",
+   "scene": "cold",
+   "text": "It's late. You open your bank app. And there it is. A charge you don't recognize.",
+   "file": "vo/cold1.mp3",
+   "duration": 5.28,
+   "words": [
+    {
+     "text": "It's",
+     "start": 0.105,
+     "end": 0.224
+    },
+    {
+     "text": "late",
+     "start": 0.237,
+     "end": 0.553
+    },
+    {
+     "text": "You",
+     "start": 0.987,
+     "end": 1.118
+    },
+    {
+     "text": "open",
+     "start": 1.132,
+     "end": 1.329
+    },
+    {
+     "text": "your",
+     "start": 1.342,
+     "end": 1.461
+    },
+    {
+     "text": "bank",
+     "start": 1.474,
+     "end": 1.737
+    },
+    {
+     "text": "app.",
+     "start": 1.75,
+     "end": 1.987
+    },
+    {
+     "text": "And",
+     "start": 2.421,
+     "end": 2.5
+    },
+    {
+     "text": "there",
+     "start": 2.513,
+     "end": 2.658
+    },
+    {
+     "text": "it",
+     "start": 2.671,
+     "end": 2.737
+    },
+    {
+     "text": "is",
+     "start": 2.75,
+     "end": 3.053
+    },
+    {
+     "text": "A",
+     "start": 3.487,
+     "end": 3.526
+    },
+    {
+     "text": "charge",
+     "start": 3.539,
+     "end": 3.855
+    },
+    {
+     "text": "you",
+     "start": 3.868,
+     "end": 3.947
+    },
+    {
+     "text": "don't",
+     "start": 3.961,
+     "end": 4.184
+    },
+    {
+     "text": "recognize",
+     "start": 4.197,
+     "end": 4.895
+    }
+   ]
+  },
+  {
+   "id": "cold2",
+   "scene": "cold",
+   "text": "You report it. And then, you wait.",
+   "file": "vo/cold2.mp3",
+   "duration": 2.664,
+   "words": [
+    {
+     "text": "You",
+     "start": 0.105,
+     "end": 0.197
+    },
+    {
+     "text": "report",
+     "start": 0.211,
+     "end": 0.566
+    },
+    {
+     "text": "it",
+     "start": 0.579,
+     "end": 0.724
+    },
+    {
+     "text": "And",
+     "start": 1.158,
+     "end": 1.25
+    },
+    {
+     "text": "then",
+     "start": 1.263,
+     "end": 1.526
+    },
+    {
+     "text": "you",
+     "start": 1.789,
+     "end": 1.895
+    },
+    {
+     "text": "wait",
+     "start": 1.908,
+     "end": 2.263
+    }
+   ]
+  },
+  {
+   "id": "cold3",
+   "scene": "cold",
+   "text": "At this bank, the median wait for a first response is thirty-seven hours.",
+   "file": "vo/cold3.mp3",
+   "duration": 4.68,
+   "words": [
+    {
+     "text": "At",
+     "start": 0.105,
+     "end": 0.237
+    },
+    {
+     "text": "this",
+     "start": 0.25,
+     "end": 0.447
+    },
+    {
+     "text": "bank",
+     "start": 0.461,
+     "end": 0.829
+    },
+    {
+     "text": "the",
+     "start": 1.079,
+     "end": 1.171
+    },
+    {
+     "text": "median",
+     "start": 1.184,
+     "end": 1.539
+    },
+    {
+     "text": "wait",
+     "start": 1.553,
+     "end": 1.763
+    },
+    {
+     "text": "for",
+     "start": 1.776,
+     "end": 1.934
+    },
+    {
+     "text": "a",
+     "start": 1.947,
+     "end": 2.0
+    },
+    {
+     "text": "first",
+     "start": 2.013,
+     "end": 2.382
+    },
+    {
+     "text": "response",
+     "start": 2.395,
+     "end": 2.934
+    },
+    {
+     "text": "is",
+     "start": 3.026,
+     "end": 3.158
+    },
+    {
+     "text": "thirty-seven",
+     "start": 3.171,
+     "end": 3.789
+    },
+    {
+     "text": "hours",
+     "start": 3.803,
+     "end": 4.303
+    }
+   ]
+  },
+  {
+   "id": "reveal1",
+   "scene": "reveal",
+   "text": "What if the answer took seconds? And what if it was right?",
+   "file": "vo/reveal1.mp3",
+   "duration": 3.288,
+   "words": [
+    {
+     "text": "What",
+     "start": 0.105,
+     "end": 0.184
+    },
+    {
+     "text": "if",
+     "start": 0.197,
+     "end": 0.289
+    },
+    {
+     "text": "the",
+     "start": 0.303,
+     "end": 0.408
+    },
+    {
+     "text": "answer",
+     "start": 0.421,
+     "end": 0.737
+    },
+    {
+     "text": "took",
+     "start": 0.75,
+     "end": 0.921
+    },
+    {
+     "text": "seconds",
+     "start": 0.934,
+     "end": 1.553
+    },
+    {
+     "text": "And",
+     "start": 1.987,
+     "end": 2.066
+    },
+    {
+     "text": "what",
+     "start": 2.079,
+     "end": 2.197
+    },
+    {
+     "text": "if",
+     "start": 2.211,
+     "end": 2.303
+    },
+    {
+     "text": "it",
+     "start": 2.316,
+     "end": 2.368
+    },
+    {
+     "text": "was",
+     "start": 2.382,
+     "end": 2.526
+    },
+    {
+     "text": "right",
+     "start": 2.539,
+     "end": 2.895
+    }
+   ]
+  },
+  {
+   "id": "reveal2",
+   "scene": "reveal",
+   "text": "Meet the LATAM Bank Dispute Agent.",
+   "file": "vo/reveal2.mp3",
+   "duration": 2.544,
+   "words": [
+    {
+     "text": "Meet",
+     "start": 0.105,
+     "end": 0.329
+    },
+    {
+     "text": "the",
+     "start": 0.342,
+     "end": 0.461
+    },
+    {
+     "text": "LATAM",
+     "start": 0.474,
+     "end": 1.0
+    },
+    {
+     "text": "Bank",
+     "start": 1.013,
+     "end": 1.316
+    },
+    {
+     "text": "Dispute",
+     "start": 1.329,
+     "end": 1.763
+    },
+    {
+     "text": "Agent",
+     "start": 1.776,
+     "end": 2.158
+    }
+   ]
+  },
+  {
+   "id": "m1a",
+   "scene": "m1",
+   "text": "The customer says it in their own words. The agent finds the exact charge in their own history, and asks: is this the one?",
+   "file": "vo/m1a.mp3",
+   "duration": 8.04,
+   "words": [
+    {
+     "text": "The",
+     "start": 0.118,
+     "end": 0.171
+    },
+    {
+     "text": "customer",
+     "start": 0.184,
+     "end": 0.645
+    },
+    {
+     "text": "says",
+     "start": 0.658,
+     "end": 0.947
+    },
+    {
+     "text": "it",
+     "start": 0.961,
+     "end": 1.026
+    },
+    {
+     "text": "in",
+     "start": 1.039,
+     "end": 1.132
+    },
+    {
+     "text": "their",
+     "start": 1.145,
+     "end": 1.303
+    },
+    {
+     "text": "own",
+     "start": 1.316,
+     "end": 1.487
+    },
+    {
+     "text": "words",
+     "start": 1.5,
+     "end": 2.053
+    },
+    {
+     "text": "The",
+     "start": 2.487,
+     "end": 2.592
+    },
+    {
+     "text": "agent",
+     "start": 2.605,
+     "end": 2.974
+    },
+    {
+     "text": "finds",
+     "start": 2.987,
+     "end": 3.316
+    },
+    {
+     "text": "the",
+     "start": 3.329,
+     "end": 3.408
+    },
+    {
+     "text": "exact",
+     "start": 3.421,
+     "end": 3.974
+    },
+    {
+     "text": "charge",
+     "start": 3.987,
+     "end": 4.513
+    },
+    {
+     "text": "in",
+     "start": 4.526,
+     "end": 4.592
+    },
+    {
+     "text": "their",
+     "start": 4.605,
+     "end": 4.803
+    },
+    {
+     "text": "own",
+     "start": 4.816,
+     "end": 5.0
+    },
+    {
+     "text": "history",
+     "start": 5.013,
+     "end": 5.605
+    },
+    {
+     "text": "and",
+     "start": 5.842,
+     "end": 5.987
+    },
+    {
+     "text": "asks",
+     "start": 6.0,
+     "end": 6.605
+    },
+    {
+     "text": "is",
+     "start": 6.934,
+     "end": 7.039
+    },
+    {
+     "text": "this",
+     "start": 7.053,
+     "end": 7.237
+    },
+    {
+     "text": "the",
+     "start": 7.25,
+     "end": 7.355
+    },
+    {
+     "text": "one",
+     "start": 7.368,
+     "end": 7.645
+    }
+   ]
+  },
+  {
+   "id": "m1b",
+   "scene": "m1",
+   "text": "One explanation later, it's done. A provisional credit, the card blocked, a reference number. Every fact, verified against the record.",
+   "file": "vo/m1b.mp3",
+   "duration": 8.952,
+   "words": [
+    {
+     "text": "One",
+     "start": 0.118,
+     "end": 0.25
+    },
+    {
+     "text": "explanation",
+     "start": 0.263,
+     "end": 0.908
+    },
+    {
+     "text": "later",
+     "start": 0.921,
+     "end": 1.237
+    },
+    {
+     "text": "it's",
+     "start": 1.447,
+     "end": 1.566
+    },
+    {
+     "text": "done",
+     "start": 1.579,
+     "end": 1.895
+    },
+    {
+     "text": "A",
+     "start": 2.329,
+     "end": 2.382
+    },
+    {
+     "text": "provisional",
+     "start": 2.395,
+     "end": 2.934
+    },
+    {
+     "text": "credit",
+     "start": 2.947,
+     "end": 3.316
+    },
+    {
+     "text": "the",
+     "start": 3.592,
+     "end": 3.684
+    },
+    {
+     "text": "card",
+     "start": 3.697,
+     "end": 4.013
+    },
+    {
+     "text": "blocked",
+     "start": 4.026,
+     "end": 4.487
+    },
+    {
+     "text": "a",
+     "start": 4.75,
+     "end": 4.776
+    },
+    {
+     "text": "reference",
+     "start": 4.789,
+     "end": 5.276
+    },
+    {
+     "text": "number",
+     "start": 5.289,
+     "end": 5.671
+    },
+    {
+     "text": "Every",
+     "start": 6.105,
+     "end": 6.329
+    },
+    {
+     "text": "fact",
+     "start": 6.342,
+     "end": 6.842
+    },
+    {
+     "text": "verified",
+     "start": 7.145,
+     "end": 7.697
+    },
+    {
+     "text": "against",
+     "start": 7.711,
+     "end": 8.013
+    },
+    {
+     "text": "the",
+     "start": 8.026,
+     "end": 8.105
+    },
+    {
+     "text": "record",
+     "start": 8.118,
+     "end": 8.553
+    }
+   ]
+  },
+  {
+   "id": "m2a",
+   "scene": "m2",
+   "text": "Charged twice for one taxi? It doesn't guess. It shows the customer their own charges, and lets them choose.",
+   "file": "vo/m2a.mp3",
+   "duration": 6.888,
+   "words": [
+    {
+     "text": "Charged",
+     "start": 0.105,
+     "end": 0.421
+    },
+    {
+     "text": "twice",
+     "start": 0.434,
+     "end": 0.803
+    },
+    {
+     "text": "for",
+     "start": 0.816,
+     "end": 0.961
+    },
+    {
+     "text": "one",
+     "start": 0.974,
+     "end": 1.132
+    },
+    {
+     "text": "taxi",
+     "start": 1.145,
+     "end": 1.632
+    },
+    {
+     "text": "It",
+     "start": 2.066,
+     "end": 2.145
+    },
+    {
+     "text": "doesn't",
+     "start": 2.158,
+     "end": 2.434
+    },
+    {
+     "text": "guess",
+     "start": 2.447,
+     "end": 2.882
+    },
+    {
+     "text": "It",
+     "start": 3.329,
+     "end": 3.395
+    },
+    {
+     "text": "shows",
+     "start": 3.408,
+     "end": 3.711
+    },
+    {
+     "text": "the",
+     "start": 3.724,
+     "end": 3.816
+    },
+    {
+     "text": "customer",
+     "start": 3.829,
+     "end": 4.289
+    },
+    {
+     "text": "their",
+     "start": 4.303,
+     "end": 4.46
+    },
+    {
+     "text": "own",
+     "start": 4.474,
+     "end": 4.618
+    },
+    {
+     "text": "charges",
+     "start": 4.632,
+     "end": 5.263
+    },
+    {
+     "text": "and",
+     "start": 5.474,
+     "end": 5.592
+    },
+    {
+     "text": "lets",
+     "start": 5.605,
+     "end": 5.789
+    },
+    {
+     "text": "them",
+     "start": 5.803,
+     "end": 5.934
+    },
+    {
+     "text": "choose",
+     "start": 5.947,
+     "end": 6.5
+    }
+   ]
+  },
+  {
+   "id": "m2b",
+   "scene": "m2",
+   "text": "Then it finds the twin in the data, and reverses one. Only one.",
+   "file": "vo/m2b.mp3",
+   "duration": 4.392,
+   "words": [
+    {
+     "text": "Then",
+     "start": 0.105,
+     "end": 0.197
+    },
+    {
+     "text": "it",
+     "start": 0.211,
+     "end": 0.289
+    },
+    {
+     "text": "finds",
+     "start": 0.303,
+     "end": 0.658
+    },
+    {
+     "text": "the",
+     "start": 0.671,
+     "end": 0.763
+    },
+    {
+     "text": "twin",
+     "start": 0.776,
+     "end": 1.158
+    },
+    {
+     "text": "in",
+     "start": 1.171,
+     "end": 1.263
+    },
+    {
+     "text": "the",
+     "start": 1.276,
+     "end": 1.368
+    },
+    {
+     "text": "data",
+     "start": 1.382,
+     "end": 1.776
+    },
+    {
+     "text": "and",
+     "start": 2.092,
+     "end": 2.211
+    },
+    {
+     "text": "reverses",
+     "start": 2.224,
+     "end": 2.737
+    },
+    {
+     "text": "one",
+     "start": 2.75,
+     "end": 3.053
+    },
+    {
+     "text": "Only",
+     "start": 3.487,
+     "end": 3.671
+    },
+    {
+     "text": "one",
+     "start": 3.684,
+     "end": 4.0
+    }
+   ]
+  },
+  {
+   "id": "m3a",
+   "scene": "m3",
+   "text": "And when a charge should not be paid automatically, it knows not to act.",
+   "file": "vo/m3a.mp3",
+   "duration": 4.392,
+   "words": [
+    {
+     "text": "And",
+     "start": 0.105,
+     "end": 0.184
+    },
+    {
+     "text": "when",
+     "start": 0.197,
+     "end": 0.316
+    },
+    {
+     "text": "a",
+     "start": 0.329,
+     "end": 0.382
+    },
+    {
+     "text": "charge",
+     "start": 0.395,
+     "end": 0.763
+    },
+    {
+     "text": "should",
+     "start": 0.776,
+     "end": 0.961
+    },
+    {
+     "text": "not",
+     "start": 0.974,
+     "end": 1.197
+    },
+    {
+     "text": "be",
+     "start": 1.211,
+     "end": 1.329
+    },
+    {
+     "text": "paid",
+     "start": 1.342,
+     "end": 1.658
+    },
+    {
+     "text": "automatically",
+     "start": 1.671,
+     "end": 2.46
+    },
+    {
+     "text": "it",
+     "start": 2.75,
+     "end": 2.882
+    },
+    {
+     "text": "knows",
+     "start": 2.895,
+     "end": 3.171
+    },
+    {
+     "text": "not",
+     "start": 3.184,
+     "end": 3.434
+    },
+    {
+     "text": "to",
+     "start": 3.447,
+     "end": 3.539
+    },
+    {
+     "text": "act",
+     "start": 3.553,
+     "end": 4.013
+    }
+   ]
+  },
+  {
+   "id": "m3b",
+   "scene": "m3",
+   "text": "It asks the questions an advisor would call back for, then hands a person the full case file. Verified facts, the customer's account, and what is still open.",
+   "file": "vo/m3b.mp3",
+   "duration": 9.816,
+   "words": [
+    {
+     "text": "It",
+     "start": 0.105,
+     "end": 0.197
+    },
+    {
+     "text": "asks",
+     "start": 0.211,
+     "end": 0.539
+    },
+    {
+     "text": "the",
+     "start": 0.553,
+     "end": 0.658
+    },
+    {
+     "text": "questions",
+     "start": 0.671,
+     "end": 1.171
+    },
+    {
+     "text": "an",
+     "start": 1.184,
+     "end": 1.276
+    },
+    {
+     "text": "advisor",
+     "start": 1.289,
+     "end": 1.763
+    },
+    {
+     "text": "would",
+     "start": 1.776,
+     "end": 1.908
+    },
+    {
+     "text": "call",
+     "start": 1.921,
+     "end": 2.158
+    },
+    {
+     "text": "back",
+     "start": 2.171,
+     "end": 2.46
+    },
+    {
+     "text": "for",
+     "start": 2.474,
+     "end": 2.803
+    },
+    {
+     "text": "then",
+     "start": 3.224,
+     "end": 3.368
+    },
+    {
+     "text": "hands",
+     "start": 3.382,
+     "end": 3.645
+    },
+    {
+     "text": "a",
+     "start": 3.658,
+     "end": 3.711
+    },
+    {
+     "text": "person",
+     "start": 3.724,
+     "end": 4.118
+    },
+    {
+     "text": "the",
+     "start": 4.132,
+     "end": 4.211
+    },
+    {
+     "text": "full",
+     "start": 4.224,
+     "end": 4.487
+    },
+    {
+     "text": "case",
+     "start": 4.5,
+     "end": 4.789
+    },
+    {
+     "text": "file",
+     "start": 4.803,
+     "end": 5.237
+    },
+    {
+     "text": "Verified",
+     "start": 5.671,
+     "end": 6.171
+    },
+    {
+     "text": "facts",
+     "start": 6.184,
+     "end": 6.789
+    },
+    {
+     "text": "the",
+     "start": 6.974,
+     "end": 7.079
+    },
+    {
+     "text": "customer's",
+     "start": 7.092,
+     "end": 7.592
+    },
+    {
+     "text": "account",
+     "start": 7.605,
+     "end": 8.066
+    },
+    {
+     "text": "and",
+     "start": 8.395,
+     "end": 8.5
+    },
+    {
+     "text": "what",
+     "start": 8.513,
+     "end": 8.684
+    },
+    {
+     "text": "is",
+     "start": 8.697,
+     "end": 8.803
+    },
+    {
+     "text": "still",
+     "start": 8.816,
+     "end": 9.118
+    },
+    {
+     "text": "open",
+     "start": 9.132,
+     "end": 9.421
+    }
+   ]
+  },
+  {
+   "id": "m3c",
+   "scene": "m3",
+   "text": "In Spanish, or in Portuguese.",
+   "file": "vo/m3c.mp3",
+   "duration": 2.472,
+   "words": [
+    {
+     "text": "In",
+     "start": 0.105,
+     "end": 0.197
+    },
+    {
+     "text": "Spanish",
+     "start": 0.211,
+     "end": 0.855
+    },
+    {
+     "text": "or",
+     "start": 1.132,
+     "end": 1.25
+    },
+    {
+     "text": "in",
+     "start": 1.263,
+     "end": 1.342
+    },
+    {
+     "text": "Portuguese",
+     "start": 1.355,
+     "end": 2.092
+    }
+   ]
+  },
+  {
+   "id": "how1",
+   "scene": "how",
+   "text": "So why would a bank trust it? Because the model only reads. Policy and permissions live in code, and every fact is checked against the customer's own ledger.",
+   "file": "vo/how1.mp3",
+   "duration": 10.104,
+   "words": [
+    {
+     "text": "So",
+     "start": 0.105,
+     "end": 0.303
+    },
+    {
+     "text": "why",
+     "start": 0.316,
+     "end": 0.447
+    },
+    {
+     "text": "would",
+     "start": 0.461,
+     "end": 0.566
+    },
+    {
+     "text": "a",
+     "start": 0.579,
+     "end": 0.632
+    },
+    {
+     "text": "bank",
+     "start": 0.645,
+     "end": 0.868
+    },
+    {
+     "text": "trust",
+     "start": 0.882,
+     "end": 1.211
+    },
+    {
+     "text": "it",
+     "start": 1.224,
+     "end": 1.382
+    },
+    {
+     "text": "Because",
+     "start": 1.816,
+     "end": 2.092
+    },
+    {
+     "text": "the",
+     "start": 2.105,
+     "end": 2.197
+    },
+    {
+     "text": "model",
+     "start": 2.211,
+     "end": 2.671
+    },
+    {
+     "text": "only",
+     "start": 2.776,
+     "end": 3.053
+    },
+    {
+     "text": "reads",
+     "start": 3.066,
+     "end": 3.618
+    },
+    {
+     "text": "Policy",
+     "start": 4.066,
+     "end": 4.671
+    },
+    {
+     "text": "and",
+     "start": 4.684,
+     "end": 4.789
+    },
+    {
+     "text": "permissions",
+     "start": 4.803,
+     "end": 5.434
+    },
+    {
+     "text": "live",
+     "start": 5.447,
+     "end": 5.711
+    },
+    {
+     "text": "in",
+     "start": 5.724,
+     "end": 5.842
+    },
+    {
+     "text": "code",
+     "start": 5.855,
+     "end": 6.303
+    },
+    {
+     "text": "and",
+     "start": 6.605,
+     "end": 6.776
+    },
+    {
+     "text": "every",
+     "start": 6.789,
+     "end": 7.079
+    },
+    {
+     "text": "fact",
+     "start": 7.092,
+     "end": 7.526
+    },
+    {
+     "text": "is",
+     "start": 7.539,
+     "end": 7.645
+    },
+    {
+     "text": "checked",
+     "start": 7.658,
+     "end": 7.987
+    },
+    {
+     "text": "against",
+     "start": 8.0,
+     "end": 8.303
+    },
+    {
+     "text": "the",
+     "start": 8.316,
+     "end": 8.395
+    },
+    {
+     "text": "customer's",
+     "start": 8.408,
+     "end": 9.013
+    },
+    {
+     "text": "own",
+     "start": 9.026,
+     "end": 9.25
+    },
+    {
+     "text": "ledger",
+     "start": 9.263,
+     "end": 9.711
+    }
+   ]
+  },
+  {
+   "id": "how2",
+   "scene": "how",
+   "text": "We built it on a focused slice: one month of transactions. A dispute only needs recent history, and the live app never touches the raw data.",
+   "file": "vo/how2.mp3",
+   "duration": 9.48,
+   "words": [
+    {
+     "text": "We",
+     "start": 0.118,
+     "end": 0.224
+    },
+    {
+     "text": "built",
+     "start": 0.237,
+     "end": 0.474
+    },
+    {
+     "text": "it",
+     "start": 0.487,
+     "end": 0.566
+    },
+    {
+     "text": "on",
+     "start": 0.579,
+     "end": 0.684
+    },
+    {
+     "text": "a",
+     "start": 0.697,
+     "end": 0.75
+    },
+    {
+     "text": "focused",
+     "start": 0.763,
+     "end": 1.25
+    },
+    {
+     "text": "slice",
+     "start": 1.263,
+     "end": 1.868
+    },
+    {
+     "text": "one",
+     "start": 2.184,
+     "end": 2.421
+    },
+    {
+     "text": "month",
+     "start": 2.434,
+     "end": 2.671
+    },
+    {
+     "text": "of",
+     "start": 2.684,
+     "end": 2.75
+    },
+    {
+     "text": "transactions",
+     "start": 2.763,
+     "end": 3.684
+    },
+    {
+     "text": "A",
+     "start": 4.118,
+     "end": 4.171
+    },
+    {
+     "text": "dispute",
+     "start": 4.184,
+     "end": 4.684
+    },
+    {
+     "text": "only",
+     "start": 4.776,
+     "end": 5.066
+    },
+    {
+     "text": "needs",
+     "start": 5.079,
+     "end": 5.395
+    },
+    {
+     "text": "recent",
+     "start": 5.408,
+     "end": 5.803
+    },
+    {
+     "text": "history",
+     "start": 5.816,
+     "end": 6.368
+    },
+    {
+     "text": "and",
+     "start": 6.671,
+     "end": 6.776
+    },
+    {
+     "text": "the",
+     "start": 6.789,
+     "end": 6.868
+    },
+    {
+     "text": "live",
+     "start": 6.882,
+     "end": 7.224
+    },
+    {
+     "text": "app",
+     "start": 7.237,
+     "end": 7.539
+    },
+    {
+     "text": "never",
+     "start": 7.632,
+     "end": 7.987
+    },
+    {
+     "text": "touches",
+     "start": 8.0,
+     "end": 8.355
+    },
+    {
+     "text": "the",
+     "start": 8.368,
+     "end": 8.461
+    },
+    {
+     "text": "raw",
+     "start": 8.474,
+     "end": 8.684
+    },
+    {
+     "text": "data",
+     "start": 8.697,
+     "end": 9.079
+    }
+   ]
+  },
+  {
+   "id": "how3",
+   "scene": "how",
+   "text": "Across forty simulated scenarios, prompt injection included: zero unsafe outcomes.",
+   "file": "vo/how3.mp3",
+   "duration": 6.672,
+   "words": [
+    {
+     "text": "Across",
+     "start": 0.105,
+     "end": 0.539
+    },
+    {
+     "text": "forty",
+     "start": 0.553,
+     "end": 0.961
+    },
+    {
+     "text": "simulated",
+     "start": 0.974,
+     "end": 1.526
+    },
+    {
+     "text": "scenarios",
+     "start": 1.539,
+     "end": 2.395
+    },
+    {
+     "text": "prompt",
+     "start": 2.592,
+     "end": 2.947
+    },
+    {
+     "text": "injection",
+     "start": 2.961,
+     "end": 3.566
+    },
+    {
+     "text": "included",
+     "start": 3.645,
+     "end": 4.25
+    },
+    {
+     "text": "zero",
+     "start": 4.697,
+     "end": 5.145
+    },
+    {
+     "text": "unsafe",
+     "start": 5.158,
+     "end": 5.645
+    },
+    {
+     "text": "outcomes",
+     "start": 5.658,
+     "end": 6.289
+    }
+   ]
+  },
+  {
+   "id": "close1",
+   "scene": "close",
+   "text": "Answers in seconds, for the cases it should resolve. A person, for the ones it shouldn't.",
+   "file": "vo/close1.mp3",
+   "duration": 5.88,
+   "words": [
+    {
+     "text": "Answers",
+     "start": 0.105,
+     "end": 0.526
+    },
+    {
+     "text": "in",
+     "start": 0.539,
+     "end": 0.645
+    },
+    {
+     "text": "seconds",
+     "start": 0.658,
+     "end": 1.303
+    },
+    {
+     "text": "for",
+     "start": 1.553,
+     "end": 1.671
+    },
+    {
+     "text": "the",
+     "start": 1.684,
+     "end": 1.763
+    },
+    {
+     "text": "cases",
+     "start": 1.776,
+     "end": 2.263
+    },
+    {
+     "text": "it",
+     "start": 2.276,
+     "end": 2.434
+    },
+    {
+     "text": "should",
+     "start": 2.447,
+     "end": 2.671
+    },
+    {
+     "text": "resolve",
+     "start": 2.684,
+     "end": 3.237
+    },
+    {
+     "text": "A",
+     "start": 3.671,
+     "end": 3.724
+    },
+    {
+     "text": "person",
+     "start": 3.737,
+     "end": 4.25
+    },
+    {
+     "text": "for",
+     "start": 4.5,
+     "end": 4.605
+    },
+    {
+     "text": "the",
+     "start": 4.618,
+     "end": 4.711
+    },
+    {
+     "text": "ones",
+     "start": 4.724,
+     "end": 4.96
+    },
+    {
+     "text": "it",
+     "start": 4.974,
+     "end": 5.039
+    },
+    {
+     "text": "shouldn't",
+     "start": 5.053,
+     "end": 5.487
+    }
+   ]
+  },
+  {
+   "id": "close2",
+   "scene": "close",
+   "text": "The LATAM Bank Dispute Agent. Try it live.",
+   "file": "vo/close2.mp3",
+   "duration": 3.408,
+   "words": [
+    {
+     "text": "The",
+     "start": 0.105,
+     "end": 0.184
+    },
+    {
+     "text": "LATAM",
+     "start": 0.197,
+     "end": 0.724
+    },
+    {
+     "text": "Bank",
+     "start": 0.737,
+     "end": 1.053
+    },
+    {
+     "text": "Dispute",
+     "start": 1.066,
+     "end": 1.526
+    },
+    {
+     "text": "Agent",
+     "start": 1.539,
+     "end": 1.921
+    },
+    {
+     "text": "Try",
+     "start": 2.355,
+     "end": 2.513
+    },
+    {
+     "text": "it",
+     "start": 2.526,
+     "end": 2.605
+    },
+    {
+     "text": "live",
+     "start": 2.618,
+     "end": 3.0
+    }
+   ]
+  }
+ ]
+}

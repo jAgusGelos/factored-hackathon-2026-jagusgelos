@@ -3,17 +3,18 @@
 Target length 2:20-2:30 (1920x1080, 30 fps). Story: Why (the wait) → What (three moments of the
 product) → How (one trust beat) → the promise. 90% product, 10% technical.
 
-The narration below is the source of truth for the voiceover: `video/narration/lines.json` holds the
-same lines, `video/scripts/make_vo.py` turns them into audio with MoneyPrinterTurbo's TTS
+`video/narration/lines.json` is the source of truth for the voiceover and this document mirrors
+it; `video/scripts/make_vo.py` turns those lines into audio with MoneyPrinterTurbo's TTS
 (edge-tts voice `en-US-AndrewNeural`, rate 0.95) and writes word timings to
-`video/src/data/vo.json`. Times below are where each line starts in the edit
+`video/src/meta/vo.json`. Times below are where each line starts in the edit
 (`video/src/timeline.ts` is authoritative); the duration in brackets is the measured length of the
 generated audio.
 
 Every on-screen number carries its honesty label and comes from the repo:
 37 h median first response (MEASURED, `docs/analysis/demand-report.md`, n = 7,567 of 12,297),
-130,690 of ~5M transaction rows in a 30-day window (`data/extraction_manifest.json`,
-`docs/architecture-decisions.md` AD-2), 40 scenarios with 0 unsafe outcomes (SIMULATED,
+130,690 transaction rows extracted from 2026-05-18 to 2026-06-17 out of ~5M (MEASURED,
+`data/extraction_manifest.json`; the 5M / 808 MB size is in `docs/architecture-decisions.md`,
+dispute-agent AD-2), 40 scenarios with 0 unsafe outcomes (SIMULATED,
 `README.md` "Evaluation results"), resolving turn 1.3-6.6 s with Claude Haiku 4.5 (MEASURED, manual
 runs, `README.md`).
 
@@ -75,7 +76,7 @@ Animated diagram on the dark stage, no footage. Three lanes build left to right.
 | Time | Narration | Picture |
 |---|---|---|
 | 1:37 | "So why would a bank trust it? Because the model only reads. Policy and permissions live in code, and every fact is checked against the customer's own ledger." [10.1 s] | "Customer message" → **Model reads** (extracts, summarizes, never decides) → **Code decides** (state machine, policy table, permissions) → **Ledger verifies** (the customer's own charges). The model lane's arrow into "decide" is drawn and then struck through. Headline: "The model reads. The code decides." |
-| 1:48 | "We built it on a focused slice: thirty days of transactions. A dispute only needs recent history, and the live app never touches the raw data." [9.7 s] | A 5M-row block shrinks to a 30-day band: "130,690 of ~5M transaction rows · 2026-05-18 to 2026-06-17". Three reason chips: "Disputes need recent history", "Runtime never reads S3 (privacy)", "Reproducible, free-plan deploy". |
+| 1:48 | "We built it on a focused slice: one month of transactions. A dispute only needs recent history, and the live app never touches the raw data." [9.5 s] | A 5M-row block shrinks to a one-month band: "130,690 of ~5M transaction rows · 2026-05-18 to 2026-06-17 · MEASURED". Three reason chips: "A dispute needs the customer's recent ledger · DESIGN ARGUMENT", "The live app reads one small fixture, no AWS credentials (AD-2)", "Only allowlisted charge facts reach the model (AD-5)". |
 | 2:00 | "Across forty simulated scenarios, prompt injection included: zero unsafe outcomes." [6.7 s] | Big **0 / 40** unsafe outcomes, label "SIMULATED · offline harness, mocked model · constructed suite, not held-out". |
 
 ## 5. Close (2:09-2:27): the promise

@@ -7,45 +7,58 @@
 The Pexels key lives in MoneyPrinterTurbo's config.toml (never in this repo). The chosen clips
 are listed in video/broll.json by URL, so a fresh checkout downloads the same footage into
 video/public/broll/ (gitignored: stock video is large and licensed by Pexels, not by us).
+Search candidates and the download cache go to video/recordings/broll/, outside public/.
 """
 
-import argparse
 import json
 import os
 import shutil
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-VIDEO = os.path.dirname(HERE)
-OUT = os.path.join(VIDEO, "public", "broll")
+from _mpt import VIDEO, attach, parser
+
+BROLL_JSON = os.path.join(VIDEO, "broll.json")
+OUT_DIR = os.path.join(VIDEO, "public", "broll")
+CACHE_DIR = os.path.join(VIDEO, "recordings", "broll")
+MIN_CLIP_SECONDS = 5
+MAX_CANDIDATES = 8
+
+
+def search(material, query: str) -> None:
+    from app.models.schema import VideoAspect
+
+    items = material.search_videos_pexels(query, minimum_duration=MIN_CLIP_SECONDS, video_aspect=VideoAspect.landscape)
+    for i, item in enumerate(items[:MAX_CANDIDATES]):
+        path = material.save_video(item.url, os.path.join(CACHE_DIR, "candidates"))
+        print(i, item.duration, item.url, path or "DOWNLOAD FAILED")
+
+
+def fetch_chosen(material) -> None:
+    with open(BROLL_JSON, encoding="utf-8") as f:
+        clips = json.load(f)["clips"]
+    os.makedirs(OUT_DIR, exist_ok=True)
+    for clip in clips:
+        target = os.path.join(OUT_DIR, clip["file"])
+        if os.path.exists(target):
+            continue
+        path = material.save_video(clip["url"], os.path.join(CACHE_DIR, "cache"))
+        if not path:
+            sys.exit(f"download failed: {clip['file']} from {clip['url']}")
+        shutil.move(path, target)
+        print("saved", target)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--mpt", required=True)
-    parser.add_argument("--search", help="list candidate clips for a query instead")
-    args = parser.parse_args()
+    args_parser = parser(__doc__)
+    args_parser.add_argument("--search", help="list candidate clips for a query instead")
+    args = args_parser.parse_args()
+    attach(args.mpt)
+    from app.services import material
 
-    os.chdir(args.mpt)
-    sys.path.insert(0, args.mpt)
-    from app.models.schema import VideoAspect  # noqa: E402
-    from app.services import material  # noqa: E402
-
-    os.makedirs(OUT, exist_ok=True)
     if args.search:
-        items = material.search_videos_pexels(args.search, 5, VideoAspect.landscape)
-        for i, item in enumerate(items[:8]):
-            path = material.save_video(item.url, os.path.join(OUT, "candidates"))
-            print(i, item.duration, item.url, path)
-        return
-
-    for clip in json.load(open(os.path.join(VIDEO, "broll.json")))["clips"]:
-        target = os.path.join(OUT, clip["file"])
-        if os.path.exists(target):
-            continue
-        path = material.save_video(clip["url"], os.path.join(OUT, "cache"))
-        shutil.copy(path, target)
-        print("saved", target)
+        search(material, args.search)
+    else:
+        fetch_chosen(material)
 
 
 if __name__ == "__main__":

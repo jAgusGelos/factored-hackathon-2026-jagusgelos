@@ -4,3 +4,4 @@ out/
 # Stock b-roll (Pexels) and raw Playwright recordings: large, re-fetched / re-recorded by scripts
 public/broll/
 recordings/
+# Root .gitignore ignores every data/ dir; nothing under video/ is named data/ on purpose (src/meta/).
