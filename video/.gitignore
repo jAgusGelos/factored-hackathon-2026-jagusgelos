@@ -1,0 +1,6 @@
+node_modules/
+out/
+.remotion/
+# Stock b-roll (Pexels) and raw Playwright recordings: large, re-fetched / re-recorded by scripts
+public/broll/
+recordings/

@@ -1,0 +1,16 @@
+1
+00:00:00,105 --> 00:00:01,632
+Charged twice for one taxi
+
+2
+00:00:02,066 --> 00:00:02,882
+It doesn't guess
+
+3
+00:00:03,329 --> 00:00:05,263
+It shows the customer their own charges
+
+4
+00:00:05,474 --> 00:00:06,500
+and lets them choose
+

@@ -1,0 +1,12 @@
+1
+00:00:00,105 --> 00:00:02,395
+Across forty simulated scenarios
+
+2
+00:00:02,592 --> 00:00:04,250
+prompt injection included
+
+3
+00:00:04,697 --> 00:00:06,289
+zero unsafe outcomes
+

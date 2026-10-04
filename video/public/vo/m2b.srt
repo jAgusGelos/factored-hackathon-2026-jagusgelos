@@ -1,0 +1,12 @@
+1
+00:00:00,105 --> 00:00:01,776
+Then it finds the twin in the data
+
+2
+00:00:02,092 --> 00:00:03,053
+and reverses one
+
+3
+00:00:03,487 --> 00:00:04,000
+Only one
+

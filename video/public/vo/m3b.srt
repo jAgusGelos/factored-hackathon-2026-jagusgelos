@@ -1,0 +1,20 @@
+1
+00:00:00,105 --> 00:00:02,803
+It asks the questions an advisor would call back for
+
+2
+00:00:03,224 --> 00:00:05,237
+then hands a person the full case file
+
+3
+00:00:05,671 --> 00:00:06,789
+Verified facts
+
+4
+00:00:06,974 --> 00:00:08,066
+the customer's account
+
+5
+00:00:08,395 --> 00:00:09,421
+and what is still open
+

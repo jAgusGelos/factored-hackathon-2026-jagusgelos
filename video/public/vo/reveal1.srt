@@ -1,0 +1,8 @@
+1
+00:00:00,105 --> 00:00:01,553
+What if the answer took seconds
+
+2
+00:00:01,987 --> 00:00:02,895
+And what if it was right
+

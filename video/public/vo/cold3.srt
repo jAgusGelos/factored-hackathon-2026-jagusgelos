@@ -1,0 +1,8 @@
+1
+00:00:00,105 --> 00:00:00,829
+At this bank
+
+2
+00:00:01,079 --> 00:00:04,303
+the median wait for a first response is thirty-seven hours
+

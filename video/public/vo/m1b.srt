@@ -1,0 +1,28 @@
+1
+00:00:00,118 --> 00:00:01,237
+One explanation later
+
+2
+00:00:01,447 --> 00:00:01,895
+it's done
+
+3
+00:00:02,329 --> 00:00:03,316
+A provisional credit
+
+4
+00:00:03,592 --> 00:00:04,487
+the card blocked
+
+5
+00:00:04,750 --> 00:00:05,671
+a reference number
+
+6
+00:00:06,105 --> 00:00:06,842
+Every fact
+
+7
+00:00:07,145 --> 00:00:08,553
+verified against the record
+

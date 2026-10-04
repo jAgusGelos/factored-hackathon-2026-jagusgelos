@@ -1,0 +1,16 @@
+1
+00:00:00,105 --> 00:00:01,934
+We built it on a focused slice
+
+2
+00:00:02,224 --> 00:00:03,895
+thirty days of transactions
+
+3
+00:00:04,329 --> 00:00:06,579
+A dispute only needs recent history
+
+4
+00:00:06,882 --> 00:00:09,289
+and the live app never touches the raw data
+

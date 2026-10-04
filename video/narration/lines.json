@@ -1,0 +1,94 @@
+{
+ "voice": "en-US-AndrewNeural-Male",
+ "rate": 0.95,
+ "lines": [
+  {
+   "id": "cold1",
+   "scene": "cold",
+   "text": "It's late. You open your bank app. And there it is. A charge you don't recognize."
+  },
+  {
+   "id": "cold2",
+   "scene": "cold",
+   "text": "You report it. And then, you wait."
+  },
+  {
+   "id": "cold3",
+   "scene": "cold",
+   "text": "At this bank, the median wait for a first response is thirty-seven hours."
+  },
+  {
+   "id": "reveal1",
+   "scene": "reveal",
+   "text": "What if the answer took seconds? And what if it was right?"
+  },
+  {
+   "id": "reveal2",
+   "scene": "reveal",
+   "text": "Meet the LATAM Bank Dispute Agent."
+  },
+  {
+   "id": "m1a",
+   "scene": "m1",
+   "text": "The customer says it in their own words. The agent finds the exact charge in their own history, and asks: is this the one?"
+  },
+  {
+   "id": "m1b",
+   "scene": "m1",
+   "text": "One explanation later, it's done. A provisional credit, the card blocked, a reference number. Every fact, verified against the record."
+  },
+  {
+   "id": "m2a",
+   "scene": "m2",
+   "text": "Charged twice for one taxi? It doesn't guess. It shows the customer their own charges, and lets them choose."
+  },
+  {
+   "id": "m2b",
+   "scene": "m2",
+   "text": "Then it finds the twin in the data, and reverses one. Only one."
+  },
+  {
+   "id": "m3a",
+   "scene": "m3",
+   "text": "And when a charge should not be paid automatically, it knows not to act."
+  },
+  {
+   "id": "m3b",
+   "scene": "m3",
+   "text": "It asks the questions an advisor would call back for, then hands a person the full case file. Verified facts, the customer's account, and what is still open."
+  },
+  {
+   "id": "m3c",
+   "scene": "m3",
+   "text": "In Spanish, or in Portuguese."
+  },
+  {
+   "id": "how1",
+   "scene": "how",
+   "text": "So why would a bank trust it? Because the model only reads. Policy and permissions live in code, and every fact is checked against the customer's own ledger."
+  },
+  {
+   "id": "how2",
+   "scene": "how",
+   "text": "We built it on a focused slice: thirty days of transactions. A dispute only needs recent history, and the live app never touches the raw data."
+  },
+  {
+   "id": "how3",
+   "scene": "how",
+   "text": "Across forty simulated scenarios, prompt injection included: zero unsafe outcomes."
+  },
+  {
+   "id": "close1",
+   "scene": "close",
+   "text": "Answers in seconds, for the cases it should resolve. A person, for the ones it shouldn't."
+  },
+  {
+   "id": "close2",
+   "scene": "close",
+   "text": "The LATAM Bank Dispute Agent. Try it live."
+  }
+ ],
+ "say": {
+  "LATAM": "Lattam"
+ }
+}
