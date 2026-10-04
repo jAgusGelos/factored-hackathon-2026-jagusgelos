@@ -1,4 +1,41 @@
-# Factored AI & Data Hackathon 2026 — Transaction Dispute Resolution Agent
+# Transaction Dispute Resolution Agent for LATAM Bank
+
+*Factored AI & Data Hackathon 2026.* "I don't recognize this charge", answered in one
+conversation with verified facts, or handed to a person who never has to call the customer back.
+
+## In 60 seconds
+
+**Why.** A LATAM Bank customer who reports a charge they don't recognize waits a **median of
+37 hours for a first response** (p90 58 h; measured over the 7,567 "Cargo no reconocido" complaints
+that have one, [demand report](docs/analysis/demand-report.md)). Meanwhile their money is gone and
+they don't know if their card is safe. A dispute is also the one request an agent can check in code
+against the customer's own ledger and decide with an explicit rule, which is what makes it safe to
+automate.
+
+**What.** A chat agent, in Spanish and Portuguese, that ends every dispute in one of three ways:
+
+- **Resolves it in the conversation.** It finds the charge in the customer's own transactions,
+  confirms it with them, checks the evidence and grants a provisional credit with a reference. The
+  resolving turn took 1.3–6.6 s against Claude Haiku 4.5 (measured, manual runs).
+- **Asks when the report is ambiguous.** It shows the customer their own recent charges to pick
+  from, instead of guessing.
+- **Knows when not to act.** Risky or unprovable claims go to a person with a structured, verified
+  case file and the customer's own statement, so the advisor starts with the facts.
+
+**How.** *The model reads, the code decides.* The LLM only turns free text into structured fields
+and phrases replies; permissions, the dispute policy and every credit decision live in code and are
+enforced again in the database (details below).
+
+**Proof.** 0 unsafe outcomes in 40 offline scenarios, including prompt injection and policy abuse
+with the model mocked as fully persuaded (SIMULATED); without the evidence check the same suite would
+have paid 4 abusive claims. A priority classifier beats its baseline on a held-out chronological split
+(+0.0786 macro-F1). 990 automated tests. Estimated model cost about $0.0016 per attempted case.
+
+**Try it:** [live demo](https://factored-hackaton-latest.onrender.com/) ·
+[pitch deck](docs/pitch/) · [video pitch](docs/pitch/VIDEO.md) ·
+[releases](https://github.com/jAgusGelos/factored-hackathon-2026-jagusgelos/releases)
+
+## The system in detail
 
 AI-first banking customer service system for LATAM Bank: a customer reports an unrecognized
 transaction in a chat, the system verifies it against their own transaction history, resolves
@@ -32,7 +69,7 @@ app/state_machine.py::evaluate_case() <- deterministic guard function
       |         +--> app/transactions.py (session-scoped fuzzy match, no customer_id param)
       |         +--> app/policy.py (AD-11 policy table: match tolerance, auto-resolve
       |         |     eligibility, forced-escalation triggers)
-      |         +--> app/classifier.py (priority prediction — decision SUPPORT only,
+      |         +--> app/classifier.py (priority prediction, decision SUPPORT only:
       |               can only ADD an escalation reason, never auto-resolve or override)
       |
       v
@@ -66,7 +103,7 @@ app/llm.py::generate_response()       <- LLM, NLG only, grounded in build_prompt
 ```
 
 **Why this split:** the challenge requires permissions/policy enforced *in code*, not in a model
-prompt. The LLM never decides whether to auto-resolve or escalate — it only extracts structured
+prompt. The LLM never decides whether to auto-resolve or escalate: it only extracts structured
 entities from free text and phrases the (code-decided) outcome in natural language. See
 `docs/architecture-decisions.md` (dispute-agent AD-1 through AD-13) for each decision and its
 consequences; the local planning record (not in the repo) holds the full rationale, alternatives
@@ -188,6 +225,25 @@ simulated and projected figures in separate blocks with no ratio and no total.
 ![Median handle time by contact reason](docs/analysis/call_reasons.png)
 ![First response for "Cargo no reconocido"](docs/analysis/first_response_cargo_no_reconocido.png)
 
+## Data scope: why a subset
+
+The dataset has 19M rows in 13 tables. We extract each table at the depth its consumer needs,
+and no deeper (`etl/extract.py`, row counts in `data/extraction_manifest.json`):
+
+| Table | Extracted | Of the documented | Why |
+|---|---|---|---|
+| `customers`, `products`, `branches`, `service_agents`, `daily_exchange_rates` | in full | 100% | Small dimensions; every join needs them whole |
+| `complaints` | every partition (1,097 days) | 67,095 of 80,000 rows | The demand analysis and the classifier's chronological split need the full history. The store holds fewer rows than the data dictionary documents; the quality check reports that ratio (0.84) instead of hiding it |
+| `transactions` | last 30 days (2026-05-18 to 2026-06-17) | 130,690 of 5,000,000 rows (2.6%) | A dispute is about a recent charge on the customer's own ledger; the classifier uses no transaction features, so nothing reads the full 808 MB table |
+| `call_center_interactions`, `call_transcripts` | same 30-day window | 19,677 of 800,000 and 4,910 of 200,000 | Used for contact-reason demand only: no complaint links to a call (`origin_interaction_id` is empty), so there is no join path to widen |
+
+The window is a parameter (`--start-date` / `--end-date`), pulled with Hive-partition pruning and
+proven by `tests/test_etl_freshness.py`, so a wider pull is one flag away. The **deployed app reads
+an even smaller set on purpose**: a fixture with one real customer (6 real charges) plus 8 labeled
+synthetic charges (see "The required scenarios"). That keeps customer data and AWS credentials out of
+the runtime (AD-2), makes every demo and eval run reproducible, and fits a free-plan deploy. The
+cost is stated in "Known limitations": the demo customer's history is partly synthetic.
+
 ## Setup
 
 ```bash
@@ -196,15 +252,15 @@ pip install -r requirements.txt
 
 cp .env.example .env
 # Fill in AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION / DATA_BUCKET
-# (dataset access — see docs/challenge/challenge-brief.md) and ANTHROPIC_API_KEY
-# (LLM calls — see "Known limitations" below if you don't have one yet).
+# (dataset access, see docs/challenge/challenge-brief.md) and ANTHROPIC_API_KEY
+# (LLM calls, see "Known limitations" below if you don't have one yet).
 ```
 
 ## Running it end to end (reproducible setup)
 
 ```bash
 # 1. Offline ETL: pull the dataset from S3 into a local DuckDB warehouse (one-time, ~10-15 min;
-#    re-runnable; never touches the deployed runtime — see AD-2)
+#    re-runnable; never touches the deployed runtime, see AD-2)
 python -m etl.extract
 python -m etl.quality_checks       # data-quality + lineage report -> data/lineage_manifest.json
 
@@ -234,7 +290,7 @@ python -m etl.analyze_demand --refresh-eval-snapshot      # optional, after step
 ```
 
 Steps 1-3 require AWS credentials (dataset access) and are offline/one-time. Step 4 (the deployed
-app) needs **zero** AWS credentials at runtime — verified by `tests/test_main.py::test_app_serves_with_aws_env_unset`
+app) needs **zero** AWS credentials at runtime, verified by `tests/test_main.py::test_app_serves_with_aws_env_unset`
 and by unsetting `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` locally and confirming the app still serves.
 
 ## The required scenarios, on one customer
@@ -283,7 +339,7 @@ shows "No se pudo obtener respuesta" with a "Reintentar" button that re-sends th
 (regenerate with `python -m etl.evaluate_classifier`) hold the full reports. Headline numbers as
 last generated in this environment:
 
-**Classifier (priority-at-intake, decision support only)** — chronological split (train=11,543,
+**Classifier (priority-at-intake, decision support only):** chronological split (train=11,543,
 test=2,037, split date 2026-01-06), fixed majority-class baseline vs. RandomForestClassifier on
 structured intake-time features:
 
@@ -293,7 +349,7 @@ structured intake-time features:
 | Proposed classifier | 0.2448 | 0.23 | 0.45 | 0.26 | 0.06 |
 
 Delta: **+0.0786 macro-F1**, reported honestly (a modest improvement, not inflated). The
-classifier is wired as decision support only — a `Critical` prediction can only ever *add* a
+classifier is wired as decision support only: a `Critical` prediction can only ever *add* a
 reason to escalate; it structurally cannot cause an auto-resolution or override any other AD-11
 condition (proven by an exhaustive sweep over every dispute reason and all 128 combinations of the
 other gating conditions in `tests/test_policy_not_overridden.py`).
@@ -420,7 +476,7 @@ rates.
   2026-06-17, so relative dates ("ayer") are resolved against `DATA_AS_OF` (2026-06-18), not the
   wall clock.
 - **Demo-credentials login is simulated, not production identity verification.** `data/demo_users.json`
-  provisions test accounts distinct from any dataset field (never `document_number` or similar) —
+  provisions test accounts distinct from any dataset field (never `document_number` or similar);
   this satisfies the organizer's "a customer number alone does not prove identity" rule as a
   *demonstration* of a trusted-identity-service boundary, not a production-grade auth system.
 - **Login throttling is per-process demo-grade.** `/auth/login` locks a username after 5 failures
@@ -433,7 +489,7 @@ rates.
   The login screen has an "Autocompletar" button that fills in the demo account; set
   `SHOW_DEMO_CREDENTIALS=0` to hide it on any deployment that is not a labeled demo.
 - **Portuguese support is simulated via the LLM's general multilingual capability.** The dataset
-  contains zero Portuguese rows — no training or held-out evaluation claim is made for Portuguese
+  contains zero Portuguese rows, so no training or held-out evaluation claim is made for Portuguese
   specifically. The structured handoff record's text (request summary, actions, open questions:
   deterministic, code-generated, not LLM output) stays in Spanish regardless of the toggle, an internal
   agent-facing audit artifact, not customer-facing content; the Vista Interna labels its sections and
@@ -469,11 +525,11 @@ rates.
   Docker volume locally, not on this deployment), and the service sleeps after ~15 minutes idle.
   A starter plan with a disk at `/app/data` restores persistence with no code change.
 - **Single-host deployment, no load/concurrency testing.** Designed for sequential demo/judge
-  traffic on one machine — stated explicitly, not silently assumed away.
+  traffic on one machine, stated explicitly, not silently assumed away.
 - **The rolling-aggregate classifier feature (AD-6 stretch goal) was not attempted**, per the
   plan's own pre-agreed cut order for time pressure (this was the first thing marked cuttable).
 - **Data retention / access controls / capacity limits** are demonstrative defaults for a
-  hackathon submission with only synthetic data — not production-grade policies. Logs and the
+  hackathon submission with only synthetic data, not production-grade policies. Logs and the
   SQLite session/case store are local to the single deployed instance only.
 
 ## Remaining production-deployment work
@@ -489,23 +545,31 @@ measured evaluation once a production LLM key and traffic are available.
 ## Repo layout
 
 ```
-app/            FastAPI backend — auth, state machine, policy, LLM boundary, classifier wiring
+app/            FastAPI backend: auth, state machine, policy, LLM boundary, classifier wiring
 etl/            Offline ETL: extraction, quality checks, fixture generation, classifier training
 eval/           Eval harness (Milestone 5)
-static/         Frontend (vanilla HTML/CSS/JS, no build step — AD-1)
+static/         Frontend (vanilla HTML/CSS/JS, no build step, AD-1)
 tests/          pytest suite (990 tests)
-support.py      Shared test/eval mock helpers (no pytest dependency — used by eval/ too)
+support.py      Shared test/eval mock helpers (no pytest dependency, used by eval/ too)
 docs/           Challenge requirements digest
 docs/analysis/  Demand analysis report (generated by `python -m etl.analyze_demand`)
-data/           Local ETL artifacts, fixture, trained model (gitignored — never commit raw data)
+data/           Local ETL artifacts, fixture, trained model (gitignored; never commit raw data)
 .workspace/     Local planning record (gitignored); its decisions are in docs/architecture-decisions.md
 ```
+
+## How this was built (branches, PRs, versions)
+
+Each feature was built on its own branch (`feat/*`, `fix/*`, `docs/*`) and merged into `main`
+through a pull request or a reviewed merge commit, with conventional commit messages. Every
+milestone is an annotated tag and a [GitHub Release](https://github.com/jAgusGelos/factored-hackathon-2026-jagusgelos/releases):
+`v0.1.0` (data foundation) through `v0.8.0` (the demo flow), then one minor version per merged
+feature (`v0.9.0` evidence-based policy, `v0.11.0` demand analysis, `v0.13.0` statement before the
+handoff, `v0.14.0` live on Render). The submission is `v1.0.0`.
 
 ## Submission checklist (per challenge rules)
 
 - [x] Public GitHub repo named `factored-hackathon-2026-jagusgelos`
 - [x] Deployed tool link: <https://factored-hackaton-latest.onrender.com/> (Render, free plan, prebuilt image from a private Docker Hub
       repository; see `DEPLOY.md` for what was verified there and what the free plan gives up).
-- [ ] 4-6 slide presentation
-- [ ] Short mandatory video pitch demonstrating the working solution, recorded against `localhost`
-      (never the deployed link, per AD-7 — avoids demo-day network flakiness in the recorded artifact)
+- [ ] 4-6 slide presentation: [`docs/pitch/`](docs/pitch/)
+- [ ] Short mandatory video pitch demonstrating the working solution: [`docs/pitch/VIDEO.md`](docs/pitch/VIDEO.md)
