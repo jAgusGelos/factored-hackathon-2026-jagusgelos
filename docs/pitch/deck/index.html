@@ -7,9 +7,11 @@
 <style>
   :root {
     --primary: #14335c;
-    --primary-deep: #0e2545;
     --primary-soft: #e8eef6;
+    --on-primary: #ffffff;
     --on-primary-muted: #c9d6e8;
+    --on-primary-accent: #4d7ab8;
+    --canvas: #d9dde3;
     --background: #f6f7f9;
     --surface: #ffffff;
     --border: #dde1e7;
@@ -23,7 +25,7 @@
     --warning-bg: #fdf1de;
     --info: #205493;
     --info-bg: #e8eef6;
-    --pending: #4a525f;
+    --danger: #b3261e;
     --pending-bg: #eef0f3;
     --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Liberation Sans", Arial, sans-serif;
     --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
@@ -38,7 +40,7 @@
 
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
-  body { background: #d9dde3; font-family: var(--font-sans); color: var(--text); -webkit-font-smoothing: antialiased; }
+  body { background: var(--canvas); font-family: var(--font-sans); color: var(--text); -webkit-font-smoothing: antialiased; }
   h1, h2, h3, p, ul, ol { margin: 0; }
 
   .deck { display: flex; flex-direction: column; align-items: center; gap: 32px; padding: 32px 16px; }
@@ -50,7 +52,7 @@
     padding: 0 var(--gutter) 28px;
     box-shadow: 0 8px 30px rgba(14, 37, 69, 0.18);
   }
-  .slide--navy { background: var(--primary); color: #ffffff; }
+  .slide--navy { background: var(--primary); color: var(--on-primary); }
   .slide--paper { background: var(--background); }
 
   .topbar {
@@ -62,26 +64,23 @@
   }
   .slide--navy .topbar { border-bottom-color: rgba(255, 255, 255, 0.18); color: var(--on-primary-muted); }
   .slide::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 6px; background: var(--primary); }
-  .slide--navy::before { background: #4d7ab8; }
+  .slide--navy::before { background: var(--on-primary-accent); }
   .topbar__num { font-variant-numeric: tabular-nums; }
   .topbar__num b { color: var(--primary); font-weight: 800; }
-  .slide--navy .topbar__num b { color: #ffffff; }
 
   .kicker { font-size: 16px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: var(--info); margin-bottom: 14px; }
-  .slide--navy .kicker { color: var(--on-primary-muted); }
   .headline { font-size: 46px; line-height: 1.12; font-weight: 800; letter-spacing: -0.8px; color: var(--primary); }
-  .slide--navy .headline { color: #ffffff; }
+  .slide--navy .headline, .slide--navy .topbar__num b { color: var(--on-primary); }
+  .slide--navy .kicker, .slide--navy .muted, .slide--navy .source { color: var(--on-primary-muted); }
   .headline--xl { font-size: 56px; letter-spacing: -1.2px; }
   .why .headline--xl { font-size: 52px; }
   .body { font-size: 24px; line-height: 1.45; }
   .muted { color: var(--text-muted); }
-  .slide--navy .muted { color: var(--on-primary-muted); }
 
   .source {
     margin-top: auto; padding-top: 14px;
     font-size: 15px; line-height: 1.4; color: var(--text-muted);
   }
-  .slide--navy .source { color: var(--on-primary-muted); }
   .source code { font-family: var(--font-mono); font-size: 14px; }
 
   .label {
@@ -104,15 +103,15 @@
   /* Slide 1 */
   .why { display: grid; grid-template-columns: 1fr 470px; gap: 56px; align-items: center; flex: 1; }
   .why .body { margin-top: 26px; max-width: 600px; }
-  .why .body strong { color: #ffffff; }
-  .bignum { font-size: 220px; line-height: 0.9; font-weight: 800; letter-spacing: -8px; color: #ffffff; }
+  .why .body strong { color: var(--on-primary); }
+  .bignum { font-size: 220px; line-height: 0.9; font-weight: 800; letter-spacing: -8px; color: var(--on-primary); }
   .bignum span { font-size: 110px; letter-spacing: -2px; margin-left: 10px; }
   .bignum-caption { font-size: 24px; color: var(--on-primary-muted); margin-top: 16px; line-height: 1.35; }
   .chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; align-items: center; }
   .chip-dark {
     display: inline-flex; align-items: center; gap: 8px;
     border: 1.5px solid rgba(255, 255, 255, 0.4); border-radius: var(--radius-md);
-    padding: 6px 12px; font-size: 20px; font-weight: 700; color: #ffffff;
+    padding: 6px 12px; font-size: 20px; font-weight: 700; color: var(--on-primary);
   }
   .why-footer {
     display: flex; align-items: center; gap: 14px;
@@ -125,12 +124,13 @@
   .moment__head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
   .moment__n {
     width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
-    display: grid; place-items: center; font-size: 18px; font-weight: 800; color: #ffffff;
+    display: grid; place-items: center; font-size: 18px; font-weight: 800; color: var(--on-primary);
   }
   .moment__title { font-size: 26px; font-weight: 800; color: var(--primary); }
   .moment--resolve .moment__n { background: var(--success); }
   .moment--ask .moment__n { background: var(--info); }
   .moment--handoff .moment__n { background: var(--primary); }
+  /* Screenshot crop: --src image, --iw its pixel width, --s scale, --x/--y crop origin in image px, --dx optional nudge. */
   .shot {
     height: 250px; border-radius: var(--radius-lg); border: 1px solid var(--border-strong);
     background-color: var(--background);
@@ -147,7 +147,6 @@
   }
 
   /* Slide 3 */
-  .how-sub { font-size: 24px; margin-top: 12px; }
   .diagram { display: block; width: 940px; height: auto; margin: 14px auto 0; }
   .rules { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 12px; }
   .rule { border-left: 4px solid var(--primary); padding: 2px 0 2px 16px; }
@@ -165,12 +164,13 @@
   .row__value { font-size: 22px; line-height: 1.3; }
   .row__value b { color: var(--primary); }
   .value-line { margin-top: 14px; font-size: 24px; font-weight: 700; color: var(--primary); }
-  .bars { display: grid; grid-template-columns: 92px 1fr; gap: 6px 10px; align-items: center; margin-top: 6px; }
+  /* Bar width = --v / --bars-max (axis 0 to 0.3 macro-F1). */
+  .bars { --bars-max: 0.3; display: grid; grid-template-columns: 92px 1fr; gap: 6px 10px; align-items: center; margin-top: 6px; }
   .bars__name { font-size: 18px; color: var(--text-muted); font-weight: 600; }
   .bars__track { height: 30px; background: var(--pending-bg); border-radius: var(--radius-sm); position: relative; }
-  .bars__fill { height: 100%; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; font-size: 18px; font-weight: 800; }
+  .bars__fill { height: 100%; border-radius: var(--radius-sm); width: calc(var(--v) / var(--bars-max) * 100%); display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; font-size: 18px; font-weight: 800; }
   .bars__fill--base { background: var(--border-strong); color: var(--text); }
-  .bars__fill--model { background: var(--primary); color: #ffffff; }
+  .bars__fill--model { background: var(--primary); color: var(--on-primary); }
 
   /* Slide 5 */
   .proof { display: grid; grid-template-columns: 330px 1fr; gap: 40px; margin-top: 16px; }
@@ -187,27 +187,27 @@
   .compare td.num { font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; }
   .compare tr.ours td { background: var(--success-bg); }
   .compare tr.ours td:first-child { font-weight: 800; color: var(--success-strong); }
-  .compare .bad { color: #b3261e; }
+  .compare .bad { color: var(--danger); }
   .compare .sys { font-weight: 700; }
   .compare .sys small { display: block; font-size: 17px; font-weight: 500; color: var(--text-muted); }
   .read { font-size: 22px; line-height: 1.4; margin-top: 10px; }
   .caveat {
     margin-top: 12px; padding: 10px 16px; border-radius: var(--radius-md);
     background: var(--warning-bg); border-left: 5px solid var(--warning-strong);
-    font-size: 20px; line-height: 1.4; color: var(--text);
+    font-size: 22px; line-height: 1.35; color: var(--text);
   }
   .caveat b { color: var(--warning-strong); }
 
   /* Slide 6 */
   .roadmap { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin: 30px 0 0; padding: 0; list-style: none; }
-  .step { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.22); border-radius: var(--radius-lg); padding: 18px; position: relative; }
+  .step { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.22); border-radius: var(--radius-lg); padding: 18px; }
   .step__n { font-size: 16px; font-weight: 800; letter-spacing: 2px; color: var(--on-primary-muted); }
   .step__title { font-size: 26px; font-weight: 800; margin-top: 6px; }
   .step__text { font-size: 22px; line-height: 1.35; margin-top: 8px; color: var(--on-primary-muted); }
   .links { display: grid; grid-template-columns: auto 1fr; gap: 8px 20px; margin-top: 30px; font-size: 24px; align-items: baseline; }
   .links dt { font-size: 15px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: var(--on-primary-muted); }
   .links dd { margin: 0; font-weight: 700; }
-  .links a { color: #ffffff; text-decoration: underline; text-decoration-color: rgba(255, 255, 255, 0.45); text-underline-offset: 4px; }
+  .links a { color: var(--on-primary); text-decoration: underline; text-decoration-color: rgba(255, 255, 255, 0.45); text-underline-offset: 4px; }
   .promise { margin-top: auto; font-size: 32px; line-height: 1.3; font-weight: 800; letter-spacing: -0.3px; }
   .promise span { color: var(--on-primary-muted); }
 
@@ -311,7 +311,7 @@
         <h2 class="card__head">Why a subset</h2>
         <div class="card__body">
           <div class="row"><p class="row__label">Transactions <span class="label label--measured">Measured</span></p><p class="row__value"><b>130,690 of 5M</b> rows: a 30-day window, May 18 to Jun 17, 2026</p></div>
-          <div class="row"><p class="row__label">Complaints</p><p class="row__value"><b>67,095</b>, in full</p></div>
+          <div class="row"><p class="row__label">Complaints <span class="label label--measured">Measured</span></p><p class="row__value"><b>67,095</b>, in full</p></div>
           <div class="row"><p class="row__label">Why <span class="label label--design">Design argument</span></p><p class="row__value">No S3 at runtime (privacy), reproducible, free-plan deploy; a dispute only needs the recent ledger</p></div>
         </div>
       </section>
@@ -322,8 +322,8 @@
           <div class="row">
             <p class="row__label">Macro-F1 <span class="label label--measured">Measured</span></p>
             <div class="bars">
-              <span class="bars__name">Baseline</span><div class="bars__track"><div class="bars__fill bars__fill--base" style="width: 55%">0.166</div></div>
-              <span class="bars__name">Model</span><div class="bars__track"><div class="bars__fill bars__fill--model" style="width: 81%">0.245</div></div>
+              <span class="bars__name">Baseline</span><div class="bars__track"><div class="bars__fill bars__fill--base" style="--v: 0.1662">0.166</div></div>
+              <span class="bars__name">Model</span><div class="bars__track"><div class="bars__fill bars__fill--model" style="--v: 0.2448">0.245</div></div>
             </div>
           </div>
           <div class="row"><p class="row__label">Role</p><p class="row__value">Can add a reason to escalate, <b>never approve a credit</b></p></div>

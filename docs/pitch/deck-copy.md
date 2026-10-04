@@ -10,7 +10,7 @@ mocked model), ASSUMED (a demo assumption), DESIGN ARGUMENT (a reasoned choice, 
 
 ## Slide 1 · Why
 
-**Kicker:** LATAM Bank · Disputes
+**Kicker:** The customer's pain
 
 **Headline:** You see a charge you never made. Then you typically wait 37 hours to hear back.
 
@@ -45,17 +45,19 @@ Source: README "Demand analysis", closing paragraph.
 
 1. **Resolves, with proof.** The customer explains an Uber charge they never made. The agent checks
    the record (online purchase, no other charge at that merchant) and grants a provisional credit
-   with a reference, in the same chat.
-   Caption: "Provisional credit granted. Every fact shown was verified from the record."
-2. **Asks when it is ambiguous.** "Me cobraron dos veces un taxi": the agent shows only the
+   with a reference, in the same chat. Screen: the case panel (resolved, three verified steps,
+   reference).
+   Caption: "The record backs the claim, so a provisional credit lands in the same chat."
+2. **Asks when it is unclear.** "Me cobraron dos veces un taxi": the agent shows only the
    customer's own matching charges as cards and lets them pick. It never guesses.
-   Caption: "Two matching charges: the customer picks, the agent never guesses."
-3. **Hands off with a full case file.** A charge that fails the policy goes to a person, with the
-   customer's statement, the verified facts and the open questions already in the file.
-   Caption: "Handed to a person with verified facts, the customer's account and open questions."
+   Caption: "Two matching charges: the customer picks from their own. It never guesses."
+3. **Steps aside, file ready.** A charge that fails the policy goes to a person, with the
+   customer's statement, the verified facts and the open questions already in the file. Screen:
+   the advisor's case file ("Hechos verificados", from the record).
+   Caption: "Fails the policy: a person gets verified facts, the customer's account and open questions."
 
-**Strip:** Spanish and Portuguese · login with a demo account · credits and card blocks are
-simulated · live at factored-hackaton-latest.onrender.com
+**Strip:** Spanish and Portuguese · credits and card blocks are simulated · live at
+factored-hackaton-latest.onrender.com
 
 Source: README "The required scenarios, on one customer" (rows: Automated resolution (typed),
 Ambiguous: duplicated charge, Human escalation (policy)); screenshots captured from the running app
@@ -65,7 +67,7 @@ Ambiguous: duplicated charge, Human escalation (policy)); screenshots captured f
 
 ## Slide 3 · How (trust by design)
 
-**Kicker:** Architecture
+**Top bar:** Trust by design (no kicker on slides 3 to 5; the headline carries the slide).
 
 **Headline:** The model reads. The code decides.
 
@@ -96,8 +98,6 @@ Source for the architecture: README "Architecture at a glance" and "Dispute poli
 ---
 
 ## Slide 4 · Data & ML rigor
-
-**Kicker:** Data and models
 
 **Headline:** Built on the full challenge dataset, with every shortcut explained.
 
@@ -135,8 +135,6 @@ reproducibility matter more.
 ---
 
 ## Slide 5 · Proof
-
-**Kicker:** Evaluation
 
 **Headline:** 40 scripted attacks and edge cases. Zero unsafe outcomes.
 
@@ -177,7 +175,7 @@ Source: README "System-level comparison", "Read this with its limits"; `data/eva
 
 ## Slide 6 · What's next
 
-**Kicker:** Roadmap
+**Kicker:** Route to production
 
 **Headline:** From demo to the bank's front line.
 
