@@ -1,0 +1,42 @@
+{
+ "clip": "m1",
+ "width": 1920,
+ "height": 1200,
+ "duration": 15.898,
+ "events": [
+  {
+   "name": "report",
+   "t": 0.824,
+   "kind": "type",
+   "text": "No reconozco un cargo de 38.500 pesos del 14 de junio"
+  },
+  {
+   "name": "confirm_question",
+   "t": 4.378,
+   "kind": "reply"
+  },
+  {
+   "name": "tap_yes",
+   "t": 6.237,
+   "kind": "tap",
+   "x": 198,
+   "y": 976
+  },
+  {
+   "name": "explain_question",
+   "t": 6.88,
+   "kind": "reply"
+  },
+  {
+   "name": "explanation",
+   "t": 8.698,
+   "kind": "type",
+   "text": "No uso Uber hace meses, tengo la tarjeta conmigo"
+  },
+  {
+   "name": "resolved",
+   "t": 12.056,
+   "kind": "reply"
+  }
+ ]
+}

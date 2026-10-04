@@ -1,0 +1,56 @@
+{
+ "clip": "m3",
+ "width": 1920,
+ "height": 1200,
+ "duration": 23.826,
+ "events": [
+  {
+   "name": "report",
+   "t": 0.812,
+   "kind": "type",
+   "text": "No reconozco una compra en Tienda Online Global"
+  },
+  {
+   "name": "statement_question",
+   "t": 4.146,
+   "kind": "reply"
+  },
+  {
+   "name": "statement_1",
+   "t": 5.97,
+   "kind": "type",
+   "text": "Nunca compré en esa tienda y no la conozco. Tengo la tarjeta conmigo. Lo vi ayer por una alerta de la app."
+  },
+  {
+   "name": "statement_reply_1",
+   "t": 11.632,
+   "kind": "reply"
+  },
+  {
+   "name": "statement_2",
+   "t": 13.464,
+   "kind": "type",
+   "text": "No, no veo otros cargos raros."
+  },
+  {
+   "name": "statement_reply_2",
+   "t": 16.117,
+   "kind": "reply"
+  },
+  {
+   "name": "escalated",
+   "t": 17.922
+  },
+  {
+   "name": "internal_view",
+   "t": 20.454,
+   "kind": "tap",
+   "x": 1691,
+   "y": 690
+  },
+  {
+   "name": "handoff_shown",
+   "t": 20.826
+  }
+ ]
+}

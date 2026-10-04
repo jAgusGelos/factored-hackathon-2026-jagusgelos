@@ -1,0 +1,26 @@
+{
+ "clip": "pt",
+ "width": 1920,
+ "height": 1200,
+ "duration": 9.874,
+ "events": [
+  {
+   "name": "tap_pt",
+   "t": 0.617,
+   "kind": "tap",
+   "x": 1674,
+   "y": 95
+  },
+  {
+   "name": "report",
+   "t": 2.2,
+   "kind": "type",
+   "text": "Não reconheço uma compra na Tienda Online Global"
+  },
+  {
+   "name": "statement_question",
+   "t": 5.572,
+   "kind": "reply"
+  }
+ ]
+}

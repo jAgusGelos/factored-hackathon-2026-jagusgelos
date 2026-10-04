@@ -1,0 +1,42 @@
+{
+ "clip": "m2",
+ "width": 1920,
+ "height": 1200,
+ "duration": 16.064,
+ "events": [
+  {
+   "name": "report",
+   "t": 0.8,
+   "kind": "type",
+   "text": "Me cobraron dos veces un taxi de 27 mil"
+  },
+  {
+   "name": "two_charges",
+   "t": 3.805,
+   "kind": "reply"
+  },
+  {
+   "name": "tap_charge",
+   "t": 5.633,
+   "kind": "tap",
+   "x": 286,
+   "y": 859
+  },
+  {
+   "name": "explain_question",
+   "t": 7.15,
+   "kind": "reply"
+  },
+  {
+   "name": "explanation",
+   "t": 8.965,
+   "kind": "type",
+   "text": "Tomé un solo taxi y me lo cobraron dos veces"
+  },
+  {
+   "name": "resolved",
+   "t": 12.167,
+   "kind": "reply"
+  }
+ ]
+}
