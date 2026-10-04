@@ -1,6 +1,5 @@
-// Captures the deck screenshots from a running local app: NODE_PATH=<dir with playwright> APP_URL=http://127.0.0.1:8765 node capture-screens.cjs
 const path = require('path');
-const { chromium, errors } = require('playwright');
+const { chromium } = require('playwright');
 
 const APP_URL = process.env.APP_URL ?? 'http://127.0.0.1:8000';
 const OUT_DIR = path.join(__dirname, '..', 'deck', 'assets');
@@ -8,9 +7,10 @@ const VIEWPORT = { width: 1280, height: 800 };
 const DEVICE_SCALE_FACTOR = 2;
 const LOCALE = 'es-CO';
 const SIGN_IN_TIMEOUT_MS = 15_000;
-const BUSY_START_TIMEOUT_MS = 5_000;
 const TURN_TIMEOUT_MS = 45_000;
 const SETTLE_MS = 600;
+// A finished turn adds at least the customer's bubble and the agent's reply to the chat log.
+const ENTRIES_PER_TURN = 2;
 const VIEW_SWITCH_MS = 800;
 const MAX_STATEMENT_TURNS = 6;
 const HANDOFF_BADGE_TEXT = 'Caso derivado';
@@ -25,34 +25,32 @@ async function signIn(page) {
   await page.waitForSelector('#chat-log');
 }
 
-async function waitForTurn(page) {
+function chatEntryCount(page) {
+  return page.locator('#chat-log > *').count();
+}
+
+async function waitForTurn(page, entriesBefore) {
   await page.waitForFunction(
-    () => document.querySelector('#chat-log').getAttribute('aria-busy') === 'false'
+    (minEntries) => document.querySelector('#chat-log').children.length >= minEntries
+      && document.querySelector('#chat-log').getAttribute('aria-busy') === 'false'
       && !document.querySelector('#send-btn').disabled,
-    null,
+    entriesBefore + ENTRIES_PER_TURN,
     { timeout: TURN_TIMEOUT_MS },
   );
   await page.waitForTimeout(SETTLE_MS);
 }
 
-function ignoreMissedBusyFlag(error) {
-  if (!(error instanceof errors.TimeoutError)) throw error;
-}
-
 async function send(page, text) {
+  const entriesBefore = await chatEntryCount(page);
   await page.fill('#message-input', text);
   await page.press('#message-input', 'Enter');
-  await page.waitForFunction(
-    () => document.querySelector('#chat-log').getAttribute('aria-busy') === 'true',
-    null,
-    { timeout: BUSY_START_TIMEOUT_MS },
-  ).catch(ignoreMissedBusyFlag);
-  await waitForTurn(page);
+  await waitForTurn(page, entriesBefore);
 }
 
 async function tap(page, name) {
+  const entriesBefore = await chatEntryCount(page);
   await page.getByRole('button', { name }).last().click();
-  await waitForTurn(page);
+  await waitForTurn(page, entriesBefore);
 }
 
 async function shot(target, name) {

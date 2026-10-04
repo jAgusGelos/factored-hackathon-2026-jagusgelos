@@ -4,7 +4,9 @@ Audience: a bank investor, and Factored judges reading the deck as a standalone 
 Split: 60% product, 40% technical; every technical slide ends on the value it delivers.
 Every number below has a `Source:` line and an honesty label:
 MEASURED (computed from the dataset or timed on real runs), SIMULATED (offline eval with a
-mocked model), ASSUMED (a demo assumption), DESIGN ARGUMENT (a reasoned choice, not a measurement).
+mocked model), DESIGN ARGUMENT (a reasoned choice, not a measurement).
+Body text on the slides is 22px or larger; source footnotes, labels and the top bar are smaller
+metadata. Lines marked "(not on the slide)" were cut for space and stay here as backup.
 
 ---
 
@@ -37,8 +39,6 @@ Source: README "Demand analysis", closing paragraph.
 
 ## Slide 2 · What
 
-**Kicker:** The product
-
 **Headline:** A dispute agent that knows when to act, when to ask, and when to step aside.
 
 **Three moments (one real app screenshot each, Spanish UI with an English caption):**
@@ -47,7 +47,7 @@ Source: README "Demand analysis", closing paragraph.
    the record (online purchase, no other charge at that merchant) and grants a provisional credit
    with a reference, in the same chat. Screen: the case panel (resolved, three verified steps,
    reference).
-   Caption: "The record backs the claim, so a provisional credit lands in the same chat."
+   Caption: "The record backs the claim, so a provisional credit lands in seconds, in the same chat."
 2. **Asks when it is unclear.** "Me cobraron dos veces un taxi": the agent shows only the
    customer's own matching charges as cards and lets them pick. It never guesses.
    Caption: "Two matching charges: the customer picks from their own. It never guesses."
@@ -56,8 +56,7 @@ Source: README "Demand analysis", closing paragraph.
    the advisor's case file ("Hechos verificados", from the record).
    Caption: "Fails the policy: a person gets verified facts, the customer's account and open questions."
 
-**Strip:** Spanish and Portuguese · credits and card blocks are simulated · live at
-factored-hackaton-latest.onrender.com
+**Strip:** Spanish and Portuguese · Credits and card blocks are simulated (the live URL is on slide 6)
 
 Source: README "The required scenarios, on one customer" (rows: Automated resolution (typed),
 Ambiguous: duplicated charge, Human escalation (policy)); screenshots captured from the running app
@@ -71,10 +70,10 @@ Ambiguous: duplicated charge, Human escalation (policy)); screenshots captured f
 
 **Headline:** The model reads. The code decides.
 
-**Diagram (left to right):** Customer message → LLM (Claude Haiku 4.5): extracts facts only →
-State machine + policy in code: decides → Verified ledger (the customer's own charges only) →
-Outcome: resolve · ask · hand off. The LLM also writes the reply, but only from facts the code
-allows (closed allowlist).
+**Diagram (left to right):** Customer (ES · PT) → THE MODEL READS: Claude Haiku 4.5, "Extracts the
+facts. Never decides." → THE CODE DECIDES: State machine + policy, "Pays only on evidence. The
+classifier can only escalate." (reads the "Customer's own ledger only") → ✓ Resolve · ? Ask · →
+Hand off. Dashed return path: "Replies use only facts the code allows" (closed allowlist).
 
 **Three rules (each with its value):**
 - **The LLM only extracts and phrases.** It never decides to pay. → No refund comes from the model.
@@ -85,11 +84,11 @@ allows (closed allowlist).
 
 All three rules are DESIGN ARGUMENT (enforced in code; Slide 5 shows them on a simulated suite).
 
-**Proof chip:** The priority classifier can only add a reason to escalate. An exhaustive sweep over
+**Footnote (source line):** The priority classifier can only add a reason to escalate. An exhaustive sweep over
 every dispute reason and all 128 combinations of the other conditions proves it never causes a
 credit. Source: README "Evaluation results" (`tests/test_policy_not_overridden.py`).
 
-**Chip:** 990 automated tests. Source: README "Running it end to end" step 5 and "Repo layout";
+**Footnote (source line):** 990 automated tests. Source: README "Running it end to end" step 5 and "Repo layout";
 re-checked with `pytest --collect-only` on 2026-10-04 (990 collected).
 
 Source for the architecture: README "Architecture at a glance" and "Dispute policy" (AD-13);
@@ -99,7 +98,7 @@ Source for the architecture: README "Architecture at a glance" and "Dispute poli
 
 ## Slide 4 · Data & ML rigor
 
-**Headline:** Built on the full challenge dataset, with every shortcut explained.
+**Headline:** Real challenge data, with every shortcut explained.
 
 **Panel A, ETL with contracts:**
 - An offline DuckDB ETL with a schema contract per table (9 tables) checks row counts, duplicate
@@ -129,8 +128,8 @@ AD-2; README "Demo data" and "Known limitations" (6 of the 14 charges are real d
 Source: `data/classifier_eval_report.json` (`split`, `baseline.macro_f1`, `proposed.macro_f1`,
 `macro_f1_delta`); README "Evaluation results".
 
-**Value line:** The full dataset where it matters, a small fixture where privacy and
-reproducibility matter more.
+**Value line:** Full complaints and a 30-day ledger for analysis; a small fixture where privacy
+matters more.
 
 ---
 
@@ -150,19 +149,19 @@ Source: `data/eval_report.json` (`unsafe_outcomes.count = 0`, `of_attempted = 40
 | Always escalate (safety anchor) | 0 | 0 | 30 |
 | No evidence check (ablation) | 6 | 4 | 26 |
 
-Read: always escalating is safe but loses every legitimate resolution; dropping the evidence check
+Read: escalating everything is safe but helps no one. Dropping the evidence check
 pays 4 credits a person should have reviewed. The hybrid keeps both.
 Source: `data/eval_report.json` (`system_comparison`); README "System-level comparison".
 
 **Other chips:**
-- Statement completeness 20 / 20: every escalated case that needed the customer's statement
+- (not on the slide) Statement completeness 20 / 20: every escalated case that needed the customer's statement
   records its outcome (given, declined or unavailable) · SIMULATED.
   Source: `data/eval_report.json` (`escalation_quality.statement_completeness_rate`: count 20,
   `of_escalated_needing_a_statement` 20).
-- Real Claude Haiku 4.5: the explanation turn that resolves took a median 3.2 s (1.3-6.6 s,
-  8 ES/PT runs) · MEASURED (manual runs, 2026-09-30).
-- Button and menu taps answer in 0.05-0.14 s with no model call (a tapped charge about 1 s) ·
-  MEASURED (manual runs, 2026-09-30).
+- "3.2 s median to resolve, real Claude Haiku 4.5": the explanation turn that resolves took a
+  median 3.2 s (1.3-6.6 s, 8 ES/PT runs) · MEASURED (manual runs, 2026-09-30).
+- "0.05-0.14 s for a button tap, no model call" · MEASURED (manual runs, 2026-09-30); a tapped
+  charge takes about 1 s (not on the slide).
   Source: README "Evaluation results", real Haiku latency bullet.
 
 **Caveat (always visible):** A constructed offline suite with a mocked model, written by the
@@ -180,16 +179,15 @@ Source: README "System-level comparison", "Read this with its limits"; `data/eva
 **Headline:** From demo to the bank's front line.
 
 **Roadmap (four steps):**
-1. **Real identity.** Replace the demo login with the bank's identity verification.
-2. **Managed database.** A replicated database instead of local SQLite, across several instances.
-3. **Monitoring.** Ship the structured, correlated event log to alerting.
-4. **Thresholds on real traffic.** Validate the policy limits and measure the live model on real,
-   held-out cases.
+1. **Real identity.** The bank's identity verification replaces the demo login.
+2. **Managed database.** Replicated storage across several instances, not local SQLite.
+3. **Monitoring.** The structured, correlated event log feeds alerting.
+4. **Real traffic.** Policy thresholds and the live model validated on held-out cases.
 Source: README "Remaining production-deployment work".
 
 **Links:**
 - Live demo: https://factored-hackaton-latest.onrender.com/
-- Repo: https://github.com/jAgusGelos/factored-hackathon-2026-jagusgelos
+- Code: https://github.com/jAgusGelos/factored-hackathon-2026-jagusgelos
 
 **Closing line (the product promise):** An answer in seconds, not 37 hours. Every refund backed by
 evidence. Every hard case in a person's hands, with the file already complete.

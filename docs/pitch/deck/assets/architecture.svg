@@ -1,68 +1,59 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 400" width="1180" height="400" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 380" width="1180" height="380" role="img" aria-labelledby="title desc">
   <title id="title">The model reads, the code decides</title>
-  <desc id="desc">A customer message goes to the language model, which only extracts facts. A state machine and policy in code decide, using only the customer's own ledger. The outcome is one of three: resolve with proof, ask the customer, or hand off with a full case file.</desc>
+  <desc id="desc">A customer message goes to the language model, which only extracts the facts. A state machine and policy in code decide, using only the customer's own ledger, and pay only on evidence. The outcome is one of three: resolve, ask, or hand off. Replies use only facts the code allows.</desc>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" fill="#5b6472"/>
     </marker>
   </defs>
   <style>
-    text { font-family: Inter, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", "Liberation Sans", Arial, sans-serif; }
-    .eyebrow { font-size: 15px; font-weight: 700; letter-spacing: 1.5px; }
-    .title { font-size: 23px; font-weight: 700; }
-    .line { font-size: 18px; }
+    text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Liberation Sans", Arial, sans-serif; }
+    .eyebrow { font-size: 20px; font-weight: 800; letter-spacing: 1.5px; }
+    .title { font-size: 26px; font-weight: 800; }
+    .line { font-size: 24px; }
+    .strong { font-size: 24px; font-weight: 800; }
     .flow { stroke: #5b6472; stroke-width: 2.5; fill: none; }
   </style>
 
-  <!-- Customer -->
-  <rect x="2" y="130" width="170" height="110" rx="12" fill="#ffffff" stroke="#c3c9d3" stroke-width="2"/>
-  <text x="87" y="176" text-anchor="middle" class="title" fill="#1a2130">Customer</text>
-  <text x="87" y="206" text-anchor="middle" class="line" fill="#5b6472">chat · ES / PT</text>
+  <rect x="2" y="128" width="150" height="104" rx="12" fill="#ffffff" stroke="#c3c9d3" stroke-width="2"/>
+  <text x="77" y="174" text-anchor="middle" class="title" fill="#1a2130">Customer</text>
+  <text x="77" y="206" text-anchor="middle" class="line" fill="#5b6472">ES · PT</text>
 
-  <line x1="172" y1="185" x2="222" y2="185" class="flow" marker-end="url(#arrow)"/>
+  <line x1="152" y1="180" x2="192" y2="180" class="flow" marker-end="url(#arrow)"/>
 
-  <!-- The model reads -->
-  <rect x="226" y="88" width="270" height="194" rx="12" fill="#fdf1de" stroke="#a15c00" stroke-width="2"/>
-  <text x="250" y="124" class="eyebrow" fill="#7a4500">THE MODEL READS</text>
-  <text x="250" y="158" class="title" fill="#1a2130">Claude Haiku 4.5</text>
-  <text x="250" y="192" class="line" fill="#1a2130">Extracts amount, date,</text>
-  <text x="250" y="216" class="line" fill="#1a2130">merchant and reason into</text>
-  <text x="250" y="240" class="line" fill="#1a2130">a fixed schema.</text>
-  <text x="250" y="266" class="line" font-weight="700" fill="#7a4500">Never decides.</text>
+  <rect x="196" y="92" width="300" height="176" rx="12" fill="#fdf1de" stroke="#a15c00" stroke-width="2"/>
+  <text x="220" y="130" class="eyebrow" fill="#7a4500">THE MODEL READS</text>
+  <text x="220" y="168" class="title" fill="#1a2130">Claude Haiku 4.5</text>
+  <text x="220" y="206" class="line" fill="#1a2130">Extracts the facts.</text>
+  <text x="220" y="244" class="strong" fill="#7a4500">Never decides.</text>
 
-  <line x1="496" y1="185" x2="546" y2="185" class="flow" marker-end="url(#arrow)"/>
+  <line x1="496" y1="180" x2="536" y2="180" class="flow" marker-end="url(#arrow)"/>
 
-  <!-- The code decides -->
-  <rect x="550" y="64" width="320" height="242" rx="12" fill="#14335c"/>
-  <text x="576" y="100" class="eyebrow" fill="#c9d6e8">THE CODE DECIDES</text>
-  <text x="576" y="134" class="title" fill="#ffffff">State machine + policy</text>
-  <text x="576" y="170" class="line" fill="#ffffff">Credits only on evidence</text>
-  <text x="576" y="194" class="line" fill="#ffffff">in the record, never on</text>
-  <text x="576" y="218" class="line" fill="#ffffff">how convincing it sounds.</text>
-  <text x="576" y="254" class="line" fill="#c9d6e8">The classifier can only add</text>
-  <text x="576" y="278" class="line" fill="#c9d6e8">a reason to escalate.</text>
+  <rect x="540" y="78" width="350" height="204" rx="12" fill="#14335c"/>
+  <text x="566" y="116" class="eyebrow" fill="#c9d6e8">THE CODE DECIDES</text>
+  <text x="566" y="154" class="title" fill="#ffffff">State machine + policy</text>
+  <text x="566" y="196" class="line" fill="#ffffff">Pays only on evidence.</text>
+  <text x="566" y="236" class="line" fill="#c9d6e8">The classifier can only</text>
+  <text x="566" y="264" class="line" fill="#c9d6e8">escalate.</text>
 
-  <!-- Ledger -->
-  <line x1="710" y1="306" x2="710" y2="326" class="flow"/>
-  <path d="M570 340 a140 14 0 0 1 280 0 v34 a140 14 0 0 1 -280 0 z" fill="#e5f5ec" stroke="#1a7f4e" stroke-width="2"/>
-  <ellipse cx="710" cy="340" rx="140" ry="14" fill="none" stroke="#1a7f4e" stroke-width="2"/>
-  <text x="710" y="372" text-anchor="middle" class="line" font-weight="700" fill="#145c39">Customer's own ledger only</text>
+  <line x1="715" y1="282" x2="715" y2="306" class="flow"/>
+  <path d="M535 320 a180 14 0 0 1 360 0 v38 a180 14 0 0 1 -360 0 z" fill="#e5f5ec" stroke="#1a7f4e" stroke-width="2"/>
+  <ellipse cx="715" cy="320" rx="180" ry="14" fill="none" stroke="#1a7f4e" stroke-width="2"/>
+  <text x="715" y="356" text-anchor="middle" class="strong" fill="#145c39">Customer's own ledger only</text>
 
-  <!-- Outcomes -->
-  <line x1="870" y1="185" x2="905" y2="185" class="flow"/>
-  <path d="M905 112 V258" class="flow"/>
-  <line x1="905" y1="112" x2="930" y2="112" class="flow" marker-end="url(#arrow)"/>
-  <line x1="905" y1="185" x2="930" y2="185" class="flow" marker-end="url(#arrow)"/>
-  <line x1="905" y1="258" x2="930" y2="258" class="flow" marker-end="url(#arrow)"/>
+  <line x1="890" y1="180" x2="922" y2="180" class="flow"/>
+  <path d="M922 108 V252" class="flow"/>
+  <line x1="922" y1="108" x2="946" y2="108" class="flow" marker-end="url(#arrow)"/>
+  <line x1="922" y1="180" x2="946" y2="180" class="flow" marker-end="url(#arrow)"/>
+  <line x1="922" y1="252" x2="946" y2="252" class="flow" marker-end="url(#arrow)"/>
 
-  <rect x="934" y="84" width="244" height="56" rx="28" fill="#e5f5ec" stroke="#1a7f4e" stroke-width="2"/>
-  <text x="1056" y="119" text-anchor="middle" class="line" font-weight="700" fill="#145c39">✓ Resolve, with proof</text>
-  <rect x="934" y="157" width="244" height="56" rx="28" fill="#e8eef6" stroke="#205493" stroke-width="2"/>
-  <text x="1056" y="192" text-anchor="middle" class="line" font-weight="700" fill="#205493">? Ask the customer</text>
-  <rect x="934" y="230" width="244" height="56" rx="28" fill="#ffffff" stroke="#14335c" stroke-width="2"/>
-  <text x="1056" y="265" text-anchor="middle" class="line" font-weight="700" fill="#14335c">→ Hand off, full file</text>
+  <rect x="950" y="80" width="226" height="56" rx="28" fill="#e5f5ec" stroke="#1a7f4e" stroke-width="2"/>
+  <text x="1063" y="116" text-anchor="middle" class="strong" fill="#145c39">✓ Resolve</text>
+  <rect x="950" y="152" width="226" height="56" rx="28" fill="#e8eef6" stroke="#205493" stroke-width="2"/>
+  <text x="1063" y="188" text-anchor="middle" class="strong" fill="#205493">? Ask</text>
+  <rect x="950" y="224" width="226" height="56" rx="28" fill="#ffffff" stroke="#14335c" stroke-width="2"/>
+  <text x="1063" y="260" text-anchor="middle" class="strong" fill="#14335c">→ Hand off</text>
 
-  <!-- Reply path -->
-  <path d="M1056 84 V30 H361 V84" class="flow" stroke-dasharray="7 6" marker-end="url(#arrow)"/>
-  <text x="708" y="22" text-anchor="middle" class="line" fill="#5b6472">The model phrases the reply only from facts the code allows</text>
+  <path d="M1063 80 V36 H346 V88" class="flow" stroke-dasharray="7 6" marker-end="url(#arrow)"/>
+  <text x="704" y="26" text-anchor="middle" class="line" fill="#5b6472">Replies use only facts the code allows</text>
 </svg>

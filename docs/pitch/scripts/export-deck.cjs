@@ -1,4 +1,3 @@
-// Renders docs/pitch/deck/index.html to one PNG per slide and to docs/pitch/deck.pdf: NODE_PATH=<dir with playwright> node export-deck.cjs
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
@@ -37,8 +36,6 @@ async function exportPdf(browser) {
   await page.emulateMedia({ media: 'print' });
   await page.pdf({
     path: PDF_PATH,
-    width: `${SLIDE.width}px`,
-    height: `${SLIDE.height}px`,
     printBackground: true,
     preferCSSPageSize: true,
   });
@@ -56,7 +53,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+function exitWithError(error) {
   console.error(error);
   process.exit(1);
-});
+}
+
+main().catch(exitWithError);
