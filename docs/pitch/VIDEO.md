@@ -22,13 +22,17 @@ npm run master                           # -> out/launch.mp4 (-14 LUFS, poster a
 node scripts/stills.mjs /tmp/stills 120 900 2400   # stills of chosen frames, for checking
 ```
 
-Rebuilding the inputs (only when they change):
+The presenter cut-outs (`video/public/presenter/`, about 100 MB) and the raw takes (`video/takes/`)
+are not committed, so a fresh clone cannot render the presenter until the takes are recorded and
+ingested again (table below). Everything else the render needs is in git.
+
+Rebuilding the inputs (only when they change), from the repo root:
 
 | Input | Command | Needs |
 |---|---|---|
 | Narration text | edit `video/narration/lines.json` | |
-| Placeholder voice + word timings | `video/scripts/make_vo.py --mpt <MoneyPrinterTurbo>` | MoneyPrinterTurbo checkout (edge-tts, no key) |
-| Presenter takes | `video/scripts/record_take.sh T05`, then `video/scripts/ingest_takes.py` (voice cleanup with the room tone, word alignment, background removal) | webcam or phone files, numpy + onnxruntime; `video/takes/selection.json` pins a take |
+| Placeholder voice + word timings | `<MoneyPrinterTurbo>/.venv/bin/python video/scripts/make_vo.py --mpt <MoneyPrinterTurbo>` | MoneyPrinterTurbo checkout (edge-tts, no key) |
+| Presenter takes | `bash video/scripts/record_take.sh T05`, then `python3 video/scripts/ingest_takes.py` (voice cleanup with the room tone, word alignment, background removal) | webcam or phone files, numpy + onnxruntime; `video/takes/selection.json` pins a take |
 | App footage | `node video/scripts/record.mjs m1 m2 m3 pt` | the app's `.env` (Anthropic key) and `data/` fixture |
 | Teleprompter | `node video/scripts/build_teleprompter.mjs` | |
 
@@ -39,7 +43,7 @@ re-times itself to the presenter's real delivery whenever a take is re-ingested.
 
 | Element | Status |
 |---|---|
-| App footage in the laptop (Uber resolution, duplicated taxi, policy hand-off, Portuguese) | **Real**: the local app with the real model (Claude Haiku 4.5), recorded with Playwright. The time spent waiting for the model is shortened in the edit (the footage says so on screen); replies are never faked. |
+| App footage in the laptop (Uber resolution, duplicated taxi, policy hand-off, Portuguese) | **Real**: the local app with the real model (Claude Haiku 4.5), recorded with Playwright. The time spent waiting for the model is shortened in the edit (the footage says so on screen), and to fit their beats the clips play at 1x (moment 01), 1.2x (moment 02) and 1.7x (moment 03 and the Portuguese clip); replies are never faked. |
 | The advisor's case file in moment 03 | **Real**: a screenshot of the hand-off of the same recorded case. |
 | English captions over the chat | Translations of what the Spanish/Portuguese UI shows. |
 | The phone notification in the cold open | **Illustrative** (labelled on screen). The merchant and amount are the demo fixture's. |
@@ -48,7 +52,8 @@ re-times itself to the presenter's real delivery whenever a take is re-ingested.
 | 0 / 48 unsafe outcomes, 18 / 18 resolved | **MEASURED** on a held-out set written before the first run, against the real Claude Haiku 4.5, 3 runs (`docs/eval/measured-eval.md`). Small set: the 95% upper bound on the unsafe rate is about 7%. |
 | Presenter and voice | **Real**: the builder on camera, speaking every line, 17 takes recorded on 2026-10-05. Cut out of the room's background by a matting model; the voice is denoised and levelled, never altered. |
 
-Every number on screen comes from `video/src/facts.ts`, which names its source and label.
+Every eval, demand and data number on screen comes from `video/src/facts.ts`, which names its source and
+label. The amounts and dates in the chat captions and the cold-open notification are the demo fixture's.
 
 ## Tools and credits
 
