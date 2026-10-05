@@ -17,6 +17,8 @@ export const PRESENTER_LEFT: Box = { x: 60, y: 180, w: 540, h: 900 };
 export const PRESENTER_BUBBLE: Box = { x: 160, y: 790, w: 240, h: 240 };
 
 const FADE = 6;
+// The bubble frames the head, not the whole landscape take.
+const BUBBLE_ZOOM = { transform: 'scale(1.4) translateY(-9%)', transformOrigin: '50% 50%' } as const;
 
 // The cut-out is cropped from a landscape take into a portrait slot, so the body meets the slot's
 // sides in a straight line; fading the sides and the bottom hides that cut.
@@ -25,8 +27,8 @@ const CUTOUT_EDGE_MASK =
 
 
 /**
- * The builder on camera for a run of lines. Each line shows its own ingested take (cut out in
- * full mode, the plain take in the bubble), held on its first frame before it speaks and on its
+ * The builder on camera for a run of lines. Each line shows its own ingested take (cut out when
+ * the ingest produced a matte, the plain take otherwise), held on its first frame before it speaks and on its
  * last frame until the next line, so the slot never pops empty between lines. A line with no take
  * yet shows a placeholder silhouette naming the take to record.
  */
@@ -81,12 +83,13 @@ const Take: React.FC<{ line: TimedLine; mode: PresenterMode; offset: number }> =
   const frame = useCurrentFrame();
   const presenter = line.presenter;
   if (!presenter) return null;
-  const matte = mode === 'full' ? presenter.matte : undefined;
+  const matte = presenter.matte;
+  const edgeMask = matte && mode === 'full';
   const takeFrame = Math.min(Math.max(frame - offset, 0), line.frames - 1);
   return (
     <AbsoluteFill
       style={
-        matte
+        edgeMask
           ? { maskImage: CUTOUT_EDGE_MASK, WebkitMaskImage: CUTOUT_EDGE_MASK, maskComposite: 'intersect', WebkitMaskComposite: 'source-in' }
           : { borderRadius: mode === 'full' ? 18 : undefined, overflow: 'hidden' }
       }
@@ -96,7 +99,7 @@ const Take: React.FC<{ line: TimedLine; mode: PresenterMode; offset: number }> =
           src={staticFile(matte ?? presenter.plain)}
           transparent={Boolean(matte)}
           muted
-          style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center top' }}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center top', ...(mode === 'bubble' ? BUBBLE_ZOOM : {}) }}
         />
       </Freeze>
     </AbsoluteFill>
