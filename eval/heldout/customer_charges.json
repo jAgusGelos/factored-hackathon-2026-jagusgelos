@@ -1,0 +1,132 @@
+{
+ "customer": "Víctor, Cartagena, Colombia (COP account)",
+ "today": "2026-06-18",
+ "charges": [
+  {
+   "transaction_id": "TRX-VYS1SK9PX9C5BN1TR4VZ",
+   "date": "2026-05-23",
+   "merchant": "Empresa Telefónica",
+   "category": "Services",
+   "amount": 1364625.82,
+   "currency": "COP",
+   "how_paid": "card at a store terminal"
+  },
+  {
+   "transaction_id": "TRX-Z1FJZM84SGNN0KHG7K6Z",
+   "date": "2026-05-28",
+   "merchant": "Tienda Don José",
+   "category": "Food",
+   "amount": 1807404.71,
+   "currency": "COP",
+   "how_paid": "card at a terminal"
+  },
+  {
+   "transaction_id": "TRX-9SYBJHKZ8IMXPAS56RFM",
+   "date": "2026-05-28",
+   "merchant": "Internet Plus",
+   "category": "Services",
+   "amount": 1146805.45,
+   "currency": "COP",
+   "how_paid": "card at a store terminal"
+  },
+  {
+   "transaction_id": "TRX-R9IBPSNDPNUMKX2ZGNLW",
+   "date": "2026-06-02",
+   "merchant": "Gasolinera Express",
+   "category": "Transport",
+   "amount": 94587.9,
+   "currency": "COP",
+   "how_paid": "card at a store terminal"
+  },
+  {
+   "transaction_id": "SYN-DEMO-SUPER",
+   "date": "2026-06-05",
+   "merchant": "Super Ahorro",
+   "category": "Food",
+   "amount": 187350.0,
+   "currency": "COP",
+   "how_paid": "card at a store terminal"
+  },
+  {
+   "transaction_id": "TRX-4NAUV2IIRGAQFRVIW01A",
+   "date": "2026-06-07",
+   "merchant": "Streaming Music",
+   "category": "Entertainment",
+   "amount": 1099627.83,
+   "currency": "COP",
+   "how_paid": "online (web)"
+  },
+  {
+   "transaction_id": "SYN-DEMO-CINE",
+   "date": "2026-06-09",
+   "merchant": "Cine Premium",
+   "category": "Entertainment",
+   "amount": 52000.0,
+   "currency": "COP",
+   "how_paid": "online (web)"
+  },
+  {
+   "transaction_id": "SYN-DEMO-FARMACIA",
+   "date": "2026-06-11",
+   "merchant": "Farmacia Salud",
+   "category": "Health",
+   "amount": 64900.0,
+   "currency": "COP",
+   "how_paid": "card at a store terminal"
+  },
+  {
+   "transaction_id": "SYN-DEMO-ONLINE",
+   "date": "2026-06-12",
+   "merchant": "Tienda Online Global",
+   "category": "Other",
+   "amount": 689000.0,
+   "currency": "COP",
+   "how_paid": "online (web)"
+  },
+  {
+   "transaction_id": "SYN-DEMO-BOUTIQUE",
+   "date": "2026-06-13",
+   "merchant": "Boutique Moda",
+   "category": "Other",
+   "amount": 2450000.0,
+   "currency": "COP",
+   "how_paid": "card at a store terminal"
+  },
+  {
+   "transaction_id": "SYN-DEMO-UBER",
+   "date": "2026-06-14",
+   "merchant": "Uber",
+   "category": "Transport",
+   "amount": 38500.0,
+   "currency": "COP",
+   "how_paid": "in an app"
+  },
+  {
+   "transaction_id": "SYN-DEMO-TAXI-1",
+   "date": "2026-06-15",
+   "merchant": "Taxi Seguro",
+   "category": "Transport",
+   "amount": 27000.0,
+   "currency": "COP",
+   "how_paid": "in an app"
+  },
+  {
+   "transaction_id": "SYN-DEMO-TAXI-2",
+   "date": "2026-06-16",
+   "merchant": "Taxi Seguro",
+   "category": "Transport",
+   "amount": 27000.0,
+   "currency": "COP",
+   "how_paid": "in an app"
+  },
+  {
+   "transaction_id": "TRX-NMFM7QBTBIDR60W6QIO1",
+   "date": "2026-06-17",
+   "merchant": "Restaurante El Buen Sabor",
+   "category": "Food",
+   "amount": 937717.27,
+   "currency": "COP",
+   "how_paid": "card at a store terminal"
+  }
+ ]
+}
