@@ -375,7 +375,9 @@ def score_transactions(df: pd.DataFrame, model_path: Path = DEFAULT_MODEL_PATH, 
     """
     bundle = joblib.load(model_path)
     entry = bundle["models"][model or bundle["selected"]]
-    feats = build_features(df)
+    # Same one-row-per-transaction_id rule as `load_transactions` (training):
+    # a duplicated row would otherwise count twice in every later row's history.
+    feats = build_features(df.drop_duplicates("transaction_id"))
     raw = entry["pipeline"].predict_proba(feats[entry["features"]])[:, 1]
     proba = pd.Series(entry["calibrator"].transform(raw), index=feats["transaction_id"].to_numpy())
     return proba.reindex(df["transaction_id"].to_numpy()).to_numpy()

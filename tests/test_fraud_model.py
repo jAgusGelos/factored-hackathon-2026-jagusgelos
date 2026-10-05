@@ -100,3 +100,10 @@ def test_end_to_end_train_evaluate_and_score(tmp_path, monkeypatch):
     proba = tr.score_transactions(raw.sample(frac=1, random_state=1), model_path)
     assert proba.shape == (len(raw),)
     assert np.all((proba >= 0) & (proba <= 1))
+
+    # Duplicated raw rows (the source table has them) neither crash the
+    # reindex nor change any score.
+    with_dupes = pd.concat([raw, raw.head(50)], ignore_index=True)
+    proba_dupes = tr.score_transactions(with_dupes, model_path)
+    assert proba_dupes.shape == (len(with_dupes),)
+    np.testing.assert_allclose(proba_dupes[: len(raw)], tr.score_transactions(raw, model_path))
