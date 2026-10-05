@@ -45,6 +45,12 @@ they must exist on disk before `docker build`:
 ```bash
 source .venv/bin/activate
 python etl/extract.py            # needs real AWS creds in .env — offline only, never in the image
+# The fixture build scores every charge with the fraud-risk model (AD-15), so build the model first:
+pip install -r requirements-analysis.txt   # matplotlib, for the evaluation charts
+python -m etl.extract --tables transactions --start-date 2024-06-17 \
+  --warehouse data/fraud_warehouse.duckdb --manifest data/fraud_extraction_manifest.json
+python -m etl.train_fraud_model      # data/fraud_model.joblib (offline only, never in the image)
+python -m etl.evaluate_fraud_model   # data/fraud_eval_report.json (the model's cost threshold)
 python etl/build_fixture.py      # produces data/fixture.duckdb + data/demo_users.json
 python etl/train_classifier.py   # produces data/classifier.joblib
 ls data/fixture.duckdb data/demo_users.json data/classifier.joblib   # confirm all 3 exist

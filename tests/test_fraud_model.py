@@ -151,3 +151,24 @@ def test_best_threshold_is_the_exact_minimum_over_every_distinct_score():
     fast = ev.best_threshold(y, score, amount, a)
     assert fast["threshold"] == brute["threshold"]
     assert fast["total_cost_usd"] == pytest.approx(brute["total_cost_usd"])
+
+
+def test_a_model_pickled_from_the_module_entry_point_still_loads(tmp_path, monkeypatch):
+    """A model trained by `python -m etl.train_fraud_model` before the entry
+    point re-imported the module names its calibrators `__main__.PlattCalibrator`;
+    `load_model_bundle` resolves that name for any caller (etl/build_fixture.py).
+    """
+    import sys
+
+    import joblib
+
+    from etl import train_fraud_model as tfm
+
+    monkeypatch.setattr(tfm.PlattCalibrator, "__module__", "__main__")
+    monkeypatch.setattr(sys.modules["__main__"], "PlattCalibrator", tfm.PlattCalibrator, raising=False)
+    joblib.dump({"calibrator": tfm.PlattCalibrator()}, tmp_path / "model.joblib")
+    monkeypatch.undo()
+
+    bundle = tfm.load_model_bundle(tmp_path / "model.joblib")
+    assert isinstance(bundle["calibrator"], tfm.PlattCalibrator)
+    assert not hasattr(sys.modules["__main__"], "PlattCalibrator")

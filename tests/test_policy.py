@@ -90,10 +90,20 @@ def test_a_merchant_without_a_name_cannot_be_checked_so_it_escalates():
     assert _escalates_because(evaluation, "merchant has no name")
 
 
-@pytest.mark.parametrize("fraud_score", [30.0, 85.0, None])
+@pytest.mark.parametrize("fraud_score", [30.01, 85.0, None])
 def test_high_or_unknown_fraud_score_forces_escalation(fraud_score):
     evaluation = evaluate_resolution(clean_txn(fraud_score=fraud_score), clean_ctx())
     assert _escalates_because(evaluation, "fraud_score")
+
+
+@pytest.mark.parametrize("fraud_score", [0.0, 29.99, 30.0])
+def test_a_score_at_the_cost_justified_threshold_may_still_auto_resolve(fraud_score):
+    """AD-15: the gate is "escalate above 30". A score of exactly 30.0 is the
+    highest legitimate score in the dataset and adds no reason (the old ">= 30"
+    sent those charges to a person and caught no extra fraud).
+    """
+    evaluation = evaluate_resolution(clean_txn(fraud_score=fraud_score), clean_ctx())
+    assert evaluation.decision == ResolutionDecision.AUTO_RESOLVE
 
 
 def test_a_second_unrecognized_credit_in_the_window_goes_to_a_person():
@@ -398,4 +408,5 @@ def test_an_escalation_unrelated_to_fraud_never_blocks_the_card(reason, facts, h
 def test_a_missing_fraud_score_is_not_a_fraud_signal():
     assert not policy.fraud_score_flagged(None)
     assert not policy.fraud_score_flagged(policy.AUTO_RESOLVE_MAX_FRAUD_SCORE - 0.1)
-    assert policy.fraud_score_flagged(policy.AUTO_RESOLVE_MAX_FRAUD_SCORE)
+    assert not policy.fraud_score_flagged(policy.AUTO_RESOLVE_MAX_FRAUD_SCORE)
+    assert policy.fraud_score_flagged(policy.AUTO_RESOLVE_MAX_FRAUD_SCORE + 0.01)

@@ -22,6 +22,7 @@ from app import (
     charge_search,
     config,
     db,
+    handoffs,
     ratelimit,
     replies,
     state_machine,
@@ -197,22 +198,8 @@ def get_case(case_id: str, session: CurrentSession):
         "matched_charge": _matched_charge(session, case.matched_transaction_id),
         "resolution_reference": case.resolution_reference,
         "clarification_rounds": case.clarification_rounds,
-        "handoff": _handoff_for_customer_session(case.handoff),
+        "handoff": handoffs.for_customer_session(case.handoff),
     }
-
-
-def _handoff_for_customer_session(handoff: dict | None) -> dict | None:
-    """The policy reasons name internal rules and fraud thresholds: this
-    endpoint answers the customer's own session, so it sends only how many
-    there are (plan.md AD-3). A handoff stored before they had their own field
-    kept them in `open_questions`, so that field is not sent for it.
-    """
-    if handoff is None:
-        return None
-    if "policy_reasons" not in handoff:
-        return {k: v for k, v in handoff.items() if k != "open_questions"}
-    shown = {k: v for k, v in handoff.items() if k != "policy_reasons"}
-    return {**shown, "policy_reason_count": len(handoff["policy_reasons"])}
 
 
 app.mount("/", StaticFiles(directory=str(config.STATIC_DIR), html=True), name="static")

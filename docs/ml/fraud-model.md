@@ -163,8 +163,9 @@ chosen on validation and reported on test.
   validation score below it is 30.0 (`cost_equivalent_lower_bound`), so every threshold in
   (30.0, 30.06] escalates the same charges at the same cost, and the integration rule is
   **`fraud_score > 30` escalates** (equivalently: auto-resolve only when `fraud_score <= 30`).
-  The current code escalates at `>= 30`, which on test sends 18 legitimate charges scored
-  exactly 30.0 to a person and catches no extra fraud.
+  The code at the time escalated at `>= 30`, which on test sends 18 legitimate charges scored
+  exactly 30.0 to a person and catches no extra fraud. The shipped policy now escalates at
+  `> 30` (fraud-integration, AD-15 in `docs/architecture-decisions.md`).
 - **Stable under the assumptions** (MEASURED, `thresholds.scores.fraud_score.sensitivity`): across
   hourly rates USD 5 / 10 / 20, handle times 202 / 425 / 1,800 s and ops costs USD 0 / 25 / 100,
   the validation optimum is 30.06 in all nine settings. DESIGN ARGUMENT: below the threshold the

@@ -37,6 +37,7 @@ import argparse
 import json
 import logging
 import subprocess
+import sys
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -369,6 +370,23 @@ def predictions_bundle(result: dict, predictions: dict) -> dict:
     }
 
 
+def load_model_bundle(model_path: Path = DEFAULT_MODEL_PATH) -> dict:
+    """The stored bundle. A model trained with `python -m etl.train_fraud_model`
+    before the entry point below re-imported this module pickled its
+    calibrators as `__main__.PlattCalibrator`; that name is resolved here so
+    such a file loads from any caller (`etl/build_fixture.py`).
+    """
+    main_module = sys.modules["__main__"]
+    shim = not hasattr(main_module, "PlattCalibrator")
+    if shim:
+        main_module.PlattCalibrator = PlattCalibrator
+    try:
+        return joblib.load(model_path)
+    finally:
+        if shim:
+            del main_module.PlattCalibrator
+
+
 def score_transactions(df: pd.DataFrame, model_path: Path = DEFAULT_MODEL_PATH, model: str | None = None) -> np.ndarray:
     """Calibrated fraud probability for every row of `df` (offline precompute,
     e.g. from `etl/build_fixture.py`; never in the request path).
@@ -382,7 +400,7 @@ def score_transactions(df: pd.DataFrame, model_path: Path = DEFAULT_MODEL_PATH, 
     `customer_id` or `transaction_date`, which training never saw). `model` picks a stored model by name
     (default: the one selected on validation).
     """
-    bundle = joblib.load(model_path)
+    bundle = load_model_bundle(model_path)
     entry = bundle["models"][model or bundle["selected"]]
     # A duplicated row would otherwise count twice in every later row's history.
     feats = build_features(clean_transactions(df))
@@ -418,4 +436,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # Run through the importable module so the calibrators pickle as
+    # `etl.train_fraud_model.PlattCalibrator`, not `__main__.PlattCalibrator`.
+    from etl.train_fraud_model import main as _main
+
+    raise SystemExit(_main())

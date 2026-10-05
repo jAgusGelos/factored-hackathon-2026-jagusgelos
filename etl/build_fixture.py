@@ -38,12 +38,26 @@ team-generated COP charges on the SAME customer and product, inside the same
 date window, each designed for one scenario (see the `scenario` field). They
 are never presented as real dataset rows: the column is set, the source file
 is `synthetic`, and the README's "Demo data" paragraph describes them.
+
+## Fraud-risk estimate, precomputed offline (fraud-integration)
+
+Every fixture charge, real or synthetic, is scored here with
+`etl.train_fraud_model.score_transactions` and the result is stored next to it
+(`fraud_risk`, `fraud_risk_threshold`, `fraud_model_version`). The app never
+loads the model: it reads these columns like any other fixture value. The
+synthetic charges carry only their scenario's attributes (amount, channel,
+merchant, time, the vendor `fraud_score`); the model scores them like any
+other charge, nothing is hard-coded. The customer's earlier transactions come
+from the two-year fraud warehouse when it exists (the history the model was
+trained with), otherwise from the main warehouse. The estimate is decision
+support for the advisor (the handoff), never a policy input (AD-15).
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import math
 import secrets
 import string
 from dataclasses import dataclass
@@ -51,8 +65,12 @@ from datetime import date, datetime
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 
+from etl.evaluate_fraud_model import DEFAULT_REPORT_PATH as DEFAULT_FRAUD_REPORT_PATH
 from etl.extract import DATA_DIR, DEFAULT_WAREHOUSE_PATH
+from etl.fraud_features import DEFAULT_FRAUD_WAREHOUSE_PATH, RAW_COLUMNS
+from etl.train_fraud_model import DEFAULT_MODEL_PATH, load_model_bundle, score_transactions
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("etl.build_fixture")
@@ -66,6 +84,11 @@ DEMO_CURRENCY = "COP"
 DISPUTE_CATEGORY = "Transactions"
 
 SYNTHETIC_SOURCE = "synthetic"
+
+FRAUD_RISK_COLUMNS = ("fraud_risk", "fraud_risk_threshold", "fraud_model_version")
+# What scoring reads: the label and the authorization outcome are never inputs.
+_SCORING_COLUMNS = tuple(c for c in RAW_COLUMNS if c not in ("is_fraud", "transaction_status"))
+_NUMERIC_SCORING_COLUMNS = ("amount", "amount_usd", "latitude", "longitude", "fraud_score")
 
 
 @dataclass(frozen=True)
@@ -225,7 +248,94 @@ def _insert_synthetic_charges(
     logger.info("Inserted %d synthetic demo charge(s)", len(SYNTHETIC_CHARGES))
 
 
-def build_fixture_db(con: duckdb.DuckDBPyConnection, fixture_path: Path, customer_id: str) -> None:
+@dataclass(frozen=True)
+class FraudModel:
+    """The stored fraud-risk model and its cost-optimal threshold, both from
+    the fraud-model feature's artifacts (`docs/ml/fraud-model.md`).
+    """
+
+    model_path: Path
+    version: str
+    threshold: float
+
+    @classmethod
+    def load(cls, model_path: Path = DEFAULT_MODEL_PATH, report_path: Path = DEFAULT_FRAUD_REPORT_PATH) -> FraudModel:
+        missing = [str(path) for path in (model_path, report_path) if not path.exists()]
+        if missing:
+            raise FileNotFoundError(
+                f"{', '.join(missing)} not found: build them first with `python -m etl.train_fraud_model` and "
+                "`python -m etl.evaluate_fraud_model` (docs/ml/fraud-model.md, Reproduce)"
+            )
+        bundle = load_model_bundle(model_path)
+        report = json.loads(report_path.read_text())
+        selected = bundle["selected"]
+        if report["run_group"] != bundle["run_group"]:
+            raise RuntimeError(
+                f"{report_path} (run {report['run_group']}) does not describe {model_path} (run {bundle['run_group']})"
+            )
+        threshold = report["thresholds"]["scores"][selected]["threshold_chosen_on_val"]
+        return cls(model_path, f"{selected}-{bundle['run_group']}", float(threshold))
+
+
+def _history_rows(
+    con: duckdb.DuckDBPyConnection, customer_id: str, history_warehouse: Path | None,
+) -> pd.DataFrame:
+    """The customer's own transactions the model reads as history (every
+    currency: history is per customer, not per currency).
+    """
+    query = f"SELECT {', '.join(_SCORING_COLUMNS)} FROM transactions WHERE customer_id = ?"
+    if history_warehouse is not None and history_warehouse.exists():
+        logger.info("Scoring history: %s", history_warehouse)
+        hcon = duckdb.connect(str(history_warehouse), read_only=True)
+        try:
+            return hcon.execute(query, [customer_id]).df()
+        finally:
+            hcon.close()
+    logger.warning("Scoring history: the main warehouse (no fraud warehouse at %s)", history_warehouse)
+    return con.execute(query, [customer_id]).df()
+
+
+def _fixture_rows(fcon: duckdb.DuckDBPyConnection) -> pd.DataFrame:
+    df = fcon.execute(f"SELECT {', '.join(_SCORING_COLUMNS)} FROM transactions").df()
+    for column in _NUMERIC_SCORING_COLUMNS:
+        df[column] = pd.to_numeric(df[column])
+    df["transaction_date"] = pd.to_datetime(df["transaction_date"])
+    return df
+
+
+def score_fixture_charges(
+    warehouse_con: duckdb.DuckDBPyConnection, fixture_con: duckdb.DuckDBPyConnection, *, customer_id: str,
+    model: FraudModel, history_warehouse: Path | None,
+) -> dict[str, float]:
+    """Writes the model's estimate onto every fixture charge; returns it by id."""
+    fixture = _fixture_rows(fixture_con)
+    history = _history_rows(warehouse_con, customer_id, history_warehouse)
+    history = history[~history["transaction_id"].isin(fixture["transaction_id"])]
+    frame = pd.concat([history, fixture], ignore_index=True)
+    country, registered = warehouse_con.execute(
+        "SELECT country, registration_date FROM customers WHERE customer_id = ?", [customer_id],
+    ).fetchone()
+    frame["home_country"] = country
+    frame["registration_date"] = pd.to_datetime(registered)
+    risk = pd.Series(score_transactions(frame, model.model_path), index=frame["transaction_id"])
+    scores = {tid: float(risk[tid]) for tid in fixture["transaction_id"]}
+    unscored = sorted(tid for tid, score in scores.items() if not math.isfinite(score))
+    if unscored:
+        raise RuntimeError(f"the fraud-risk model returned no score for fixture charge(s) {unscored}")
+    for column in FRAUD_RISK_COLUMNS:
+        fixture_con.execute(f"ALTER TABLE transactions ADD COLUMN {column} VARCHAR")
+    fixture_con.executemany(
+        f"UPDATE transactions SET {', '.join(f'{c} = ?' for c in FRAUD_RISK_COLUMNS)} WHERE transaction_id = ?",
+        [[str(score), str(model.threshold), model.version, tid] for tid, score in scores.items()],
+    )
+    logger.info("Scored %d fixture charge(s) with %s", len(scores), model.version)
+    return scores
+
+
+def build_fixture_db(
+    con: duckdb.DuckDBPyConnection, fixture_path: Path, customer_id: str,
+    fraud_model: FraudModel | None = None, history_warehouse: Path | None = None,
+) -> None:
     fixture_path.unlink(missing_ok=True)
     fcon = duckdb.connect(str(fixture_path))
     try:
@@ -238,6 +348,10 @@ def build_fixture_db(con: duckdb.DuckDBPyConnection, fixture_path: Path, custome
         )
         fcon.execute("UPDATE transactions SET _is_synthetic = 'False' WHERE _is_synthetic IS NULL")
         _insert_synthetic_charges(con, fcon, customer_id, columns)
+        if fraud_model is not None:
+            score_fixture_charges(
+                con, fcon, customer_id=customer_id, model=fraud_model, history_warehouse=history_warehouse,
+            )
     finally:
         fcon.close()
     logger.info("Fixture written to %s", fixture_path)
@@ -260,16 +374,23 @@ def run(
     warehouse_path: Path = DEFAULT_WAREHOUSE_PATH,
     fixture_path: Path = DEFAULT_FIXTURE_PATH,
     demo_users_path: Path = DEFAULT_DEMO_USERS_PATH,
+    fraud_model_path: Path = DEFAULT_MODEL_PATH,
+    fraud_report_path: Path = DEFAULT_FRAUD_REPORT_PATH,
+    history_warehouse: Path | None = DEFAULT_FRAUD_WAREHOUSE_PATH,
 ) -> dict:
+    # The deployed fixture always carries the estimate: a missing model fails here.
+    fraud_model = FraudModel.load(fraud_model_path, fraud_report_path)
     con = duckdb.connect(str(warehouse_path), read_only=True)
     try:
         customer_id = select_demo_customer(con)
         logger.info("Selected demo customer %s", customer_id)
-        build_fixture_db(con, fixture_path, customer_id)
+        build_fixture_db(con, fixture_path, customer_id, fraud_model, history_warehouse)
     finally:
         con.close()
     write_demo_users(customer_id, demo_users_path)
-    return {"customer_id": customer_id, "synthetic_charges": len(SYNTHETIC_CHARGES)}
+    return {
+        "customer_id": customer_id, "synthetic_charges": len(SYNTHETIC_CHARGES), "fraud_model": fraud_model.version,
+    }
 
 
 def main() -> int:

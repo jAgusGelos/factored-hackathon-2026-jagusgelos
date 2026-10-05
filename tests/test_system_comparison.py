@@ -61,7 +61,11 @@ PRE_EXISTING_CASE_RECORD_KEYS = {
 }
 STATEMENT_CASE_RECORD_KEYS = {"account_given", "escalation_reason", "statement_status"}
 PROTECTIVE_BLOCK_CASE_RECORD_KEYS = {"card_blocked"}
-STATEMENT_NESTED_KEYS = {"escalation_quality": {"statement_completeness_rate", "protective_card_block"}}
+FRAUD_GATE_CASE_RECORD_KEYS = {"charge_in_handoff", "model_estimate_in_handoff"}
+STATEMENT_NESTED_KEYS = {
+    "escalation_quality": {"statement_completeness_rate", "protective_card_block", "model_estimate_in_handoff"},
+}
+FRAUD_GATE_TOP_LEVEL_KEYS = {"fraud_gate"}
 
 
 # -- Variants on the decision seam (no fixture needed) ------------------------------
@@ -246,12 +250,16 @@ def test_the_comparison_is_captioned_honestly(comparison):
 @requires_real_fixture
 def test_the_pre_existing_report_keys_are_unchanged(comparison):
     report, _ = comparison
-    assert set(report) == PRE_EXISTING_TOP_LEVEL_KEYS | {"system_comparison"}
+    assert set(report) == PRE_EXISTING_TOP_LEVEL_KEYS | FRAUD_GATE_TOP_LEVEL_KEYS | {"system_comparison"}
     for block, keys in PRE_EXISTING_NESTED_KEYS.items():
         assert set(report[block]) == keys | STATEMENT_NESTED_KEYS.get(block, set()), block
     assert all(set(summary) == PRE_EXISTING_LANGUAGE_SUMMARY_KEYS for summary in report["by_language"].values())
     assert all(
-        set(record) == PRE_EXISTING_CASE_RECORD_KEYS | STATEMENT_CASE_RECORD_KEYS | PROTECTIVE_BLOCK_CASE_RECORD_KEYS for records in report["by_group"].values() for record in records
+        set(record) == (
+            PRE_EXISTING_CASE_RECORD_KEYS | STATEMENT_CASE_RECORD_KEYS | PROTECTIVE_BLOCK_CASE_RECORD_KEYS
+            | FRAUD_GATE_CASE_RECORD_KEYS
+        )
+        for records in report["by_group"].values() for record in records
     )
 
 

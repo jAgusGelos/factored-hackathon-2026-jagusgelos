@@ -55,16 +55,18 @@ from unittest.mock import MagicMock, patch
 
 import anthropic
 
-from app import cases, config, db
+from app import cases, config, db, fixture_db
 from app.case_model import TERMINAL_STATES, EscalationReason
-from app.handoffs import StatementStatus
+from app.handoffs import INTERNAL_FACTS, StatementStatus, for_customer_session
 from app.llm import Language
 from app.policy import (
     AUTO_CREDITABLE_REASONS,
+    AUTO_RESOLVE_MAX_FRAUD_SCORE,
     DisputeContext,
     ResolutionDecision,
     ResolutionEvaluation,
     evaluate_resolution,
+    fraud_score_flagged,
 )
 from app.state_machine import CaseState, ChatReply, CustomerAction, handle_message
 from app.transactions import TransactionCandidate
@@ -182,6 +184,9 @@ class CaseOutcome:
     account_given: bool = False
     # AD-14: the escalation blocked the card (`simulated_card_block` on an escalated case).
     card_blocked: bool = False
+    # AD-15: the advisor's handoff names a charge, and carries the fraud-risk model's estimate.
+    charge_in_handoff: bool = False
+    model_estimate_in_handoff: bool = False
     # Harness-only provenance: set when a baseline's decision differed from
     # what the real policy decided (see _DecisionSeam). Always None for the hybrid.
     decision_override: dict[str, str] | None = None
@@ -347,16 +352,36 @@ def _final_outcome_fields(
     if case is None:
         raise RuntimeError(f"eval case {case_key!r}: case {case_id!r} not found in {app_db_path}")
     reported = (case.handoff or {}).get("customer_reported", {})
+    facts = (case.handoff or {}).get("verified_facts", {})
     events = event_sequence(app_db_path, case_id)
     final = {
         "escalation_reason": case.escalation_reason, "statement_status": reported.get("statement_status"),
         "card_blocked": case.state == CaseState.ESCALATED and "simulated_card_block" in events,
+        "charge_in_handoff": "transaction_id" in facts,
+        "model_estimate_in_handoff": "fraud_risk_estimate" in facts,
     }
     as_expected = (
         all(final[key] == value for key, value in (expect or {}).items())
         and not _handoff_quotes_the_customer(case, steps)
+        and not _customer_view_shows_fraud_figures(case)
     )
     return {**final, "account_given": "handoff_statement_skipped" in events}, as_expected
+
+
+def _customer_view_shows_fraud_figures(case: cases.Case) -> bool:
+    """AD-15: the customer's own `/api/case` view never carries the fraud
+    score or the model's estimate. Checked on every case by value, not with
+    the filter's own key list: no internal fact's key or stored text may
+    appear anywhere in what the customer's session receives.
+    """
+    stored = (case.handoff or {}).get("verified_facts")
+    if not isinstance(stored, dict):
+        stored = {}
+    internal = {key: value for key, value in stored.items() if key in INTERNAL_FACTS}
+    shown = json.dumps(for_customer_session(case.handoff) or {}, ensure_ascii=False)
+    # The bare score is a short number that can occur in other fields; its key cannot.
+    distinctive = [value for key, value in internal.items() if key != "fraud_score" and value]
+    return any(key in shown for key in INTERNAL_FACTS) or any(value in shown for value in distinctive)
 
 
 # Long enough to be the customer's own words rather than a button label.
@@ -644,11 +669,13 @@ def _pick_with_statement(transaction_id: str, statement: dict | None = None) -> 
     ]
 
 
-def _protective_case(case_key: str, steps: list[Step], *, blocked: bool, **kwargs) -> Callable[[Path], CaseOutcome]:
+def _protective_case(
+    case_key: str, steps: list[Step], *, blocked: bool, also_expect: dict[str, object] | None = None, **kwargs,
+) -> Callable[[Path], CaseOutcome]:
     def run(app_db_path: Path) -> CaseOutcome:
         return _run_script(
             GROUP_PROTECTIVE_BLOCK, case_key, steps, expected_state=CaseState.ESCALATED,
-            app_db_path=app_db_path, expect={"card_blocked": blocked}, **kwargs,
+            app_db_path=app_db_path, expect={"card_blocked": blocked, **(also_expect or {})}, **kwargs,
         )
     return run
 
@@ -663,7 +690,10 @@ _CARD_LOST = {
 
 PROTECTIVE_BLOCK_SCENARIOS: tuple[Callable[[Path], CaseOutcome], ...] = (
     # Fraud escalations the customer denies or a lost card: blocked.
-    _protective_case("fraud_score_denied", _pick_with_statement(FRAUD_SCORE_CHARGE), blocked=True),
+    _protective_case(
+        "fraud_score_denied", _pick_with_statement(FRAUD_SCORE_CHARGE), blocked=True,
+        also_expect={"model_estimate_in_handoff": True},
+    ),
     _protective_case("card_present_denied", _pick_and_explain(CARD_PRESENT_CHARGE), blocked=True),
     _protective_case("card_lost_over_cap", _pick_with_statement(OVER_LIMIT_CHARGE, _CARD_LOST), blocked=True),
     # Escalations unrelated to fraud: never blocked.
@@ -771,6 +801,124 @@ def _statement_completeness(escalated: list[CaseOutcome]) -> dict:
     }
 
 
+def _model_estimate_summary(escalated: list[CaseOutcome]) -> dict:
+    with_charge = [o for o in escalated if o.charge_in_handoff]
+    with_estimate = [o for o in with_charge if o.model_estimate_in_handoff]
+    return {
+        "count": len(with_estimate), "of_escalated_naming_a_charge": len(with_charge),
+        "escalated": len(escalated),
+        "note": (
+            "Escalated handoffs naming a charge that carry the fraud-risk model's estimate (labelled as a "
+            "model estimate, with its version and reference threshold). The other escalations named no "
+            "charge (a request for a person, not in the list, a service failure). Every case is unsafe if "
+            "the customer's own view shows a fraud figure."
+        ),
+    }
+
+
+# -- AD-15: the fraud gate the policy ships, against the alternatives ----------
+
+FRAUD_REPORT_PATH = REPO_ROOT / "data" / "fraud_eval_report.json"
+SHIPPED_FRAUD_GATE = f"fraud_score > {AUTO_RESOLVE_MAX_FRAUD_SCORE:g}"
+
+
+def _gate_row(label: str, rule: str, measured: dict) -> dict:
+    return {
+        "gate": label, "rule": rule, "escalated": measured["escalated"],
+        "frauds_caught": measured["frauds_escalated"],
+        "frauds_credited_automatically": measured["frauds_auto_credited"],
+        "precision_of_escalations": round(measured["precision_escalated"], 4),
+        "cost_per_1000_charges_usd": round(measured["cost_per_1000_charges_usd"], 2),
+    }
+
+
+def _previous_default(fraud_report: dict) -> dict:
+    """The old `fraud_score >= 30` gate as measured on the test fold; its
+    `threshold` is the previous default, read from the report, never restated.
+    """
+    return fraud_report["thresholds"]["scores"]["fraud_score"]["test_current_policy_30"]
+
+
+def _shipped_rule_was_measured(fraud_score_thresholds: dict) -> bool:
+    """The report measures its validation optimum; every threshold in
+    [cost_equivalent_lower_bound, optimum) escalates the same charges, so the
+    measured row describes the shipped `> AUTO_RESOLVE_MAX_FRAUD_SCORE` rule
+    only when the constant lies in that interval.
+    """
+    lower = fraud_score_thresholds["cost_equivalent_lower_bound"]
+    return lower <= AUTO_RESOLVE_MAX_FRAUD_SCORE < fraud_score_thresholds["threshold_chosen_on_val"]
+
+
+def _measured_gates(fraud_report: dict) -> dict:
+    """The three candidate gates on the fraud model's chronological test fold
+    (MEASURED by `python -m etl.evaluate_fraud_model`, transaction-level proxy population).
+    """
+    thresholds = fraud_report["thresholds"]
+    scores = thresholds["scores"]
+    if not _shipped_rule_was_measured(scores["fraud_score"]):
+        raise ValueError(
+            f"{FRAUD_REPORT_PATH}: its fraud_score optimum does not cover the shipped rule {SHIPPED_FRAUD_GATE}"
+        )
+    model = fraud_report["selected_on_validation"]
+    model_threshold = scores[model]["threshold_chosen_on_val"]
+    previous = _previous_default(fraud_report)
+    return {
+        "label": "MEASURED",
+        "population": thresholds["population"]["definition"],
+        "test_frauds": thresholds["population"]["test_frauds"],
+        "test_rows": thresholds["population"]["test_rows"],
+        "gates": [
+            _gate_row("shipped", SHIPPED_FRAUD_GATE, scores["fraud_score"]["test"]),
+            _gate_row("previous default", f"fraud_score >= {previous['threshold']:g}", previous),
+            # `etl.evaluate_fraud_model.expected_cost` escalates at score >= threshold.
+            _gate_row("model gate (not shipped)", f"{model} risk >= {model_threshold}", scores[model]["test"]),
+        ],
+    }
+
+
+def _fixture_gates(previous_max_fraud_score: float) -> dict:
+    """How the same gates read the demo fixture's charges (model estimate precomputed offline)."""
+    con = fixture_db.get_connection(REAL_FIXTURE_PATH)
+    try:
+        if not fixture_db.fraud_risk_is_stored(con):
+            return {"label": "SIMULATED", "charges": None, "note": "fixture built before the fraud-risk estimate"}
+        rows = con.execute(
+            "SELECT transaction_id, CAST(fraud_score AS DOUBLE), CAST(fraud_risk AS DOUBLE), "
+            "CAST(fraud_risk_threshold AS DOUBLE) FROM transactions ORDER BY transaction_id"
+        ).fetchall()
+    finally:
+        con.close()
+    return {
+        "label": "SIMULATED (demo fixture, synthetic charges included)",
+        "charges": len(rows),
+        "flagged_by_shipped_gate": [r[0] for r in rows if fraud_score_flagged(r[1])],
+        "flagged_by_previous_default": [r[0] for r in rows if r[1] is not None and r[1] >= previous_max_fraud_score],
+        "flagged_by_model_gate": [r[0] for r in rows if r[2] is not None and r[2] >= r[3]],
+    }
+
+
+def build_fraud_gate_section(fraud_report_path: Path = FRAUD_REPORT_PATH) -> dict:
+    if not fraud_report_path.exists():
+        return {
+            "shipped": SHIPPED_FRAUD_GATE, "measured": None, "fixture": None,
+            "note": f"{fraud_report_path} not found",
+        }
+    fraud_report = json.loads(fraud_report_path.read_text())
+    previous_max_fraud_score = _previous_default(fraud_report)["threshold"]
+    return {
+        "shipped": SHIPPED_FRAUD_GATE,
+        "measured": _measured_gates(fraud_report),
+        "fixture": _fixture_gates(previous_max_fraud_score) if REAL_FIXTURE_PATH.exists() else None,
+        "note": (
+            "The policy gates on fraud_score above 30 (AD-15): on the test fold it catches the same frauds "
+            "as the previous >= 30 default with fewer escalations, and the fraud-risk model gate catches no "
+            "extra fraud for more escalations. The model's estimate reaches only the advisor's handoff. "
+            "Every gate flags the same single demo charge, so the conversation suite above cannot tell "
+            "them apart; the measured rows are the evidence."
+        ),
+    }
+
+
 _COMPARISON_ONLY_FIELDS = ("decision_override",)
 
 
@@ -820,7 +968,9 @@ def build_report(outcomes: list[CaseOutcome]) -> dict:
             "real_data_match_rate_finding": REAL_DATA_MATCH_RATE_FINDING,
             "statement_completeness_rate": _statement_completeness(escalated),
             "protective_card_block": _protective_block_summary(escalated),
+            "model_estimate_in_handoff": _model_estimate_summary(escalated),
         },
+        "fraud_gate": build_fraud_gate_section(),
         "unsafe_outcomes": {
             "count": len(unsafe), "of_attempted": len(outcomes),
             "cases": [o.case_key for o in unsafe],
