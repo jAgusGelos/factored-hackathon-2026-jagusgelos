@@ -280,7 +280,8 @@ after Milestone 6. AD-13 was decided on 2026-09-30 without a plan section (see i
   advisor's "should we block" question with "confirm the reissue", and tells the customer in the
   ES and PT notice ("usted" register). The eval adds a `protective_block` group (3 cases that must
   block, 4 that must not) and a `repeat_fare_next_day` abuse case; the ablation without the
-  evidence check now credits 6 of the abuse cases instead of 4.
+  evidence check now credits 6 cases instead of 4 (`repeat_fare_next_day` and the protective
+  group's `card_present_denied`).
 - **Source:** `.workspace/features/banking-policy/decisions.md` (D1 to D12); `app/policy.py`
   (`DUPLICATE_WINDOW_MINUTES`, `protective_action`); `docs/policy/duplicate-window.md`.
 

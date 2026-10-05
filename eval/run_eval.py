@@ -654,7 +654,12 @@ def _protective_case(case_key: str, steps: list[Step], *, blocked: bool, **kwarg
 
 
 _RECOGNIZED = {**GIVEN_STATEMENT, "denies_purchase": "no", "summary": "El cliente reconoce la compra."}
-_CARD_LOST = {**GIVEN_STATEMENT, "card_possession": "no", "card_loss": "lost"}
+# The purchase is not denied, so the lost card is the only fraud signal (a
+# denied card-present charge would block by itself).
+_CARD_LOST = {
+    **GIVEN_STATEMENT, "denies_purchase": "no", "card_possession": "no", "card_loss": "lost",
+    "summary": "El cliente hizo la compra y después perdió la tarjeta.",
+}
 
 PROTECTIVE_BLOCK_SCENARIOS: tuple[Callable[[Path], CaseOutcome], ...] = (
     # Fraud escalations the customer denies or a lost card: blocked.
@@ -672,7 +677,7 @@ PROTECTIVE_BLOCK_SCENARIOS: tuple[Callable[[Path], CaseOutcome], ...] = (
         [
             Step(DISPUTE_OPENING[Language.ES], charge_extraction(date="2024-04-22")),
             Step(HUMAN_REQUEST[Language.ES], charge_extraction(wants_human=True)),
-            Step(STATEMENT[Language.ES]),
+            Step(STATEMENT[Language.ES], statement=_RECOGNIZED),
         ],
         blocked=False,
     ),
