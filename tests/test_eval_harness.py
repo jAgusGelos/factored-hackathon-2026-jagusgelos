@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from app.case_model import CaseState
 from eval.run_eval import CaseOutcome, build_report, run
 from tests.support import requires_real_fixture
@@ -62,7 +64,7 @@ def test_run_covers_the_policy_abuse_scenarios(tmp_path):
     assert policy_keys == {
         "card_present_unrecognized", "merchant_history_unrecognized", "duplicate_without_twin",
         "not_received_merchant_dispute", "explanation_injection", "second_unrecognized_credit",
-        "duplicate_pair_twice", "same_charge_after_escalation",
+        "duplicate_pair_twice", "same_charge_after_escalation", "repeat_fare_next_day",
     }
     assert all(c["actual_state"] == "escalated" for c in report["by_group"]["policy_abuse"])
 
@@ -142,3 +144,69 @@ def test_run_writes_a_report_file(tmp_path, monkeypatch):
     assert report_path.exists()
     assert Path(report_path).stat().st_size > 0
     assert "system_comparison" in json.loads(report_path.read_text())
+
+
+def test_a_fraud_escalation_blocks_the_card_and_no_other_escalation_does(tmp_path):
+    report = run(tmp_path / "eval_app.db")
+    protective = {c["case_key"]: c for c in report["by_group"]["protective_block"]}
+
+    assert {k for k, c in protective.items() if c["card_blocked"]} == {
+        "fraud_score_denied", "card_present_denied", "card_lost_over_cap",
+    }
+    assert all(c["safe"] and c["actual_state"] == "escalated" for c in protective.values())
+    blocked = report["escalation_quality"]["protective_card_block"]["blocked_case_keys"]
+    assert set(protective) & set(blocked) == {"fraud_score_denied", "card_present_denied", "card_lost_over_cap"}
+
+
+def test_every_escalation_naming_a_charge_carries_the_model_estimate_and_the_customer_never_sees_it(tmp_path):
+    """AD-15: the estimate reaches every advisor handoff that names a charge;
+    a fraud figure in the customer's own view makes the case unsafe, and none is.
+    """
+    report = run(tmp_path / "eval_app.db")
+    summary = report["escalation_quality"]["model_estimate_in_handoff"]
+    assert summary["of_escalated_naming_a_charge"] > 0
+    assert summary["count"] == summary["of_escalated_naming_a_charge"]
+    assert report["unsafe_outcomes"]["count"] == 0
+
+
+def test_the_report_evaluates_the_shipped_fraud_gate_against_the_alternatives(tmp_path):
+    report = run(tmp_path / "eval_app.db")
+    gate = report["fraud_gate"]
+    assert gate["shipped"] == "fraud_score > 30"
+    if gate["measured"] is None:
+        pytest.skip("data/fraud_eval_report.json not built (python -m etl.evaluate_fraud_model)")
+    rows = {row["gate"]: row for row in gate["measured"]["gates"]}
+    shipped, previous = rows["shipped"], rows["previous default"]
+    assert shipped["rule"] == gate["shipped"] and gate["measured"]["label"] == "MEASURED"
+    assert shipped["frauds_caught"] >= previous["frauds_caught"]
+    assert shipped["cost_per_1000_charges_usd"] <= min(r["cost_per_1000_charges_usd"] for r in rows.values())
+
+
+def test_the_leak_check_flags_a_customer_view_that_shows_a_fraud_figure(monkeypatch):
+    """The per-case leak check compares values, so it is not a restatement of
+    the filter it guards: with the filter disabled it flags the case.
+    """
+    from app import handoffs
+    from app.cases import Case
+    from eval import run_eval
+
+    stored = {
+        "verified_facts": {
+            "transaction_id": "TRX-1", "fraud_score": "91.0",
+            "fraud_risk_estimate": "99.9376 % (estimación del modelo, no un hecho verificado)",
+            "fraud_model_version": "logistic_stacked-d7c46aeb",
+        },
+        "policy_reasons": [],
+    }
+    case = Case(
+        case_id="CASE-1", customer_id="CLI-1", state="escalated", language="es", reported_amount=None,
+        reported_currency=None, reported_date=None, matched_transaction_id="TRX-1", clarification_rounds=0,
+        resolution_reference=None, handoff=stored,
+    )
+    assert not run_eval._customer_view_shows_fraud_figures(case)
+    monkeypatch.setattr(run_eval, "for_customer_session", lambda handoff: handoff)
+    assert run_eval._customer_view_shows_fraud_figures(case)
+    renamed = {"verified_facts": {f"x{i}": v for i, v in enumerate(stored["verified_facts"].values())}}
+    monkeypatch.setattr(run_eval, "for_customer_session", lambda handoff: renamed)
+    assert run_eval._customer_view_shows_fraud_figures(case)
+    assert handoffs.INTERNAL_FACTS >= {"fraud_risk_estimate", "fraud_model_version"}

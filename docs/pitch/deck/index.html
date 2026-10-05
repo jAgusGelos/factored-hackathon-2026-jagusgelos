@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LATAM Bank Dispute Agent</title>
+<style>
+  :root {
+    --primary: #14335c;
+    --primary-soft: #e8eef6;
+    --on-primary: #ffffff;
+    --on-primary-muted: #c9d6e8;
+    --on-primary-accent: #4d7ab8;
+    --canvas: #d9dde3;
+    --background: #f6f7f9;
+    --surface: #ffffff;
+    --border: #dde1e7;
+    --border-strong: #c3c9d3;
+    --text: #1a2130;
+    --text-muted: #5b6472;
+    --success: #1a7f4e;
+    --success-strong: #145c39;
+    --success-bg: #e5f5ec;
+    --warning-strong: #7a4500;
+    --warning-bg: #fdf1de;
+    --info: #205493;
+    --info-bg: #e8eef6;
+    --danger: #b3261e;
+    --pending-bg: #eef0f3;
+    --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Liberation Sans", Arial, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --shadow-md: 0 4px 12px rgba(20, 51, 92, 0.10);
+    --shadow-slide: 0 8px 30px rgba(20, 51, 92, 0.18);
+    --on-primary-line: rgba(255, 255, 255, 0.18);
+    --on-primary-border: rgba(255, 255, 255, 0.4);
+    --on-primary-fill: rgba(255, 255, 255, 0.08);
+    --on-primary-card-border: rgba(255, 255, 255, 0.22);
+    --on-primary-underline: rgba(255, 255, 255, 0.45);
+    --slide-w: 1280px;
+    --slide-h: 720px;
+    --gutter: 64px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: var(--canvas); font-family: var(--font-sans); color: var(--text); -webkit-font-smoothing: antialiased; }
+  h1, h2, h3, p, ul, ol { margin: 0; }
+
+  .deck { display: flex; flex-direction: column; align-items: center; gap: 32px; padding: 32px 16px; }
+  .slide {
+    width: var(--slide-w); height: var(--slide-h); flex-shrink: 0;
+    position: relative; overflow: hidden;
+    background: var(--surface);
+    display: flex; flex-direction: column;
+    padding: 0 var(--gutter) 28px;
+    box-shadow: var(--shadow-slide);
+  }
+  .slide--navy { background: var(--primary); color: var(--on-primary); }
+  .slide--paper { background: var(--background); }
+
+  .topbar {
+    height: 64px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    font-size: 16px; font-weight: 600; letter-spacing: 0.4px; color: var(--text-muted);
+    margin-bottom: 28px;
+  }
+  .slide--navy .topbar { border-bottom-color: var(--on-primary-line); color: var(--on-primary-muted); }
+  .slide::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 6px; background: var(--primary); }
+  .slide--navy::before { background: var(--on-primary-accent); }
+  .topbar__num { font-variant-numeric: tabular-nums; }
+  .topbar__num b { color: var(--primary); font-weight: 800; }
+
+  .kicker { font-size: 16px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: var(--info); margin-bottom: 14px; }
+  .headline { font-size: 46px; line-height: 1.12; font-weight: 800; letter-spacing: -0.8px; color: var(--primary); }
+  .slide--navy .headline, .slide--navy .topbar__num b { color: var(--on-primary); }
+  .slide--navy .kicker, .slide--navy .muted, .slide--navy .source { color: var(--on-primary-muted); }
+  .headline--xl { font-size: 56px; letter-spacing: -1.2px; }
+  .why .headline--xl { font-size: 52px; }
+  .body { font-size: 24px; line-height: 1.45; }
+  .muted { color: var(--text-muted); }
+
+  .source {
+    margin-top: auto; padding-top: 14px;
+    font-size: 15px; line-height: 1.4; color: var(--text-muted);
+  }
+  .source code { font-family: var(--font-mono); font-size: 14px; }
+
+  .label {
+    display: inline-block; vertical-align: middle;
+    font-size: 13px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase;
+    padding: 4px 8px; border-radius: var(--radius-sm); line-height: 1.2; white-space: nowrap;
+  }
+  .label--measured { background: var(--success-bg); color: var(--success-strong); }
+  .label--simulated { background: var(--warning-bg); color: var(--warning-strong); }
+  .label--design { background: var(--info-bg); color: var(--info); }
+
+  .fact {
+    display: inline-flex; align-items: center; gap: 8px;
+    border: 2px solid var(--success); color: var(--success-strong); background: var(--success-bg);
+    border-radius: var(--radius-md); padding: 6px 12px;
+    font-size: 22px; font-weight: 700; line-height: 1.2; white-space: nowrap;
+  }
+  .fact::before { content: "✓"; font-weight: 800; }
+
+  .why { display: grid; grid-template-columns: 1fr 470px; gap: 56px; align-items: center; flex: 1; }
+  .why .body { margin-top: 26px; max-width: 600px; }
+  .why .body strong { color: var(--on-primary); }
+  .bignum { font-size: 220px; line-height: 0.9; font-weight: 800; letter-spacing: -8px; color: var(--on-primary); }
+  .bignum span { font-size: 110px; letter-spacing: -2px; margin-left: 10px; }
+  .bignum-caption { font-size: 24px; color: var(--on-primary-muted); margin-top: 16px; line-height: 1.35; }
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; align-items: center; }
+  .chip-dark {
+    display: inline-flex; align-items: center; gap: 8px;
+    border: 1.5px solid var(--on-primary-border); border-radius: var(--radius-md);
+    padding: 6px 12px; font-size: 22px; font-weight: 700; color: var(--on-primary);
+  }
+  .why-footer {
+    display: flex; align-items: center; gap: 14px;
+    border-top: 1px solid var(--on-primary-line); padding-top: 18px; margin-top: 12px;
+    font-size: 22px; line-height: 1.4;
+  }
+
+  .moments { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; margin-top: 22px; }
+  .moment__head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .moment__n {
+    width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+    display: grid; place-items: center; font-size: 18px; font-weight: 800; color: var(--on-primary);
+  }
+  .moment__title { font-size: 26px; font-weight: 800; color: var(--primary); }
+  .moment--resolve .moment__n { background: var(--success); }
+  .moment--ask .moment__n { background: var(--info); }
+  .moment--handoff .moment__n { background: var(--primary); }
+  /* Screenshot crop: --src image, --iw its pixel width, --s scale, --x/--y crop origin in image px, --dx optional nudge. */
+  .shot {
+    height: 244px; border-radius: var(--radius-lg); border: 1px solid var(--border-strong);
+    background-color: var(--background);
+    background-image: var(--src); background-repeat: no-repeat;
+    background-size: calc(var(--iw) * var(--s) * 1px) auto;
+    background-position: calc(var(--x) * var(--s) * -1px + var(--dx, 0px)) calc(var(--y) * var(--s) * -1px);
+    box-shadow: var(--shadow-md);
+  }
+  .moment__caption { font-size: 22px; line-height: 1.35; margin-top: 14px; }
+  .strip {
+    display: flex; flex-wrap: wrap; gap: 10px 28px; align-items: center;
+    margin-top: 20px; padding: 12px 18px; border-radius: var(--radius-md);
+    background: var(--primary-soft); color: var(--primary); font-size: 22px; font-weight: 600;
+  }
+
+  .diagram { display: block; width: 1070px; height: auto; margin: 10px auto 0; }
+  .rules { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 12px; }
+  .rule { border-left: 4px solid var(--primary); padding: 2px 0 2px 16px; }
+  .rule__what { font-size: 22px; font-weight: 700; color: var(--text-muted); }
+  .rule__value { font-size: 22px; font-weight: 700; color: var(--primary); line-height: 1.3; margin-top: 4px; }
+
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; margin-top: 20px; }
+  .card { border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface); overflow: hidden; display: flex; flex-direction: column; }
+  .card__head { background: var(--primary-soft); color: var(--primary); font-size: 22px; font-weight: 800; padding: 10px 18px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .card__body { padding: 6px 18px 14px; display: flex; flex-direction: column; }
+  .row { padding: 7px 0; border-bottom: 1px solid var(--border); }
+  .row:last-child { border-bottom: 0; }
+  .row__label { font-size: 14px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 3px; }
+  .row__value { font-size: 22px; line-height: 1.3; }
+  .row__value b { color: var(--primary); }
+  .value-line { margin-top: 14px; font-size: 24px; font-weight: 700; color: var(--primary); }
+  .bars { --bars-max: 0.8; display: grid; grid-template-columns: 104px 1fr; gap: 6px 10px; align-items: center; margin-top: 6px; }
+  .bars__name { font-size: 22px; color: var(--text-muted); font-weight: 600; }
+  .bars__track { height: 36px; background: var(--pending-bg); border-radius: var(--radius-sm); position: relative; }
+  .bars__fill { height: 100%; border-radius: var(--radius-sm); width: calc(var(--v) / var(--bars-max) * 100%); display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; font-size: 22px; font-weight: 800; }
+  .bars__fill--muted { background: var(--border-strong); color: var(--text); }
+  .bars__fill--accent { background: var(--primary); color: var(--on-primary); }
+
+  .proof { display: grid; grid-template-columns: 330px 1fr; gap: 40px; margin-top: 16px; }
+  .hero-num { font-size: 108px; line-height: 0.95; font-weight: 800; color: var(--success-strong); letter-spacing: -4px; }
+  .hero-num small { font-size: 56px; color: var(--text-muted); letter-spacing: -1px; }
+  .hero-caption { font-size: 24px; font-weight: 700; margin-top: 8px; }
+  .stats { margin-top: 24px; display: flex; flex-direction: column; gap: 12px; }
+  .stats__item { font-size: 22px; line-height: 1.3; }
+  .stats__item b { color: var(--primary); }
+  table.compare { width: 100%; border-collapse: collapse; font-size: 22px; }
+  .compare th { text-align: left; font-size: 15px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-muted); padding: 10px 12px; border-bottom: 2px solid var(--border-strong); vertical-align: bottom; line-height: 1.3; }
+  .compare th.num, .compare td.num { text-align: center; }
+  .compare td { padding: 9px 12px; border-bottom: 1px solid var(--border); }
+  .compare td.num { font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .compare tr.ours td { background: var(--success-bg); }
+  .compare tr.ours td:first-child { font-weight: 800; color: var(--success-strong); }
+  .compare .bad { color: var(--danger); }
+  .compare .sys { font-weight: 700; }
+  .compare .sys small { display: block; font-size: 22px; font-weight: 500; color: var(--text-muted); }
+  .read { font-size: 22px; line-height: 1.4; margin-top: 10px; }
+  .caveat {
+    margin-top: 12px; padding: 10px 16px; border-radius: var(--radius-md);
+    background: var(--warning-bg); border-left: 5px solid var(--warning-strong);
+    font-size: 22px; line-height: 1.35; color: var(--text);
+  }
+  .caveat b { color: var(--warning-strong); }
+
+  .roadmap { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin: 30px 0 0; padding: 0; list-style: none; }
+  .step { background: var(--on-primary-fill); border: 1px solid var(--on-primary-card-border); border-radius: var(--radius-lg); padding: 18px; }
+  .step__n { font-size: 16px; font-weight: 800; letter-spacing: 2px; color: var(--on-primary-muted); }
+  .step__title { font-size: 26px; font-weight: 800; margin-top: 6px; }
+  .step__text { font-size: 22px; line-height: 1.35; margin-top: 8px; color: var(--on-primary-muted); }
+  .links { display: grid; grid-template-columns: auto 1fr; gap: 8px 20px; margin-top: 30px; font-size: 24px; align-items: baseline; }
+  .links dt { font-size: 15px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: var(--on-primary-muted); }
+  .links dd { margin: 0; font-weight: 700; }
+  .links a { color: var(--on-primary); text-decoration: underline; text-decoration-color: var(--on-primary-underline); text-underline-offset: 4px; }
+  .promise { margin-top: auto; font-size: 32px; line-height: 1.3; font-weight: 800; letter-spacing: -0.3px; }
+  .promise span { color: var(--on-primary-muted); }
+
+  @media screen and (max-width: 1312px) {
+    .deck { gap: 16px; }
+    .slide { zoom: calc(100vw / 1312px); }
+  }
+  @page { size: 1280px 720px; margin: 0; }
+  @media print {
+    body { background: none; }
+    .deck { display: block; padding: 0; gap: 0; }
+    .slide { box-shadow: none; break-after: page; zoom: 1; }
+    .slide:last-child { break-after: auto; }
+  }
+</style>
+</head>
+<body>
+<main class="deck">
+
+  <section class="slide slide--navy" id="slide-1" aria-label="Slide 1: Why">
+    <header class="topbar"><span class="topbar__num"><b>01</b> / 06 · Why</span><span>LATAM Bank · Dispute agent</span></header>
+    <div class="why">
+      <div>
+        <p class="kicker">The customer's pain</p>
+        <h1 class="headline headline--xl">You see a charge you never made. Then you typically wait 37 hours to hear back.</h1>
+        <p class="body muted">A customer who reports a charge they do not recognize waits a <strong>median of 37 hours</strong> for the bank's first response. One in ten waits <strong>58 hours or more</strong>. Until then, the charge sits on their account with no answer.</p>
+      </div>
+      <div>
+        <div class="bignum">37<span>h</span></div>
+        <p class="bignum-caption">median wait for a first response to "<span lang="es">Cargo no reconocido</span>" (unrecognized charge)</p>
+        <div class="chips">
+          <span class="label label--measured">Measured</span>
+          <span class="chip-dark">p90 58 h</span>
+          <span class="chip-dark">n = 7,567 of 12,297</span>
+        </div>
+      </div>
+    </div>
+    <div class="why-footer">
+      <span><b>Why disputes:</b> a dispute can be checked in code against the customer's own ledger and decided by an explicit policy.</span>
+      <span class="label label--design">Design argument</span>
+    </div>
+    <p class="source">Source: <code>docs/analysis/demand-report.md</code> (finding 3: median 37.0 h, p90 58.0 h over the 7,567 of 12,297 complaints with a recorded first response). Measured on the challenge's synthetic LATAM Bank dataset, not a live bank.</p>
+  </section>
+
+  <section class="slide slide--paper" id="slide-2" aria-label="Slide 2: What">
+    <header class="topbar"><span class="topbar__num"><b>02</b> / 06 · What</span><span>The product, on real app screens</span></header>
+    <h1 class="headline">A dispute agent that knows when to act, when to ask, and when to step aside.</h1>
+    <div class="moments">
+      <article class="moment moment--resolve">
+        <div class="moment__head"><span class="moment__n">1</span><h2 class="moment__title">Resolves, with proof</h2></div>
+        <div class="shot" role="img" aria-label="Case panel: resolved, identity verified, transaction located, policy evaluated, reference number" style="--src:url(assets/screen-resolve.png); --iw:2560; --s:0.4; --x:1700; --y:305;"></div>
+        <p class="moment__caption">The record backs the claim, so a provisional credit lands in seconds, in the same chat.</p>
+      </article>
+      <article class="moment moment--ask">
+        <div class="moment__head"><span class="moment__n">2</span><h2 class="moment__title">Asks when it is unclear</h2></div>
+        <div class="shot" role="img" aria-label="Chat: two matching taxi charges shown as cards for the customer to pick" style="--src:url(assets/screen-ask.png); --iw:2560; --s:0.33; --x:205; --y:860;"></div>
+        <p class="moment__caption">Two matching charges: the customer picks from their own. It never guesses.</p>
+      </article>
+      <article class="moment moment--handoff">
+        <div class="moment__head"><span class="moment__n">3</span><h2 class="moment__title">Protects, hands off</h2></div>
+        <div class="shot" role="img" aria-label="Advisor's case file, actions taken: the agent blocked the card preventively (simulated, no money moved)" style="--src:url(assets/handoff-case-file.png); --iw:542; --s:0.574; --x:0; --y:2530; --dx:28px;"></div>
+        <p class="moment__caption">Likely fraud: the card is blocked first, then a person gets a complete file of verified facts.</p>
+      </article>
+    </div>
+    <div class="strip">
+      <span>Spanish and Portuguese</span>
+      <span>Credits and card blocks are simulated</span>
+    </div>
+  </section>
+
+  <section class="slide" id="slide-3" aria-label="Slide 3: How">
+    <header class="topbar"><span class="topbar__num"><b>03</b> / 06 · How</span><span>Trust by design</span></header>
+    <h1 class="headline headline--xl">The model reads. The code decides.</h1>
+    <img class="diagram" src="assets/architecture.svg" alt="Customer message goes to the model, which only extracts the facts; a state machine and policy in code decide using only the customer's own ledger and pay only on evidence; outcomes: resolve, ask, or hand off. Replies use only facts the code allows.">
+    <div class="rules">
+      <div class="rule"><p class="rule__what">The LLM only extracts and phrases</p><p class="rule__value">No refund comes from the model.</p></div>
+      <div class="rule"><p class="rule__what">Policy and permissions live in code</p><p class="rule__value">No lookup can reach another customer's ledger.</p></div>
+      <div class="rule"><p class="rule__what">Verified facts only</p><p class="rule__value">A persuasive claim the record contradicts still goes to a person.</p></div>
+    </div>
+    <p class="source">Design argument, enforced in code: an exhaustive sweep over every reason and all 128 combinations of the other conditions shows the classifier never causes a credit (<code>tests/test_policy_not_overridden.py</code>) · 1,121 automated tests · <code>docs/architecture-decisions.md</code> dispute-agent AD-3, AD-5, AD-13 to AD-15.</p>
+  </section>
+
+  <section class="slide slide--paper" id="slide-4" aria-label="Slide 4: Data and ML">
+    <header class="topbar"><span class="topbar__num"><b>04</b> / 06 · Data &amp; ML</span><span>Real data, honest numbers</span></header>
+    <h1 class="headline">Honest models: we ship only what the numbers back.</h1>
+    <div class="cards">
+      <section class="card">
+        <h2 class="card__head">ETL with contracts</h2>
+        <div class="card__body">
+          <div class="row"><p class="row__label">Contracts</p><p class="row__value"><b>9 tables</b>, one schema contract each</p></div>
+          <div class="row"><p class="row__label">Quality checks</p><p class="row__value">Row counts, duplicate keys, null rates, foreign keys, and a lineage manifest</p></div>
+          <div class="row"><p class="row__label">Foreign keys <span class="label label--measured">Measured</span></p><p class="row__value"><span class="fact">0 orphaned rows</span></p></div>
+        </div>
+      </section>
+      <section class="card">
+        <h2 class="card__head">Why a subset</h2>
+        <div class="card__body">
+          <div class="row"><p class="row__label">For analysis <span class="label label--measured">Measured</span></p><p class="row__value"><b>130,690 of 5M</b> transactions (May 18 to Jun 17, 2026); <b>67,095</b> complaints in full</p></div>
+          <div class="row"><p class="row__label">Live app</p><p class="row__value">1 customer, <b>16 charges</b> (6 real, 10 synthetic)</p></div>
+          <div class="row"><p class="row__label">Why <span class="label label--design">Design argument</span></p><p class="row__value">No S3 at runtime (privacy), reproducible, free-plan deploy; a dispute only needs the recent ledger</p></div>
+        </div>
+      </section>
+      <section class="card">
+        <h2 class="card__head">Fraud model vs the bank</h2>
+        <div class="card__body">
+          <div class="row"><p class="row__label">Data <span class="label label--measured">Measured</span></p><p class="row__value"><b>2,951,642</b> transactions over 2 years, split by date</p></div>
+          <div class="row">
+            <p class="row__label">Test PR-AUC <span class="label label--measured">Measured</span></p>
+            <div class="bars">
+              <span class="bars__name">Bank</span><div class="bars__track"><div class="bars__fill bars__fill--accent" style="--v: 0.720">0.720</div></div>
+              <span class="bars__name">Ours</span><div class="bars__track"><div class="bars__fill bars__fill--muted" style="--v: 0.707">0.707</div></div>
+            </div>
+          </div>
+          <div class="row"><p class="row__label">Shipped instead <span class="label label--measured">Measured</span></p><p class="row__value">Gate <b>fraud score &gt; 30</b>, chosen by cost (some inputs assumed). The model only informs the advisor.</p></div>
+        </div>
+      </section>
+    </div>
+    <p class="value-line">Our model lost to the bank's score, so it never decides: the rule the numbers back does.</p>
+    <p class="source">Sources: <code>etl/schema_contract.py</code>, <code>data/lineage_manifest.json</code>, <code>data/extraction_manifest.json</code>; <code>docs/ml/fraud-model.md</code>, AD-15 (on test, the gate's 48 escalations are all fraud). The priority classifier shows no measured lift (p = 0.45) and can only escalate.</p>
+  </section>
+
+  <section class="slide" id="slide-5" aria-label="Slide 5: Proof">
+    <header class="topbar"><span class="topbar__num"><b>05</b> / 06 · Proof</span><span>Evaluation on the real model</span></header>
+    <h1 class="headline">48 held-out conversations on the real model. Zero unsafe outcomes.</h1>
+    <div class="proof">
+      <div>
+        <div class="hero-num">0<small> / 48</small></div>
+        <p class="hero-caption">unsafe, in each of 3 runs <span class="label label--measured">Measured</span></p>
+        <div class="stats">
+          <p class="stats__item"><b>18 / 18</b> resolvable cases resolved</p>
+          <p class="stats__item"><b>26 / 26</b> card-block calls right</p>
+          <p class="stats__item"><b>3.0 s</b> median reply (p95 7.7 s)</p>
+          <p class="stats__item"><b>$0.004</b> per case</p>
+        </div>
+      </div>
+      <div>
+        <table class="compare">
+          <thead>
+            <tr><th>Same 48 cases <span class="label label--measured">Measured</span></th><th class="num">Correct<br>of 48</th><th class="num">Unsafe<br>of 48</th><th class="num">Unneeded transfers<br>of 18</th></tr>
+          </thead>
+          <tbody>
+            <tr class="ours"><td class="sys">Our hybrid<small>Claude Haiku 4.5, 3 runs</small></td><td class="num">43</td><td class="num">0</td><td class="num">0</td></tr>
+            <tr><td class="sys">Regex extractor<small>extraction swapped for rules, 1 run</small></td><td class="num">43</td><td class="num">0</td><td class="num">0</td></tr>
+            <tr><td class="sys">Always escalate<small>safety anchor, from labels</small></td><td class="num muted">n/a</td><td class="num">0</td><td class="num bad">18</td></tr>
+          </tbody>
+        </table>
+        <p class="read">Escalating everything is safe but helps no one. The 5 misses moved no money. <span class="muted">Mocked-model suite: without the evidence check, 6 unsafe credits.</span> <span class="label label--simulated">Simulated</span></p>
+      </div>
+    </div>
+    <p class="caveat"><b>Read with its limits:</b> one customer's account, messages written by a model that never saw the policy, labels fixed before the first run. 0 of 48 bounds the unsafe rate below about 7% (95%), not at zero.</p>
+    <p class="source">Sources: <code>docs/eval/measured-eval.md</code> (v2, 2026-10-05, ES and PT, Wilson 95% bound, cost at list price); simulated suite: <code>data/eval_report.json</code>.</p>
+  </section>
+
+  <section class="slide slide--navy" id="slide-6" aria-label="Slide 6: What's next">
+    <header class="topbar"><span class="topbar__num"><b>06</b> / 06 · What's next</span><span>Roadmap</span></header>
+    <p class="kicker">Route to production</p>
+    <h1 class="headline headline--xl">From demo to the bank's front line.</h1>
+    <ol class="roadmap">
+      <li class="step"><p class="step__n">STEP 1</p><p class="step__title">Real identity</p><p class="step__text">The bank's identity verification replaces the demo login.</p></li>
+      <li class="step"><p class="step__n">STEP 2</p><p class="step__title">Managed database</p><p class="step__text">Replicated storage across several instances, not local SQLite.</p></li>
+      <li class="step"><p class="step__n">STEP 3</p><p class="step__title">Monitoring</p><p class="step__text">The structured, correlated event log feeds alerting.</p></li>
+      <li class="step"><p class="step__n">STEP 4</p><p class="step__title">Real traffic</p><p class="step__text">Thresholds and the live model re-validated on real customer traffic.</p></li>
+    </ol>
+    <dl class="links">
+      <dt>Live demo</dt><dd><a href="https://factored-hackaton-latest.onrender.com/">factored-hackaton-latest.onrender.com</a></dd>
+      <dt>Code</dt><dd><a href="https://github.com/jAgusGelos/factored-hackathon-2026-jagusgelos">github.com/jAgusGelos/factored-hackathon-2026-jagusgelos</a></dd>
+    </dl>
+    <p class="promise">An answer in seconds, not 37 hours. <span>Every refund backed by evidence. Every hard case in a person's hands, with the file already complete.</span></p>
+  </section>
+
+</main>
+</body>
+</html>

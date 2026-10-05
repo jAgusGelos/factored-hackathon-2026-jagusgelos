@@ -1,11 +1,26 @@
 # Deployment guide (Task 6.1 / 6.2)
 
-> **Status: deployed on Render (2026-10-02): <https://factored-hackaton-latest.onrender.com/>.** Path B below, with the
+> **Status: deployed on Render (first deploy 2026-10-02, redeployed 2026-10-05 from `main` at
+> `7c07966`): <https://factored-hackaton-latest.onrender.com/>.** Path B below, with the
 > image `docker.io/agustingelos1/factored-hackaton:latest` (also tagged with the commit,
-> `:2ebc27b`) in a **private** Docker Hub repository (the image carries the demo fixture and
+> `:7c07966`; digest
+> `sha256:3f7b266b524da1bc27ec1813ab107de8ca76ed239fdc4e6c702956b8344aaad1`) in a **private**
+> Docker Hub repository (the image carries the demo fixture and
 > the trained classifier, AD-2), pulled by Render with a read-only access token stored as the
 > registry credential `dockerhub`. Free plan, so no persistent disk (see "On the deployed
 > instance" below). Fly.io (Path A) was not used: it requires a credit card on file.
+>
+> **Redeploy (2026-10-05):** the image now carries `main` at `7c07966` (banking policy AD-14:
+> 10-minute duplicate window and the protective card block; fraud integration AD-15: fraud
+> gate `fraud_score > 30` and the offline fraud estimate in the fixture) and the fixture the
+> measured eval v2 ran on. Checked on the live URL after a Manual Deploy: `GET /` 200 (32 s
+> cold start); login with the demo account, `/api/me` 200; "Tomé un solo taxi y me lo
+> cobraron dos veces" lists both `SYN-DEMO-TAXI-1/2` on 2026-06-15; "No reconozco una compra
+> en Tienda Online Global" asked for the statement, then escalated with the notice "Por su
+> seguridad bloqueamos su tarjeta..." and `/api/case` listed the simulated card block under
+> `actions_taken` with no fraud score or estimate in the customer's view. The same checks
+> passed first on the image locally (`--network host`), and the test suite passed on that
+> commit (1117 passed, 2 skipped, 2 xfailed).
 >
 > **On the deployed instance (2026-10-02):** `GET /` 200; login with the demo account, `/api/me`
 > 200; "No reconozco una compra en Tienda Online Global" asked for the statement
@@ -45,6 +60,12 @@ they must exist on disk before `docker build`:
 ```bash
 source .venv/bin/activate
 python etl/extract.py            # needs real AWS creds in .env, offline only, never in the image
+# The fixture build scores every charge with the fraud-risk model (AD-15), so build the model first:
+pip install -r requirements-analysis.txt   # matplotlib, for the evaluation charts
+python -m etl.extract --tables transactions --start-date 2024-06-17 \
+  --warehouse data/fraud_warehouse.duckdb --manifest data/fraud_extraction_manifest.json
+python -m etl.train_fraud_model      # data/fraud_model.joblib (offline only, never in the image)
+python -m etl.evaluate_fraud_model   # data/fraud_eval_report.json (the model's cost threshold)
 python etl/build_fixture.py      # produces data/fixture.duckdb + data/demo_users.json
 python etl/train_classifier.py   # produces data/classifier.joblib
 ls data/fixture.duckdb data/demo_users.json data/classifier.joblib   # confirm all 3 exist
@@ -77,8 +98,9 @@ Before writing the platform steps below, the Dockerfile itself was validated loc
 
 **What this does NOT prove:** the same test against the real Fly.io/Render platform
 (their own volume implementation, their own network path, their own restart mechanism).
-That remains the pending step once the account/billing decision is made: follow Path A
-or B below and repeat the same restart+AWS-unset check against the deployed instance.
+Render (Path B) was chosen on 2026-10-02. The AWS-unset half was then confirmed on the
+deployed instance (see the status block at the top). Restart persistence was not: the
+free plan has no persistent disk, so `data/app.db` starts empty on every restart.
 
 **Redeploy-refresh test (added after this session's own `/review-changes` FULL pass
 caught a real bug; 3 of 5 reviewers independently flagged it):** the first version of
@@ -137,8 +159,9 @@ fly machine restart <machine-id>   # `fly machine list` to get the id
 them: the deployed runtime has zero AWS dependency by design, AD-2). After the restart
 in the step above, confirm login → chat still returns 200. This is the platform-level
 version of the same proof `tests/test_main.py::test_app_serves_with_aws_env_unset`
-already gives locally (see `CONFORMANCE.md` row 9); running it for real is what remains
-once the account/billing decision is made.
+already gives locally (see `CONFORMANCE.md` row 9). Fly.io was not used; the equivalent
+check was done on the Render deployment instead (status block at the top: the service
+has no `AWS_*` variable and login and chat return 200).
 
 ## Path B: Render (fallback, per AD-7's documented alternative)
 

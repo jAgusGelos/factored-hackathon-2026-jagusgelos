@@ -1,0 +1,8 @@
+1
+00:00:00,105 --> 00:00:01,605
+I wanted that answer in seconds
+
+2
+00:00:02,039 --> 00:00:03,184
+And I wanted it to be right
+

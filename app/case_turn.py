@@ -14,7 +14,7 @@ Below `app/credit.py`, `app/explanation.py`, `app/statement.py` and
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TypedDict
@@ -31,7 +31,13 @@ from app.case_model import (
 )
 from app.charge_search import ChargeOption, charge_option, iso_day, offered_charges
 from app.llm import Language
-from app.policy import MAX_CLARIFICATION_ROUNDS
+from app.policy import (
+    MAX_CLARIFICATION_ROUNDS,
+    DisputeReason,
+    ProtectiveDecision,
+    fraud_score_flagged,
+    protective_action,
+)
 from app.transactions import TransactionCandidate
 
 
@@ -195,12 +201,40 @@ def current_options(turn: Turn) -> list[ChargeOption]:
 
 
 def _escalation_reply(
-    turn: Turn, reason: EscalationReason, *, charge: TransactionCandidate | None,
+    turn: Turn, reason: EscalationReason, *, charge: TransactionCandidate | None, card_blocked: bool = False,
 ) -> ChatReply:
     # A fixed template, not a model call: the case number, reason, deadline
     # and what the chat can still do are promises, so they come from code.
-    text, notice = replies.escalation_notice(turn.case.case_id, reason, charge=charge, language=turn.language)
+    text, notice = replies.escalation_notice(
+        turn.case.case_id, reason, charge=charge, language=turn.language, card_blocked=card_blocked,
+    )
     return turn.reply(CaseState.ESCALATED, text, escalation=notice)
+
+
+def _protection(
+    reason: DisputeReason | None, charge: TransactionCandidate | None, *, high_fraud_score: bool,
+    facts: Mapping[str, object],
+) -> ProtectiveDecision:
+    """AD-14's protective card block for an escalation about `charge`."""
+    return protective_action(
+        reason=reason, facts=facts, high_fraud_score=high_fraud_score,
+        channel=charge.channel if charge is not None else None,
+    )
+
+
+def _protected_handoff(handoff: dict, protection: ProtectiveDecision) -> dict:
+    return handoffs.with_card_block(handoff, protection) if protection.blocks_card else handoff
+
+
+def _log_protection(turn: Turn, protection: ProtectiveDecision) -> None:
+    """Logs the SIMULATED card block once the escalation is claimed (no real
+    card system is called).
+    """
+    if protection.blocks_card:
+        turn.log_event(
+            "simulated_card_block",
+            {"trigger": "escalation", "signals": [str(s) for s in protection.signals], "simulated": True},
+        )
 
 
 def charge_prompt_context(turn: Turn, state: str, charge: TransactionCandidate | None) -> llm.PromptContext:
@@ -246,25 +280,34 @@ class PendingEscalation:
     reason: EscalationReason
     handoff: dict
     charge: TransactionCandidate | None
+    # The snapshot drops the fraud score; AD-14's block only needs this flag.
+    # A row stored before AD-14 reads False: it can still block on a denied
+    # card-present charge or a card out of the customer's hands, never wrongly.
+    high_fraud_score: bool = False
 
     def to_dict(self) -> dict:
         return {
             "reason": str(self.reason),
             "handoff": self.handoff,
             "charge": None if self.charge is None else self.charge.to_snapshot(),
+            "high_fraud_score": self.high_fraud_score,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> PendingEscalation:
         snapshot = data["charge"]
         charge = None if snapshot is None else TransactionCandidate.from_snapshot(snapshot)
-        return cls(reason=EscalationReason(data["reason"]), handoff=data["handoff"], charge=charge)
+        return cls(
+            reason=EscalationReason(data["reason"]), handoff=data["handoff"], charge=charge,
+            high_fraud_score=data.get("high_fraud_score", False),
+        )
 
 
 def finish_escalated(
     turn: Turn, evaluation: CaseEvaluation, report: ReportedCharge,
     *, expected_offered: tuple[str, ...] | None = None, drop_proposed_match: bool = False,
     charge: TransactionCandidate | None = None, account_given: bool = False,
+    claimed_reason: DisputeReason | None = None,
 ) -> ChatReply:
     """Escalates at once only when `account_given`: the customer already
     explained the charge in this case. Otherwise the escalation is held as
@@ -278,6 +321,9 @@ def finish_escalated(
     `charge`: a charge the customer identified that the verdict does not carry
     (e.g. the one they confirmed, when its re-verification failed); otherwise
     the notice names the verdict's own match, if any.
+    `claimed_reason`: the reason an account the case does not store names (a
+    text that explained the charge and asked for a person): only AD-14's
+    protective block reads it.
     """
     if evaluation.handoff is None:
         raise ValueError(f"Escalation without a handoff record (case {turn.case.case_id})")
@@ -292,15 +338,22 @@ def finish_escalated(
         clear_fields=("matched_transaction_id",) if drop_proposed_match else (),
         expected_offered_transaction_ids=expected_offered, **report.update_fields(),
     )
+    high_fraud_score = notice_charge is not None and fraud_score_flagged(notice_charge.fraud_score)
     if not account_given:
-        return _ask_for_statement(turn, PendingEscalation(reason, handoff, notice_charge), fields)
+        pending = PendingEscalation(reason, handoff, notice_charge, high_fraud_score=high_fraud_score)
+        return _ask_for_statement(turn, pending, fields)
+    protection = _protection(
+        claimed_reason or report.reason, notice_charge, high_fraud_score=high_fraud_score, facts={},
+    )
+    handoff = _protected_handoff(handoff, protection)
     lost = transition(turn, CaseState.ESCALATED, handoff=handoff, escalation_reason=reason, **fields)
     if lost:
         return lost
     # The one record of why no statement was asked (the eval reads it).
     turn.log_event("handoff_statement_skipped", {"reason": "account_given", "escalation_reason": reason})
+    _log_protection(turn, protection)
     turn.log_event("case_escalated", handoff)
-    return _escalation_reply(turn, reason, charge=notice_charge)
+    return _escalation_reply(turn, reason, charge=notice_charge, card_blocked=protection.blocks_card)
 
 
 def _ask_for_statement(turn: Turn, pending: PendingEscalation, fields: dict) -> ChatReply:
@@ -320,15 +373,21 @@ def _ask_for_statement(turn: Turn, pending: PendingEscalation, fields: dict) -> 
 
 def finish_pending_escalation(
     turn: Turn, pending: PendingEscalation, handoff: dict, *, claimed_events: Sequence[tuple[str, dict]] = (),
-    **fields,
+    facts: Mapping[str, object], **fields,
 ) -> ChatReply:
     """Hands off the escalation the statement step held, with its own reason
     and `handoff` (the pending one plus the statement fields), from
     `awaiting_statement` only: a stale or concurrent statement turn loses the
     compare-and-set instead of escalating twice. `claimed_events`: the
     statement step's outcome, logged only once the hand-off is claimed.
-    `fields`: the statement step's own columns and guards (`cases.update_case`).
+    `facts`: the statement's key facts, which can trigger AD-14's protective
+    card block. `fields`: the statement step's own columns and guards
+    (`cases.update_case`).
     """
+    protection = _protection(
+        turn.report.reason, pending.charge, high_fraud_score=pending.high_fraud_score, facts=facts,
+    )
+    handoff = _protected_handoff(handoff, protection)
     lost = transition(
         turn, CaseState.ESCALATED, expected_states=(CaseState.AWAITING_STATEMENT,), handoff=handoff,
         escalation_reason=pending.reason, **fields,
@@ -337,12 +396,15 @@ def finish_pending_escalation(
         return lost
     for event_type, payload in claimed_events:
         turn.log_event(event_type, payload)
+    _log_protection(turn, protection)
     turn.log_event("case_escalated", handoff)
-    return _escalation_reply(turn, pending.reason, charge=pending.charge)
+    return _escalation_reply(turn, pending.reason, charge=pending.charge, card_blocked=protection.blocks_card)
 
 
 def escalate(
     turn: Turn, evaluation: CaseEvaluation, *, charge: TransactionCandidate | None = None,
-    account_given: bool = False,
+    account_given: bool = False, claimed_reason: DisputeReason | None = None,
 ) -> ChatReply:
-    return finish_escalated(turn, evaluation, turn.report, charge=charge, account_given=account_given)
+    return finish_escalated(
+        turn, evaluation, turn.report, charge=charge, account_given=account_given, claimed_reason=claimed_reason,
+    )

@@ -15,6 +15,21 @@ import duckdb
 
 from app import config
 
+FRAUD_RISK_COLUMNS = ("fraud_risk", "fraud_risk_threshold", "fraud_model_version")
+
+
+def fraud_risk_is_stored(con: duckdb.DuckDBPyConnection) -> bool:
+    """Whether the fixture carries the offline fraud-risk estimate
+    (`etl/build_fixture.py`); one built before it has none of its columns.
+    """
+    placeholders = ", ".join("?" for _ in FRAUD_RISK_COLUMNS)
+    stored = con.execute(
+        "SELECT COUNT(*) FROM information_schema.columns "
+        f"WHERE table_name = 'transactions' AND column_name IN ({placeholders})",
+        list(FRAUD_RISK_COLUMNS),
+    ).fetchone()[0]
+    return stored == len(FRAUD_RISK_COLUMNS)
+
 
 def get_connection(db_path: Path | None = None) -> duckdb.DuckDBPyConnection:
     # Resolved at call time, not as a default-argument value, so tests can

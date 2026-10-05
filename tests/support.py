@@ -41,6 +41,7 @@ from support import (
     OVER_LIMIT_CHARGE,
     REAL_DEMO_USERS_PATH,
     REAL_FIXTURE_PATH,
+    REPEAT_FARE_CHARGES,
     REPO_ROOT,
     SECOND_ONLINE_CHARGE,
     STATEMENT,
@@ -60,6 +61,7 @@ from support import (
 __all__ = [
     "REAL_DEMO_USERS_PATH",
     "REAL_FIXTURE_PATH",
+    "REPEAT_FARE_CHARGES",
     "REPO_ROOT",
     "AUTO_RESOLVE_CHARGE",
     "CURRENCY_PARITY_REPORT",
@@ -216,7 +218,7 @@ def clean_ctx(**overrides) -> DisputeContext:
     base = dict(
         reason=DisputeReason.UNRECOGNIZED, as_of=date(2026, 6, 18), customer_status="Active",
         prior_disputes_in_window=0, classifier_priority=None, other_charges_at_merchant=0,
-        duplicate_twins=(), duplicate_pair_credited=False, recent_unrecognized_credits=0,
+        duplicate_twins=(), repeat_charges=(), duplicate_pair_credited=False, recent_unrecognized_credits=0,
         recent_credited_usd=0.0,
     )
     return DisputeContext(**{**base, **overrides})

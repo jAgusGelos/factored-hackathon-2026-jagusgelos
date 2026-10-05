@@ -90,10 +90,20 @@ def test_a_merchant_without_a_name_cannot_be_checked_so_it_escalates():
     assert _escalates_because(evaluation, "merchant has no name")
 
 
-@pytest.mark.parametrize("fraud_score", [30.0, 85.0, None])
+@pytest.mark.parametrize("fraud_score", [30.01, 85.0, None])
 def test_high_or_unknown_fraud_score_forces_escalation(fraud_score):
     evaluation = evaluate_resolution(clean_txn(fraud_score=fraud_score), clean_ctx())
     assert _escalates_because(evaluation, "fraud_score")
+
+
+@pytest.mark.parametrize("fraud_score", [0.0, 29.99, 30.0])
+def test_a_score_at_the_cost_justified_threshold_may_still_auto_resolve(fraud_score):
+    """AD-15: the gate is "escalate above 30". A score of exactly 30.0 is the
+    highest legitimate score in the dataset and adds no reason (the old ">= 30"
+    sent those charges to a person and caught no extra fraud).
+    """
+    evaluation = evaluate_resolution(clean_txn(fraud_score=fraud_score), clean_ctx())
+    assert evaluation.decision == ResolutionDecision.AUTO_RESOLVE
 
 
 def test_a_second_unrecognized_credit_in_the_window_goes_to_a_person():
@@ -115,6 +125,26 @@ def test_duplicate_with_a_verifiable_twin_auto_resolves_even_at_a_pos():
 def test_duplicate_claim_without_a_twin_escalates():
     evaluation = evaluate_resolution(clean_txn(), clean_ctx(reason=DisputeReason.DUPLICATE, duplicate_twins=()))
     assert _escalates_because(evaluation, "no other charge at the same merchant")
+
+
+def test_an_equal_charge_outside_the_window_is_a_separate_purchase():
+    """Two equal fares on consecutive days are two rides: the other charge is
+    named as the advisor's evidence and nothing is reversed automatically.
+    """
+    ctx = clean_ctx(reason=DisputeReason.DUPLICATE, duplicate_twins=(), repeat_charges=("TRX-0",))
+    evaluation = evaluate_resolution(clean_txn(), ctx)
+    assert _escalates_because(evaluation, "TRX-0")
+    assert _escalates_because(evaluation, f"more than {policy.DUPLICATE_WINDOW_MINUTES} minutes apart")
+
+
+def test_a_twin_inside_the_window_wins_over_an_older_equal_charge():
+    evaluation = evaluate_resolution(clean_txn(), _duplicate_ctx(repeat_charges=("TRX-9",)))
+    assert evaluation.decision == ResolutionDecision.AUTO_RESOLVE
+
+
+def test_the_duplicate_window_is_minutes_not_days():
+    """AD-14: a double swipe or a processor retry posts within minutes."""
+    assert 0 < policy.DUPLICATE_WINDOW_MINUTES <= 60
 
 
 def test_duplicate_pair_already_credited_escalates():
@@ -329,3 +359,54 @@ def test_every_resolution_template_states_the_reference_and_the_required_disclos
     assert "ref-x" in template
     for stems in _REQUIRED_DISCLOSURES[language][reason]:
         assert any(stem in template for stem in stems), (reason, language, stems)
+
+
+# -- AD-14: protective card block on a fraud escalation ------------------------
+
+
+def _block(reason=None, facts=None, *, high_fraud_score=False, channel="App"):
+    return policy.protective_action(reason=reason, facts=facts or {}, high_fraud_score=high_fraud_score, channel=channel)
+
+
+@pytest.mark.parametrize(
+    ("reason", "facts", "high_fraud_score", "channel", "signal"),
+    [
+        (None, {"denies_purchase": "yes"}, True, "Web", policy.FraudSignal.HIGH_FRAUD_SCORE),
+        (DisputeReason.UNRECOGNIZED, {}, False, "POS", policy.FraudSignal.CARD_PRESENT_DENIED),
+        (None, {"denies_purchase": "yes"}, False, "ATM", policy.FraudSignal.CARD_PRESENT_DENIED),
+        (DisputeReason.CARD_LOST_STOLEN, {}, False, "App", policy.FraudSignal.CARD_OUT_OF_HANDS),
+        (None, {"card_loss": "stolen"}, False, "App", policy.FraudSignal.CARD_OUT_OF_HANDS),
+        (None, {"card_possession": "no"}, False, "App", policy.FraudSignal.CARD_OUT_OF_HANDS),
+    ],
+)
+def test_a_fraud_escalation_the_customer_denies_blocks_the_card(reason, facts, high_fraud_score, channel, signal):
+    decision = _block(reason, facts, high_fraud_score=high_fraud_score, channel=channel)
+    assert decision.action == policy.ProtectiveAction.CARD_BLOCK
+    assert signal in decision.signals
+
+
+@pytest.mark.parametrize(
+    ("reason", "facts", "high_fraud_score", "channel"),
+    [
+        # Amount cap, the customer does not deny it.
+        (None, {"denies_purchase": "no"}, False, "POS"),
+        # A merchant dispute or a wrong amount: they made the purchase.
+        (DisputeReason.NOT_RECEIVED, {}, True, "POS"),
+        (DisputeReason.WRONG_AMOUNT, {}, False, "POS"),
+        # A request for a person without any denial or loss.
+        (None, {}, True, "POS"),
+        # A denied online charge with a low fraud score: no fraud signal.
+        (DisputeReason.UNRECOGNIZED, {}, False, "App"),
+        (None, {"denies_purchase": "yes"}, False, None),
+    ],
+)
+def test_an_escalation_unrelated_to_fraud_never_blocks_the_card(reason, facts, high_fraud_score, channel):
+    decision = _block(reason, facts, high_fraud_score=high_fraud_score, channel=channel)
+    assert decision == policy.ProtectiveDecision.none()
+
+
+def test_a_missing_fraud_score_is_not_a_fraud_signal():
+    assert not policy.fraud_score_flagged(None)
+    assert not policy.fraud_score_flagged(policy.AUTO_RESOLVE_MAX_FRAUD_SCORE - 0.1)
+    assert not policy.fraud_score_flagged(policy.AUTO_RESOLVE_MAX_FRAUD_SCORE)
+    assert policy.fraud_score_flagged(policy.AUTO_RESOLVE_MAX_FRAUD_SCORE + 0.01)

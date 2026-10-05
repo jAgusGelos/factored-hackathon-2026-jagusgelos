@@ -262,7 +262,7 @@ def test_a_missing_key_fact_is_asked_once_and_never_again(session, app_db):
     assert final["state"] == CaseState.ESCALATED
     handoff = _handoff(app_db, held["case_id"])
     assert handoff["customer_reported"]["statement_status"] == "given"
-    assert handoffs.CARD_LOST_QUESTION not in handoff["open_questions"]
+    assert not any("bloquear" in question for question in handoff["open_questions"])
     assert "Confirmar con el cliente si tiene la tarjeta consigo." in handoff["open_questions"]
     case = cases.get_case(held["case_id"], db_path=app_db)
     assert case.statement_followups == 1
