@@ -29,6 +29,8 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score, roc_curve
 
+from etl.fraud_features import BASELINE_SCORE_COLUMN as SCORE
+from etl.fraud_features import TARGET_COLUMN as TARGET
 from etl.train_fraud_model import (
     DEFAULT_EXPERIMENTS_PATH,
     DEFAULT_PREDICTIONS_PATH,
@@ -42,8 +44,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_REPORT_PATH = REPO_ROOT / "data" / "fraud_eval_report.json"
 DEFAULT_DOCS_DIR = REPO_ROOT / "docs" / "ml"
 
-TARGET = "is_fraud"
-SCORE = "fraud_score"
 FPR_POINTS = (0.001, 0.01)
 N_BOOTSTRAP = 500
 RANDOM_STATE = 42
@@ -51,8 +51,12 @@ N_CALIBRATION_BINS = 10
 
 # The policy decision as numbers. Population: charges the rest of the AD-13
 # screening would let through (Approved, amount_usd <= 200), the only ones
-# where the fraud gate decides anything.
+# where the fraud gate decides anything. Mirrors app/policy.py
+# (AUTO_RESOLVE_MAX_AMOUNT_USD, AUTO_RESOLVE_REQUIRED_STATUS,
+# AUTO_RESOLVE_MAX_FRAUD_SCORE); keep them in sync.
 AUTO_RESOLVE_MAX_AMOUNT_USD = 200.0
+AUTO_RESOLVE_REQUIRED_STATUS = "Approved"
+CURRENT_POLICY_MAX_FRAUD_SCORE = 30.0
 COST_ASSUMPTIONS = {
     # MEASURED anchor, not dispute-specific: median first-contact handle time
     # of "Queja" contacts (425 s, n = 2,901, docs/analysis/demand-report.md),
@@ -167,7 +171,7 @@ def best_threshold(y, score, amount, assumptions) -> dict:
 def cost_population(fold: pd.DataFrame) -> pd.DataFrame:
     mask = (
         fold[SCORE].notna()
-        & (fold["transaction_status"] == "Approved")
+        & (fold["transaction_status"] == AUTO_RESOLVE_REQUIRED_STATUS)
         & (fold["amount_usd_filled"] <= AUTO_RESOLVE_MAX_AMOUNT_USD)
     )
     return fold[mask]
@@ -177,7 +181,8 @@ def threshold_analysis(val: pd.DataFrame, test: pd.DataFrame, score_cols: dict[s
     v, t = cost_population(val), cost_population(test)
     yv, yt = v[TARGET].to_numpy(), t[TARGET].to_numpy()
     out = {"population": {
-        "definition": f"fraud_score present, transaction_status Approved, amount_usd <= {AUTO_RESOLVE_MAX_AMOUNT_USD}",
+        "definition": (f"fraud_score present, transaction_status {AUTO_RESOLVE_REQUIRED_STATUS}, "
+                       f"amount_usd <= {AUTO_RESOLVE_MAX_AMOUNT_USD}"),
         "val_rows": len(v), "val_frauds": int(yv.sum()), "test_rows": len(t), "test_frauds": int(yt.sum()),
     }, "assumptions": COST_ASSUMPTIONS, "unit_costs_usd": dict(zip(
         ("escalation", "wrong_credit_ops"), unit_costs(COST_ASSUMPTIONS), strict=True)), "scores": {}}
@@ -191,7 +196,8 @@ def threshold_analysis(val: pd.DataFrame, test: pd.DataFrame, score_cols: dict[s
         }
         if name == "fraud_score":
             entry["test_current_policy_30"] = expected_cost(
-                yt, t[col].to_numpy(), t["amount_usd_filled"].to_numpy(), 30.0, COST_ASSUMPTIONS)
+                yt, t[col].to_numpy(), t["amount_usd_filled"].to_numpy(), CURRENT_POLICY_MAX_FRAUD_SCORE,
+                COST_ASSUMPTIONS)
         sens = []
         for key, values in SENSITIVITY.items():
             for value in values:

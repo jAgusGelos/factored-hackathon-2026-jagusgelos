@@ -32,6 +32,7 @@ from sklearn.dummy import DummyClassifier
 from sklearn.feature_selection import mutual_info_classif
 from sklearn.metrics import f1_score
 
+from etl.evaluate_classifier import PRIORITY_LABELS
 from etl.features import DEFAULT_WAREHOUSE_PATH, FEATURE_COLUMNS, TARGET_COLUMN, load_features
 from etl.train_classifier import NUMERIC_FEATURES, build_pipeline, chronological_split
 
@@ -41,14 +42,13 @@ logger = logging.getLogger("etl.priority_signal_ceiling")
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_REPORT_PATH = REPO_ROOT / "data" / "priority_signal_ceiling.json"
 
-LABELS = ["Low", "Medium", "High", "Critical"]
 N_PERMUTATIONS = 100
 N_MI_PERMUTATIONS = 50
 RANDOM_STATE = 42
 
 
 def _macro_f1(y_true, y_pred) -> float:
-    return float(f1_score(y_true, y_pred, labels=LABELS, average="macro", zero_division=0))
+    return float(f1_score(y_true, y_pred, labels=list(PRIORITY_LABELS), average="macro", zero_division=0))
 
 
 def _encoded(df: pd.DataFrame) -> tuple[pd.DataFrame, list[bool]]:
