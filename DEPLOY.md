@@ -1,11 +1,26 @@
 # Deployment guide (Task 6.1 / 6.2)
 
-> **Status: deployed on Render (2026-10-02): <https://factored-hackaton-latest.onrender.com/>.** Path B below, with the
+> **Status: deployed on Render (first deploy 2026-10-02, redeployed 2026-10-05 from `main` at
+> `7c07966`): <https://factored-hackaton-latest.onrender.com/>.** Path B below, with the
 > image `docker.io/agustingelos1/factored-hackaton:latest` (also tagged with the commit,
-> `:2ebc27b`) in a **private** Docker Hub repository (the image carries the demo fixture and
+> `:7c07966`; digest
+> `sha256:3f7b266b524da1bc27ec1813ab107de8ca76ed239fdc4e6c702956b8344aaad1`) in a **private**
+> Docker Hub repository (the image carries the demo fixture and
 > the trained classifier, AD-2), pulled by Render with a read-only access token stored as the
 > registry credential `dockerhub`. Free plan, so no persistent disk (see "On the deployed
 > instance" below). Fly.io (Path A) was not used: it requires a credit card on file.
+>
+> **Redeploy (2026-10-05):** the image now carries `main` at `7c07966` (banking policy AD-14:
+> 10-minute duplicate window and the protective card block; fraud integration AD-15: fraud
+> gate `fraud_score > 30` and the offline fraud estimate in the fixture) and the fixture the
+> measured eval v2 ran on. Checked on the live URL after a Manual Deploy: `GET /` 200 (32 s
+> cold start); login with the demo account, `/api/me` 200; "Tomé un solo taxi y me lo
+> cobraron dos veces" lists both `SYN-DEMO-TAXI-1/2` on 2026-06-15; "No reconozco una compra
+> en Tienda Online Global" asked for the statement, then escalated with the notice "Por su
+> seguridad bloqueamos su tarjeta..." and `/api/case` listed the simulated card block under
+> `actions_taken` with no fraud score or estimate in the customer's view. The same checks
+> passed first on the image locally (`--network host`), and the test suite passed on that
+> commit (1117 passed, 2 skipped, 2 xfailed).
 >
 > **On the deployed instance (2026-10-02):** `GET /` 200; login with the demo account, `/api/me`
 > 200; "No reconozco una compra en Tienda Online Global" asked for the statement
