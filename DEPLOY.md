@@ -98,8 +98,9 @@ Before writing the platform steps below, the Dockerfile itself was validated loc
 
 **What this does NOT prove:** the same test against the real Fly.io/Render platform
 (their own volume implementation, their own network path, their own restart mechanism).
-That remains the pending step once the account/billing decision is made — follow Path A
-or B below and repeat the same restart+AWS-unset check against the deployed instance.
+Render (Path B) was chosen on 2026-10-02. The AWS-unset half was then confirmed on the
+deployed instance (see the status block at the top). Restart persistence was not: the
+free plan has no persistent disk, so `data/app.db` starts empty on every restart.
 
 **Redeploy-refresh test (added after this session's own `/review-changes` FULL pass
 caught a real bug — 3 of 5 reviewers independently flagged it):** the first version of
@@ -158,8 +159,9 @@ fly machine restart <machine-id>   # `fly machine list` to get the id
 them — the deployed runtime has zero AWS dependency by design, AD-2). After the restart
 in the step above, confirm login → chat still returns 200. This is the platform-level
 version of the same proof `tests/test_main.py::test_app_serves_with_aws_env_unset`
-already gives locally (see `CONFORMANCE.md` row 9) — running it for real is what remains
-once the account/billing decision is made.
+already gives locally (see `CONFORMANCE.md` row 9). Fly.io was not used; the equivalent
+check was done on the Render deployment instead (status block at the top: the service
+has no `AWS_*` variable and login and chat return 200).
 
 ## Path B: Render (fallback, per AD-7's documented alternative)
 
