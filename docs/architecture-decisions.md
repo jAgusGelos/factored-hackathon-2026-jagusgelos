@@ -13,7 +13,7 @@ sections below keep those numbers, namespaced by feature.
 - A citation that names its feature (`usability-s2 AD-1`, `statement-before-handoff AD-4`) points
   to that feature's section below.
 - A bare `AD-n` belongs to the feature named in the module's docstring or in the comment around
-  it. When neither names a feature, it is a **dispute-agent** decision: AD-1 to AD-14 are the core
+  it. When neither names a feature, it is a **dispute-agent** decision: AD-1 to AD-15 are the core
   product decisions, and most citations in `app/` and `tests/` mean those.
 - "plan.md AD-x" in a code comment refers to the local planning record of the feature that
   module belongs to; the matching entry here holds the same decision.
@@ -286,6 +286,55 @@ after Milestone 6. AD-13 was decided on 2026-09-30 without a plan section (see i
 - **Source:** `.workspace/features/banking-policy/decisions.md` (D1 to D14, local planning record,
   not in the repo); in the repo: `app/policy.py` (`DUPLICATE_WINDOW_MINUTES`, `protective_action`)
   and `docs/policy/duplicate-window.md`.
+
+### AD-15: A cost-justified fraud gate on fraud_score; the fraud-risk model only informs the advisor
+
+- **Status:** Accepted, implemented (branch `feat/fraud-integration`). Replaces the hackathon
+  default `fraud_score >= 30` of AD-11 and AD-13 with `fraud_score > 30`; amends AD-14's
+  "fraud score at or above 30" signal to "above 30"; keeps AD-6's classifier.
+- **Date:** 2026-10-05
+- **Context:** `AUTO_RESOLVE_MAX_FRAUD_SCORE = 30` had no justification, and the fraud-model
+  feature (`docs/ml/fraud-model.md`) built a per-charge fraud-risk model and a cost model to
+  choose the operating point. Its result: the model does not beat `fraud_score` (test PR-AUC
+  0.707 vs 0.720, paired 95% CI of the difference [-0.024, -0.005], MEASURED). The same feature
+  measured the priority classifier's signal ceiling: macro-F1 0.2448 against 0.2434 for shuffled
+  labels, permutation p = 0.45 (MEASURED).
+- **Options:** gate on the model's risk at its own cost threshold; gate on `fraud_score` at its
+  cost-justified threshold and add the model as an extra escalation signal; gate on `fraud_score`
+  and give the model's estimate to the advisor only. For the classifier: retire it from the
+  policy, or keep it as an escalation-only signal.
+- **Decision:**
+  - **Gate:** escalate when `fraud_score > 30` (auto-resolve only at or below 30). Chosen on the
+    validation fold by expected cost (USD 1.18 per escalation, 425 s MEASURED handle time at an
+    ASSUMED USD 10/h, against a missed fraud's amount plus an ASSUMED USD 25), the optimum
+    (30.0, 30.06] is the same rule in all nine sensitivity settings. On the test fold's proxy
+    population (84,269 charges, 71 frauds, MEASURED): 48 escalations and 48 frauds caught (USD
+    38.13 per 1,000 charges), against 66 and 48 (USD 38.38) for the old `>= 30`, and 166 and 48
+    (USD 39.78) for the model's own gate. `policy.fraud_score_flagged` is the single comparison
+    used by screening and by AD-14's protective block.
+  - **Model estimate:** precomputed offline into every fixture charge by `etl/build_fixture.py`
+    (`fraud_risk`, `fraud_risk_threshold`, `fraud_model_version`; synthetic charges are scored
+    from their attributes, never hard-coded); no model runs in the request path. It is not a
+    policy input, not even an escalation-only one, because on test it adds 118 escalations and no
+    fraud. The handoff's verified facts carry it as "estimación del modelo, no un hecho
+    verificado" with its version and reference threshold, next to `fraud_score` and the policy
+    threshold; the customer's own `/api/case` view drops all five (`handoffs.INTERNAL_FACTS`).
+  - **Classifier:** kept as an escalation-only signal, its reason now saying it has no measured
+    lift. It can never credit, it predicts Critical rarely (Critical recall 0.058), and retiring
+    it would change AD-6, the image and the live features on submission day for no safety gain.
+    Retiring it is the documented next step.
+- **Consequences:** `tests/test_policy_not_overridden.py` proves over the full gating domain that
+  a score above 30 only adds one reason and always escalates, that the estimate never changes a
+  verdict, and (structurally, by AST) that no policy function names it; only
+  `app/transactions.py` and `app/handoffs.py` read it. The eval reports a `fraud_gate` section
+  (the three gates on the measured test fold and on the fixture) and checks on every case that
+  the customer's view carries no fraud figure. On the demo fixture all three gates flag the same
+  single charge (`SYN-DEMO-ONLINE`), so the conversation suite cannot tell them apart; the
+  measured fold is the evidence. Limits: synthetic data (no legitimate charge scores above 30),
+  partly ASSUMED costs, a transaction-level proxy for the disputed population.
+- **Source:** `.workspace/features/fraud-integration/decisions.md` (D1 to D10, local planning
+  record, not in the repo); in the repo: `app/policy.py` (`AUTO_RESOLVE_MAX_FRAUD_SCORE`,
+  `fraud_score_flagged`), `etl/build_fixture.py`, `docs/ml/fraud-model.md`.
 
 ## usability-s1-flujo
 
