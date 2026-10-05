@@ -17,7 +17,7 @@ DECISIONS_PATH = REPO_ROOT / "docs" / "architecture-decisions.md"
 FEATURES = (
     "dispute-agent", "usability-s1-flujo", "usability-s2-tono-escalamiento", "usability-s3-handoff-idiomas",
     "statement-before-handoff", "ad13-quality-refactor", "demand-analysis", "system-baseline-adrs",
-    "fraud-model",
+    "fraud-model", "measured-eval",
 )
 CORE_FEATURE = "dispute-agent"
 CORE_DECISION_COUNT = 15
