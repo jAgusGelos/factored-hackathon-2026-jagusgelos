@@ -573,8 +573,18 @@ class FraudSignal(StrEnum):
 
 @dataclass(frozen=True)
 class ProtectiveDecision:
+    """A CARD_BLOCK always names its fraud signals; NONE never has any."""
+
     action: ProtectiveAction
     signals: tuple[FraudSignal, ...] = ()
+
+    def __post_init__(self) -> None:
+        if (self.action == ProtectiveAction.CARD_BLOCK) != bool(self.signals):
+            raise ValueError(f"ProtectiveDecision: {self.action} with signals {self.signals!r}")
+
+    @property
+    def blocks_card(self) -> bool:
+        return self.action == ProtectiveAction.CARD_BLOCK
 
     @classmethod
     def none(cls) -> ProtectiveDecision:

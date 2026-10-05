@@ -322,7 +322,7 @@ def find_own_duplicate_evidence(
     """This session's OTHER transactions equal to `txn`: same merchant, same
     exact amount and currency, same type, in `required_status` (a pending hold
     or a declined retry was never collected). A twin posted at most
-    `window_minutes` apart makes `txn` a verifiable duplicate (AD-13); a later
+    `window_minutes` apart makes `txn` a verifiable duplicate (AD-14); a later
     or earlier equal charge is a separate purchase. Both timestamps are read
     from the fixture by id (a charge rebuilt from a case snapshot only keeps
     the day). A charge without a merchant name has no verifiable twin.
@@ -345,6 +345,8 @@ def find_own_duplicate_evidence(
               AND CAST(o.amount AS DOUBLE) = CAST(t.amount AS DOUBLE)
               AND o.transaction_type IS NOT DISTINCT FROM t.transaction_type
               AND o.transaction_status = ?
+              AND o.transaction_date IS NOT NULL
+              AND t.transaction_date IS NOT NULL
             ORDER BY o.transaction_id
             """,
             [txn.transaction_id, session.customer_id, required_status],

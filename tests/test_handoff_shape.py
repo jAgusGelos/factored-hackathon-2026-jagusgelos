@@ -249,7 +249,8 @@ def test_the_raw_statement_never_reaches_the_handoff():
 
 def test_a_card_block_is_an_action_taken_and_the_advisor_confirms_the_reissue():
     """AD-14: the agent already blocked the card, so the advisor is not asked
-    whether to block it; the block's fraud signals are named in Spanish.
+    whether to block it. The action carries no fraud signal (the customer's
+    session shows actions taken); the signals are a policy reason.
     """
     _, handoff = _with_statement("ineligible_match", facts={**STATEMENT_FACTS, "card_possession": "no"})
     protection = ProtectiveDecision(ProtectiveAction.CARD_BLOCK, (FraudSignal.CARD_OUT_OF_HANDS,))
@@ -258,8 +259,11 @@ def test_a_card_block_is_an_action_taken_and_the_advisor_confirms_the_reissue():
 
     assert blocked["open_questions"] == [*handoff["open_questions"], handoffs.CARD_BLOCKED_TASK]
     assert blocked["open_questions"][-1] == handoffs.CARD_BLOCKED_TASK
-    assert blocked["actions_taken"][:-1] == list(handoff["actions_taken"])
-    assert "simulado" in blocked["actions_taken"][-1] and "fuera del poder del cliente" in blocked["actions_taken"][-1]
-    assert {k: v for k, v in blocked.items() if k not in ("open_questions", "actions_taken")} == {
-        k: v for k, v in handoff.items() if k not in ("open_questions", "actions_taken")
+    assert blocked["actions_taken"] == [*handoff["actions_taken"], handoffs.CARD_BLOCKED_ACTION]
+    assert "fraude" not in handoffs.CARD_BLOCKED_ACTION and "umbral" not in handoffs.CARD_BLOCKED_ACTION
+    assert blocked["policy_reasons"][:-1] == list(handoff["policy_reasons"])
+    assert "fuera del poder del cliente" in blocked["policy_reasons"][-1]
+    changed = ("open_questions", "actions_taken", "policy_reasons")
+    assert {k: v for k, v in blocked.items() if k not in changed} == {
+        k: v for k, v in handoff.items() if k not in changed
     }

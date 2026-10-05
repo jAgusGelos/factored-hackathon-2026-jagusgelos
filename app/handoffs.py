@@ -368,6 +368,7 @@ _STATEMENT_OPEN_QUESTIONS = {
     ),
 }
 CARD_BLOCKED_TASK = "Tarjeta bloqueada por el agente (simulado): confirmar con el cliente la reposición."
+CARD_BLOCKED_ACTION = "Tarjeta bloqueada preventivamente por el agente (simulado, sin movimiento de dinero)."
 
 _FRAUD_SIGNALS = {
     FraudSignal.HIGH_FRAUD_SCORE: "puntaje de fraude en o sobre el umbral",
@@ -406,14 +407,15 @@ def with_card_block(handoff: dict, protection: ProtectiveDecision) -> dict:
     the block is an action taken, and the advisor's task is the reissue, not
     whether to block. A card the customer does not have always blocks
     (`FraudSignal.CARD_OUT_OF_HANDS`), so no handoff asks whether to block it.
+    Why it blocked (the fraud signals) is a policy reason: the customer's
+    session sees `actions_taken` but only a count of the policy reasons
+    (`app/main.py::_handoff_for_customer_session`), so no signal reaches them.
     """
     why = "; ".join(_FRAUD_SIGNALS[signal] for signal in protection.signals)
     return {
         **handoff,
-        "actions_taken": [
-            *handoff["actions_taken"],
-            f"Tarjeta bloqueada preventivamente por el agente (simulado, sin movimiento de dinero): {why}.",
-        ],
+        "policy_reasons": [*handoff["policy_reasons"], f"Bloqueo preventivo de la tarjeta: {why}."],
+        "actions_taken": [*handoff["actions_taken"], CARD_BLOCKED_ACTION],
         "open_questions": [*handoff["open_questions"], CARD_BLOCKED_TASK],
     }
 

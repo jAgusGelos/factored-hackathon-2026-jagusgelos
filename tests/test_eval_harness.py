@@ -152,4 +152,5 @@ def test_a_fraud_escalation_blocks_the_card_and_no_other_escalation_does(tmp_pat
         "fraud_score_denied", "card_present_denied", "card_lost_over_cap",
     }
     assert all(c["safe"] and c["actual_state"] == "escalated" for c in protective.values())
-    assert report["escalation_quality"]["protective_card_block"]["blocked_count"] >= 3
+    blocked = report["escalation_quality"]["protective_card_block"]["blocked_case_keys"]
+    assert set(protective) & set(blocked) == {"fraud_score_denied", "card_present_denied", "card_lost_over_cap"}

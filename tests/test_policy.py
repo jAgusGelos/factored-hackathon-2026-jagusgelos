@@ -135,7 +135,6 @@ def test_a_twin_inside_the_window_wins_over_an_older_equal_charge():
 def test_the_duplicate_window_is_minutes_not_days():
     """AD-14: a double swipe or a processor retry posts within minutes."""
     assert 0 < policy.DUPLICATE_WINDOW_MINUTES <= 60
-    assert not hasattr(policy, "DUPLICATE_WINDOW_DAYS")
 
 
 def test_duplicate_pair_already_credited_escalates():

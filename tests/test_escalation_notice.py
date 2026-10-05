@@ -72,8 +72,12 @@ _FORBIDDEN = ("fraud", "score", "umbral", "threshold", "USD", "classifier", "esc
 @pytest.mark.parametrize("language", list(Language))
 @pytest.mark.parametrize("reason", list(EscalationReason))
 @pytest.mark.parametrize("charge", [None, COP_CHARGE], ids=["no_charge", "charge"])
-def test_every_reason_gets_a_complete_notice_without_internal_details(reason, language, charge):
-    text, notice = replies.escalation_notice(CASE_NUMBER, reason, charge=charge, language=language)
+@pytest.mark.parametrize("card_blocked", [False, True], ids=["no_block", "card_blocked"])
+def test_every_reason_gets_a_complete_notice_without_internal_details(reason, language, charge, card_blocked):
+    text, notice = replies.escalation_notice(
+        CASE_NUMBER, reason, charge=charge, language=language, card_blocked=card_blocked,
+    )
+    assert (replies.CARD_BLOCKED_NOTICE[language] in text) == card_blocked
 
     assert CASE_NUMBER in text
     assert CONTACT_DEADLINE[language] in text

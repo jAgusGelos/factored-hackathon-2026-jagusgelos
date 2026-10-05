@@ -276,14 +276,16 @@ after Milestone 6. AD-13 was decided on 2026-09-30 without a plan section (see i
     a request for a person without a denial or a technical failure. No money moves.
 - **Consequences:** the escalation path (`case_turn.finish_escalated` with an account, and
   `finish_pending_escalation` after the statement) applies the decision, logs the block only after
-  the escalating compare-and-set is claimed, adds it to the handoff's actions taken, replaces the
+  the escalating compare-and-set is claimed, adds it to the handoff's actions taken (its fraud
+  signals go to the policy reasons, which the customer's session only counts), replaces the
   advisor's "should we block" question with "confirm the reissue", and tells the customer in the
   ES and PT notice ("usted" register). The eval adds a `protective_block` group (3 cases that must
   block, 4 that must not) and a `repeat_fare_next_day` abuse case; the ablation without the
   evidence check now credits 6 cases instead of 4 (`repeat_fare_next_day` and the protective
   group's `card_present_denied`).
-- **Source:** `.workspace/features/banking-policy/decisions.md` (D1 to D12); `app/policy.py`
-  (`DUPLICATE_WINDOW_MINUTES`, `protective_action`); `docs/policy/duplicate-window.md`.
+- **Source:** `.workspace/features/banking-policy/decisions.md` (D1 to D14, local planning record,
+  not in the repo); in the repo: `app/policy.py` (`DUPLICATE_WINDOW_MINUTES`, `protective_action`)
+  and `docs/policy/duplicate-window.md`.
 
 ## usability-s1-flujo
 

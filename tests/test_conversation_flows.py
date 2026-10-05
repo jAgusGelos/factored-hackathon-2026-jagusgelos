@@ -34,6 +34,7 @@ from tests.support import (
     OVER_LIMIT_CHARGE,
     REPEAT_FARE_CHARGES,
     SECOND_ONLINE_CHARGE,
+    app_db_rows,
     assert_asks_for_statement,
     assert_escalation_notice,
     charge_extraction,
@@ -870,7 +871,11 @@ def test_a_high_fraud_score_escalates_before_asking_for_an_explanation(real_fixt
 
 
 def _card_block(app_db, case_id):
-    return [e for e in logged_events(app_db, "simulated_card_block") if e.get("trigger") == "escalation"]
+    """This case's protective blocks (an unrecognized credit's own block has no escalation trigger)."""
+    rows = app_db_rows(
+        app_db, "SELECT payload_json FROM events WHERE case_id = ? AND event_type = 'simulated_card_block'", [case_id],
+    )
+    return [p for p in (json.loads(r[0]) for r in rows) if p.get("trigger") == "escalation"]
 
 
 def test_a_denied_charge_with_a_high_fraud_score_blocks_the_card_on_escalation(real_fixture_app_db):
@@ -882,7 +887,8 @@ def test_a_denied_charge_with_a_high_fraud_score_blocks_the_card_on_escalation(r
     block = _card_block(real_fixture_app_db, reply["case_id"])
     assert len(block) == 1 and block[0]["signals"] == ["high_fraud_score"] and block[0]["simulated"] is True
     handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
-    assert any(a.startswith("Tarjeta bloqueada preventivamente") for a in handoff["actions_taken"])
+    assert handoffs.CARD_BLOCKED_ACTION in handoff["actions_taken"]
+    assert any("puntaje de fraude" in q for q in handoff["policy_reasons"])
     assert handoffs.CARD_BLOCKED_TASK in handoff["open_questions"]
     assert logged_events(real_fixture_app_db, "simulated_credit") == []
 

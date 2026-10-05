@@ -34,7 +34,6 @@ from app.llm import Language
 from app.policy import (
     MAX_CLARIFICATION_ROUNDS,
     DisputeReason,
-    ProtectiveAction,
     ProtectiveDecision,
     fraud_score_flagged,
     protective_action,
@@ -224,22 +223,18 @@ def _protection(
 
 
 def _protected_handoff(handoff: dict, protection: ProtectiveDecision) -> dict:
-    if protection.action == ProtectiveAction.CARD_BLOCK:
-        return handoffs.with_card_block(handoff, protection)
-    return handoff
+    return handoffs.with_card_block(handoff, protection) if protection.blocks_card else handoff
 
 
-def _log_protection(turn: Turn, protection: ProtectiveDecision) -> bool:
+def _log_protection(turn: Turn, protection: ProtectiveDecision) -> None:
     """Logs the SIMULATED card block once the escalation is claimed (no real
-    card system is called). True when the card was blocked.
+    card system is called).
     """
-    if protection.action != ProtectiveAction.CARD_BLOCK:
-        return False
-    turn.log_event(
-        "simulated_card_block",
-        {"trigger": "escalation", "signals": [str(s) for s in protection.signals], "simulated": True},
-    )
-    return True
+    if protection.blocks_card:
+        turn.log_event(
+            "simulated_card_block",
+            {"trigger": "escalation", "signals": [str(s) for s in protection.signals], "simulated": True},
+        )
 
 
 def charge_prompt_context(turn: Turn, state: str, charge: TransactionCandidate | None) -> llm.PromptContext:
@@ -286,6 +281,8 @@ class PendingEscalation:
     handoff: dict
     charge: TransactionCandidate | None
     # The snapshot drops the fraud score; AD-14's block only needs this flag.
+    # A row stored before AD-14 reads False: it can still block on a denied
+    # card-present charge or a card out of the customer's hands, never wrongly.
     high_fraud_score: bool = False
 
     def to_dict(self) -> dict:
@@ -354,9 +351,9 @@ def finish_escalated(
         return lost
     # The one record of why no statement was asked (the eval reads it).
     turn.log_event("handoff_statement_skipped", {"reason": "account_given", "escalation_reason": reason})
-    card_blocked = _log_protection(turn, protection)
+    _log_protection(turn, protection)
     turn.log_event("case_escalated", handoff)
-    return _escalation_reply(turn, reason, charge=notice_charge, card_blocked=card_blocked)
+    return _escalation_reply(turn, reason, charge=notice_charge, card_blocked=protection.blocks_card)
 
 
 def _ask_for_statement(turn: Turn, pending: PendingEscalation, fields: dict) -> ChatReply:
@@ -376,7 +373,7 @@ def _ask_for_statement(turn: Turn, pending: PendingEscalation, fields: dict) -> 
 
 def finish_pending_escalation(
     turn: Turn, pending: PendingEscalation, handoff: dict, *, claimed_events: Sequence[tuple[str, dict]] = (),
-    facts: Mapping[str, object] | None = None, **fields,
+    facts: Mapping[str, object], **fields,
 ) -> ChatReply:
     """Hands off the escalation the statement step held, with its own reason
     and `handoff` (the pending one plus the statement fields), from
@@ -388,7 +385,7 @@ def finish_pending_escalation(
     (`cases.update_case`).
     """
     protection = _protection(
-        turn.report.reason, pending.charge, high_fraud_score=pending.high_fraud_score, facts=facts or {},
+        turn.report.reason, pending.charge, high_fraud_score=pending.high_fraud_score, facts=facts,
     )
     handoff = _protected_handoff(handoff, protection)
     lost = transition(
@@ -399,9 +396,9 @@ def finish_pending_escalation(
         return lost
     for event_type, payload in claimed_events:
         turn.log_event(event_type, payload)
-    card_blocked = _log_protection(turn, protection)
+    _log_protection(turn, protection)
     turn.log_event("case_escalated", handoff)
-    return _escalation_reply(turn, pending.reason, charge=pending.charge, card_blocked=card_blocked)
+    return _escalation_reply(turn, pending.reason, charge=pending.charge, card_blocked=protection.blocks_card)
 
 
 def escalate(

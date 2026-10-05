@@ -698,7 +698,7 @@ def run_protective_block_cases(app_db_path: Path) -> list[CaseOutcome]:
 def _protective_block_summary(outcomes: list[CaseOutcome]) -> dict:
     blocked = [o.case_key for o in outcomes if o.card_blocked]
     return {
-        "blocked_count": len(blocked), "of_escalated": sum(o.actual_state == CaseState.ESCALATED for o in outcomes),
+        "blocked_count": len(blocked), "of_escalated": len(outcomes),
         "blocked_case_keys": blocked,
         "note": (
             "Escalated cases whose escalation blocked the card (SIMULATED, `simulated_card_block`); an "
