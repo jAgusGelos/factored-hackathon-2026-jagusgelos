@@ -272,3 +272,61 @@ def test_summary_drops_the_per_case_records(tmp_path):
     summary = tmp_path / "summary.json"
     assert measured_eval.main(["--summarize", str(report), "--summary-out", str(summary)]) == 0
     assert json.loads(summary.read_text()) == {"label": "MEASURED", "systems": {}}
+
+
+def test_a_failed_extraction_is_a_miss_on_every_field():
+    fields = extraction_fields({"error": "LLMUnavailable"}, {"amount": None, "date": None, "intent": "other"})
+    assert fields == {"amount": False, "date": False, "intent": False}
+
+
+def test_a_failed_assessment_counts_in_the_reason_denominator():
+    summary = summarize([_record(first_assessment={"error": "LLMUnavailable"})], {"S01-es": _label()})
+    assert summary["reason_accuracy"] == {"n": 0, "of": 1, "rate": 0.0}
+    assert summary["reason_confusion"] == {"unrecognized": {"unavailable": 1}}
+
+
+def test_recording_keeps_a_raising_call():
+    sink: list[dict] = []
+
+    def unavailable():
+        raise TimeoutError
+
+    with pytest.raises(TimeoutError):
+        measured_eval._recording(unavailable, sink, lambda r: r)()
+    assert sink == [{"error": "TimeoutError"}]
+
+
+def test_the_budget_must_be_positive():
+    with pytest.raises(SystemExit):
+        measured_eval.main(["--budget-usd", "0"])
+
+
+@requires_real_fixture
+def test_an_app_error_ends_the_case_and_is_still_scored(monkeypatch):
+    monkeypatch.setattr("app.config.ANTHROPIC_API_KEY", "test-key")
+    conversation = {"case_id": "T-es", "brief": "T", "language": "es", "charge": AUTO_RESOLVE_CHARGE,
+                    "script": json.loads(json.dumps(SCRIPT))}
+
+    def broken_chat(*_args, **_kwargs):
+        raise RuntimeError("boom")
+
+    with patch("anthropic.Anthropic", _mocked_anthropic), patch("app.main.state_machine.handle_message", broken_chat):
+        record = play_case(conversation, _label(), measured_eval.SYSTEM_HYBRID, 1)
+    assert record["stop_reason"] in ("harness_error", "http_500")
+    assert record["final_state"] == "awaiting_report"
+    assert not score_case(record, _label())["correct"]
+
+
+@requires_real_fixture
+def test_play_case_with_the_rules_extractor_makes_no_extraction_call(monkeypatch):
+    monkeypatch.setattr("app.config.ANTHROPIC_API_KEY", "test-key")
+    conversation = {"case_id": "T-es", "brief": "T", "language": "es", "charge": AUTO_RESOLVE_CHARGE,
+                    "script": {**json.loads(json.dumps(SCRIPT)), "awaiting_report": [
+                        "No reconozco un cargo de 38.500 pesos del 14 de junio"]}}
+    label = _label(acceptable_charges=[AUTO_RESOLVE_CHARGE], expected_credit_transactions=[AUTO_RESOLVE_CHARGE])
+    with patch("anthropic.Anthropic", _mocked_anthropic):
+        record = play_case(conversation, label, measured_eval.SYSTEM_RULES_EXTRACTOR, 1)
+    kinds = [c["kind"] for t in record["turns"] for c in t["model_calls"]]
+    assert "extraction" not in kinds
+    assert record["first_extraction"]["amount"] == 38_500
+    assert record["final_state"] == "resolved_auto"

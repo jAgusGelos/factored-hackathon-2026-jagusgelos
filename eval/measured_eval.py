@@ -24,7 +24,8 @@ a person at the first message; it needs no model call, so it is computed from
 the labels rather than run.
 
 Run: `python -m eval.measured_eval --runs 3` (see `--help`). Reports go under
-`data/` (gitignored).
+`data/` (gitignored). The spend cap is checked as each case finishes, so the
+cases already in flight (at most `--workers`) can add their cost after it trips.
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ import json
 import logging
 import re
 import statistics
+import subprocess
 import sys
 import tempfile
 import time
@@ -48,6 +50,7 @@ from multiprocessing import get_context
 from pathlib import Path
 from unittest.mock import patch
 
+from app import replies
 from app.case_model import TERMINAL_STATES, CaseState, CustomerAction
 from app.llm import ASSESSMENT_MARKER, CONFIRMATION_MARKER, STATEMENT_MARKER, Language
 from eval.run_eval import (
@@ -116,6 +119,7 @@ class ModelCall:
     output_tokens: int
     latency_seconds: float
     error: str | None = None
+    served_model: str | None = None
 
 
 _CALLS: list[ModelCall] = []
@@ -150,6 +154,7 @@ class _RecordingMessages:
         usage = response.usage
         _CALLS.append(ModelCall(
             _call_kind(kwargs.get("system")), usage.input_tokens, usage.output_tokens, time.perf_counter() - start,
+            served_model=response.model if isinstance(getattr(response, "model", None), str) else None,
         ))
         return response
 
@@ -163,8 +168,15 @@ def _recording_anthropic(real_class):
 
 
 def _recording(fn, sink: list[dict], to_dict):
+    """A call that raises is recorded too ({"error": ...}), so an outage
+    counts as a miss instead of shrinking the accuracy denominators.
+    """
     def wrapper(*args, **kwargs):
-        result = fn(*args, **kwargs)
+        try:
+            result = fn(*args, **kwargs)
+        except Exception as exc:
+            sink.append({"error": type(exc).__name__})
+            raise
         sink.append(to_dict(result))
         return result
     return wrapper
@@ -180,7 +192,7 @@ def _extraction_dict(extraction) -> dict:
 
 def _assessment_dict(assessment) -> dict:
     if assessment is None:
-        return {"reason": None, "specific": None, "consistent": None}
+        return {"reason": "unusable", "specific": None, "consistent": None}
     return {"reason": str(assessment.reason), "specific": assessment.specific, "consistent": assessment.consistent}
 
 
@@ -200,7 +212,7 @@ class ScriptCursor:
     used: Counter = field(default_factory=Counter)
     statement_used: set[str] = field(default_factory=set)
 
-    def _next(self, key: str, items: list) -> object | None:
+    def _next(self, key: str, items: list) -> str | dict | None:
         index = self.used[key]
         if index >= len(items):
             return None
@@ -263,11 +275,9 @@ def _next_move(cursor: ScriptCursor, reply: dict, case, language: Language) -> d
     if state == CaseState.AWAITING_EXPLANATION:
         return cursor.explanation()
     if state == CaseState.AWAITING_STATEMENT:
-        from app import replies
-
         facts = (case.statement_facts or {}) if case else {}
         return cursor.statement(
-            insisted=reply["reply"].strip().startswith(replies.STATEMENT_INSIST[language][:40]),
+            insisted=reply["reply"].strip() == replies.STATEMENT_INSIST[language],
             question=facts.get("question"),
             first=case is None or (case.statement_followups == 0 and case.statement_declines == 0
                                     and not case.statement_text),
@@ -292,9 +302,6 @@ def play_case(conversation: dict, label: dict, system: str, run_index: int) -> d
     _CALLS.clear()
     _EXTRACTIONS.clear()
     _ASSESSMENTS.clear()
-    turns: list[dict] = []
-    stop_reason = "max_turns"
-    case_id = None
     with tempfile.TemporaryDirectory() as tmp, ExitStack() as stack:
         db_path = Path(tmp) / "app.db"
         stack.enter_context(patch.object(config, "APP_DB_PATH", db_path))
@@ -309,40 +316,7 @@ def play_case(conversation: dict, label: dict, system: str, run_index: int) -> d
         login = client.post("/auth/login", json={"username": DEMO_USERNAME, "password": password})
         login.raise_for_status()
 
-        reply: dict = {"state": CaseState.AWAITING_REPORT, "reply": "", "options": []}
-        for _ in range(MAX_TURNS):
-            case = cases.get_case(case_id, db_path=db_path) if case_id else None
-            move = _next_move(cursor, reply, case, language)
-            if move is None:
-                stop_reason = "script_exhausted"
-                break
-            calls_before = len(_CALLS)
-            extractions_before = len(_EXTRACTIONS)
-            payload = {
-                "case_id": case_id, "message": move["text"], "language": str(language), "turn_id": str(uuid.uuid4()),
-                "selected_transaction_id": move.get("selected_transaction_id"),
-                "action": str(move["action"]) if move.get("action") else None,
-            }
-            start = time.perf_counter()
-            response = client.post("/api/chat", json=payload)
-            latency = time.perf_counter() - start
-            response.raise_for_status()
-            state_before = reply["state"]
-            reply = response.json()
-            case_id = reply["case_id"]
-            calls = _CALLS[calls_before:]
-            turns.append({
-                "state_before": str(state_before), "state_after": str(reply["state"]),
-                "customer": move["text"], "agent": reply["reply"],
-                "kind": "tap" if (move.get("selected_transaction_id") or move.get("action")) else "typed",
-                "latency_seconds": round(latency, 3),
-                "model_calls": [asdict(c) for c in calls],
-                "extraction": _EXTRACTIONS[extractions_before] if len(_EXTRACTIONS) > extractions_before else None,
-                "disclosures": _disclosures(reply["reply"]),
-            })
-            if reply["state"] in TERMINAL_STATES:
-                stop_reason = "terminal"
-                break
+        turns, stop_reason, case_id, error = _converse(client, cursor, language, db_path)
         final = cases.get_case(case_id, db_path=db_path) if case_id else None
 
     input_tokens = sum(c.input_tokens for c in _CALLS)
@@ -362,7 +336,57 @@ def play_case(conversation: dict, label: dict, system: str, run_index: int) -> d
         "input_tokens": input_tokens, "output_tokens": output_tokens,
         "cost_usd": cost_usd(input_tokens, output_tokens),
         "model_errors": sum(1 for c in _CALLS if c.error),
+        "served_models": sorted({c.served_model for c in _CALLS if c.served_model}),
+        "error": error,
     }
+
+
+def _converse(client, cursor: ScriptCursor, language: Language, db_path: Path) -> tuple[list[dict], str, str | None, str | None]:
+    """Plays the script turn by turn. An app error response or an exception
+    ends the conversation where it is (`http_<status>` / `harness_error`): the
+    case is still scored from its stored state, and its spend still counts.
+    """
+    from app import cases
+
+    turns: list[dict] = []
+    case_id = None
+    reply: dict = {"state": CaseState.AWAITING_REPORT, "reply": "", "options": []}
+    try:
+        for _ in range(MAX_TURNS):
+            case = cases.get_case(case_id, db_path=db_path) if case_id else None
+            move = _next_move(cursor, reply, case, language)
+            if move is None:
+                return turns, "script_exhausted", case_id, None
+            calls_before = len(_CALLS)
+            extractions_before = len(_EXTRACTIONS)
+            payload = {
+                "case_id": case_id, "message": move["text"], "language": str(language), "turn_id": str(uuid.uuid4()),
+                "selected_transaction_id": move.get("selected_transaction_id"),
+                "action": str(move["action"]) if move.get("action") else None,
+            }
+            start = time.perf_counter()
+            response = client.post("/api/chat", json=payload)
+            latency = time.perf_counter() - start
+            if response.status_code != 200:
+                return turns, f"http_{response.status_code}", case_id, response.text[:300]
+            state_before = reply["state"]
+            reply = response.json()
+            case_id = reply["case_id"]
+            turns.append({
+                "state_before": str(state_before), "state_after": str(reply["state"]),
+                "customer": move["text"], "agent": reply["reply"],
+                "kind": "tap" if (move.get("selected_transaction_id") or move.get("action")) else "typed",
+                "latency_seconds": round(latency, 3),
+                "model_calls": [asdict(c) for c in _CALLS[calls_before:]],
+                "extraction": _EXTRACTIONS[extractions_before] if len(_EXTRACTIONS) > extractions_before else None,
+                "disclosures": _disclosures(reply["reply"]),
+            })
+            if reply["state"] in TERMINAL_STATES:
+                return turns, "terminal", case_id, None
+    except Exception as exc:
+        logger.exception("harness error in a conversation")
+        return turns, "harness_error", case_id, repr(exc)
+    return turns, "max_turns", case_id, None
 
 
 # -- Scoring --------------------------------------------------------------------
@@ -387,6 +411,8 @@ def extraction_fields(actual: dict | None, expected: dict) -> dict[str, bool]:
     the label is not scored; a list of dates accepts any of them, for a
     message that names two charges' dates).
     """
+    if actual is not None and "error" in actual:
+        return {name: False for name in expected}
     actual = actual or {}
     dates = expected.get("date")
     checks = {
@@ -454,7 +480,7 @@ def summarize(records: list[dict], labels: dict) -> dict:
     reason_total = reason_hits = 0
     for r, _, lab in scored:
         if lab.get("expected_reason") and r["first_assessment"] is not None:
-            actual = r["first_assessment"]["reason"] or "unusable"
+            actual = r["first_assessment"].get("reason") or "unavailable"
             confusion[lab["expected_reason"]][actual] += 1
             reason_total += 1
             reason_hits += actual in (lab.get("acceptable_reasons") or [lab["expected_reason"]])
@@ -641,6 +667,11 @@ def build_report(records: list[dict], labels_doc: dict, *, spent: float, over_bu
         "labels_version": labels_doc["version"],
         "spent_usd": round(spent, 4), "stopped_over_budget": over_budget,
         "harness_errors": [r for r in records if "harness_error" in r],
+        "interrupted_cases": [
+            {"case_id": r["case_id"], "system": r["system"], "run": r["run"], "stop_reason": r["stop_reason"]}
+            for r in ok if r["stop_reason"] == "harness_error" or r["stop_reason"].startswith("http_")
+        ],
+        "served_models": sorted({m for r in ok for m in r.get("served_models", [])}),
         "systems": {},
     }
     for system in sorted({r["system"] for r in ok}):
@@ -654,10 +685,15 @@ def build_report(records: list[dict], labels_doc: dict, *, spent: float, over_bu
             "variability": variability(runs),
             "per_case_stability": per_case_stability([r for r in ok if r["system"] == system], labels),
         }
-    case_ids = sorted({r["case_id"] for r in ok}) or sorted(labels)
+    case_ids = meta.get("case_ids") or sorted(labels)
     report["systems"][ANCHOR_ESCALATE_EVERYTHING] = escalate_everything_anchor(labels, case_ids)
     report["records"] = ok
     return report
+
+
+def _git_head() -> str | None:
+    result = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True)
+    return result.stdout.strip() or None
 
 
 def _write_summary(report: dict, path: Path) -> None:
@@ -696,6 +732,8 @@ def main(argv: list[str] | None = None) -> int:
     systems = tuple(args.systems.split(","))
     if unknown := set(systems) - set(SYSTEMS):
         parser.error(f"unknown systems: {sorted(unknown)}")
+    if args.budget_usd <= 0:
+        parser.error("--budget-usd must be positive")
     labels_path = (args.labels or latest_labels_path()).resolve()
     labels_doc = load_labels(labels_path)
     conversations = load_conversations()
@@ -714,6 +752,7 @@ def main(argv: list[str] | None = None) -> int:
         "labels_path": str(labels_path.relative_to(REPO_ROOT) if labels_path.is_relative_to(REPO_ROOT) else labels_path),
         "systems_run": list(systems), "runs": args.runs, "case_ids": [c["case_id"] for c in conversations],
         "pricing_usd_per_m_tokens": {"input": HAIKU_INPUT_USD_PER_M_TOKENS, "output": HAIKU_OUTPUT_USD_PER_M_TOKENS},
+        "app_commit": _git_head(), "budget_usd": args.budget_usd,
     }
     report = build_report(records, labels_doc, spent=spent, over_budget=over_budget, meta=meta)
     args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -721,6 +760,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.summary_out is not None:
         _write_summary(report, args.summary_out)
     print(f"report: {args.out} (spent ${spent:.3f}{', STOPPED OVER BUDGET' if over_budget else ''})")
+    if report["harness_errors"] or report["interrupted_cases"]:
+        print("INCOMPLETE: some cases crashed or were interrupted (see harness_errors / interrupted_cases)",
+              file=sys.stderr)
+        return 1
     return 0
 
 
