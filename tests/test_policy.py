@@ -117,6 +117,27 @@ def test_duplicate_claim_without_a_twin_escalates():
     assert _escalates_because(evaluation, "no other charge at the same merchant")
 
 
+def test_an_equal_charge_outside_the_window_is_a_separate_purchase():
+    """Two equal fares on consecutive days are two rides: the other charge is
+    named as the advisor's evidence and nothing is reversed automatically.
+    """
+    ctx = clean_ctx(reason=DisputeReason.DUPLICATE, duplicate_twins=(), repeat_charges=("TRX-0",))
+    evaluation = evaluate_resolution(clean_txn(), ctx)
+    assert _escalates_because(evaluation, "TRX-0")
+    assert _escalates_because(evaluation, f"more than {policy.DUPLICATE_WINDOW_MINUTES} minutes apart")
+
+
+def test_a_twin_inside_the_window_wins_over_an_older_equal_charge():
+    evaluation = evaluate_resolution(clean_txn(), _duplicate_ctx(repeat_charges=("TRX-9",)))
+    assert evaluation.decision == ResolutionDecision.AUTO_RESOLVE
+
+
+def test_the_duplicate_window_is_minutes_not_days():
+    """AD-14: a double swipe or a processor retry posts within minutes."""
+    assert 0 < policy.DUPLICATE_WINDOW_MINUTES <= 60
+    assert not hasattr(policy, "DUPLICATE_WINDOW_DAYS")
+
+
 def test_duplicate_pair_already_credited_escalates():
     evaluation = evaluate_resolution(clean_txn(), _duplicate_ctx(duplicate_pair_credited=True))
     assert _escalates_because(evaluation, "already credited")

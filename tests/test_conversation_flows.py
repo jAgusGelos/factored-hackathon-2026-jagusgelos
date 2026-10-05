@@ -31,6 +31,7 @@ from tests.support import (
     NOT_RECEIVED_ASSESSMENT,
     OPENING,
     OVER_LIMIT_CHARGE,
+    REPEAT_FARE_CHARGES,
     SECOND_ONLINE_CHARGE,
     assert_asks_for_statement,
     assert_escalation_notice,
@@ -760,6 +761,24 @@ def test_a_verified_duplicate_is_reversed_without_blocking_the_card(real_fixture
     case = cases.get_case(reply["case_id"], db_path=real_fixture_app_db)
     assert case.dispute_reason == "duplicate"
     assert case.credit_key == f"duplicate:{min(DUPLICATE_CHARGES)}"
+
+
+def test_the_same_fare_on_the_next_day_is_not_reversed_as_a_duplicate(real_fixture_app_db):
+    """Cabify 18.500 COP on two consecutive mornings: two rides. The customer
+    who calls it a duplicate goes to a person with both charges as evidence.
+    """
+    session = demo_session(real_fixture_app_db)
+    listed = _say(session, real_fixture_app_db, charge_extraction(merchant_hint="Cabify"), "me cobraron dos veces Cabify")
+    assert REPEAT_FARE_CHARGES[1] in [o["transaction_id"] for o in listed["options"]]
+    picked = _say(session, real_fixture_app_db, charge_extraction(), "cargo", case_id=listed["case_id"],
+                  selected_transaction_id=REPEAT_FARE_CHARGES[1])
+    assert picked["state"] == CaseState.AWAITING_EXPLANATION
+    reply = _explain(session, real_fixture_app_db, picked["case_id"], DUPLICATE_ASSESSMENT)
+
+    assert reply["state"] == CaseState.ESCALATED
+    handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
+    assert any(REPEAT_FARE_CHARGES[0] in q and "separate purchases" in q for q in handoff["policy_reasons"])
+    assert logged_events(real_fixture_app_db, "simulated_credit") == []
 
 
 def _credit_events(app_db, case_id) -> list[str]:

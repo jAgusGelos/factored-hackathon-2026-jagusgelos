@@ -71,7 +71,8 @@ SYNTHETIC_SOURCE = "synthetic"
 @dataclass(frozen=True)
 class SyntheticCharge:
     transaction_id: str
-    day: date
+    # Full timestamp: the duplicate check compares minutes, not days (AD-14).
+    posted_at: datetime
     merchant_name: str
     merchant_category: str
     amount: float
@@ -86,29 +87,37 @@ AUTO_RESOLVE_CHARGE_ID = "SYN-DEMO-UBER"
 FRAUD_SCORE_CHARGE_ID = "SYN-DEMO-ONLINE"
 OVER_LIMIT_CHARGE_ID = "SYN-DEMO-BOUTIQUE"
 DUPLICATE_CHARGE_IDS = ("SYN-DEMO-TAXI-1", "SYN-DEMO-TAXI-2")
+REPEAT_FARE_CHARGE_IDS = ("SYN-DEMO-RIDE-1", "SYN-DEMO-RIDE-2")
 CARD_PRESENT_CHARGE_ID = "SYN-DEMO-FARMACIA"
 SECOND_ONLINE_CHARGE_ID = "SYN-DEMO-CINE"
 
 # Amounts are COP. Converted to USD at build time with the dataset's own
 # daily_exchange_rates, so AD-11's USD thresholds apply exactly as to real rows.
 SYNTHETIC_CHARGES: tuple[SyntheticCharge, ...] = (
-    SyntheticCharge(AUTO_RESOLVE_CHARGE_ID, date(2026, 6, 14), "Uber", "Transport",
+    SyntheticCharge(AUTO_RESOLVE_CHARGE_ID, datetime(2026, 6, 14, 12, 0), "Uber", "Transport",
                     38_500.0, 6.0, "Approved", "App", "auto_resolve"),
-    SyntheticCharge(CARD_PRESENT_CHARGE_ID, date(2026, 6, 11), "Farmacia Salud", "Health",
+    SyntheticCharge(CARD_PRESENT_CHARGE_ID, datetime(2026, 6, 11, 12, 0), "Farmacia Salud", "Health",
                     64_900.0, 4.0, "Approved", "POS", "auto_resolve"),
-    SyntheticCharge(SECOND_ONLINE_CHARGE_ID, date(2026, 6, 9), "Cine Premium", "Entertainment",
+    SyntheticCharge(SECOND_ONLINE_CHARGE_ID, datetime(2026, 6, 9, 12, 0), "Cine Premium", "Entertainment",
                     52_000.0, 7.5, "Approved", "Web", "auto_resolve"),
-    SyntheticCharge("SYN-DEMO-SUPER", date(2026, 6, 5), "Super Ahorro", "Food",
+    SyntheticCharge("SYN-DEMO-SUPER", datetime(2026, 6, 5, 12, 0), "Super Ahorro", "Food",
                     187_350.0, 9.0, "Approved", "POS", "auto_resolve"),
-    # Same merchant and amount a day apart: amount + date alone cannot tell them
-    # apart (AD-11 Row 3), so the customer has to pick one from the list.
-    SyntheticCharge(DUPLICATE_CHARGE_IDS[0], date(2026, 6, 15), "Taxi Seguro", "Transport",
+    # A double charge: same merchant and amount, 4 minutes apart (inside
+    # DUPLICATE_WINDOW_MINUTES). Amount + date alone cannot tell them apart
+    # (AD-11 Row 3), so the customer has to pick one from the list.
+    SyntheticCharge(DUPLICATE_CHARGE_IDS[0], datetime(2026, 6, 15, 12, 0), "Taxi Seguro", "Transport",
                     27_000.0, 5.0, "Approved", "App", "duplicate_pair"),
-    SyntheticCharge(DUPLICATE_CHARGE_IDS[1], date(2026, 6, 16), "Taxi Seguro", "Transport",
+    SyntheticCharge(DUPLICATE_CHARGE_IDS[1], datetime(2026, 6, 15, 12, 4), "Taxi Seguro", "Transport",
                     27_000.0, 5.0, "Approved", "App", "duplicate_pair"),
-    SyntheticCharge(FRAUD_SCORE_CHARGE_ID, date(2026, 6, 12), "Tienda Online Global", "Other",
+    # The same fare on two consecutive mornings: two rides, never reversed as
+    # a duplicate (AD-14).
+    SyntheticCharge(REPEAT_FARE_CHARGE_IDS[0], datetime(2026, 6, 3, 8, 10), "Cabify", "Transport",
+                    18_500.0, 4.0, "Approved", "App", "repeat_purchase"),
+    SyntheticCharge(REPEAT_FARE_CHARGE_IDS[1], datetime(2026, 6, 4, 8, 12), "Cabify", "Transport",
+                    18_500.0, 4.0, "Approved", "App", "repeat_purchase"),
+    SyntheticCharge(FRAUD_SCORE_CHARGE_ID, datetime(2026, 6, 12, 12, 0), "Tienda Online Global", "Other",
                     689_000.0, 91.0, "Approved", "Web", "escalate_fraud_score"),
-    SyntheticCharge(OVER_LIMIT_CHARGE_ID, date(2026, 6, 13), "Boutique Moda", "Other",
+    SyntheticCharge(OVER_LIMIT_CHARGE_ID, datetime(2026, 6, 13, 12, 0), "Boutique Moda", "Other",
                     2_450_000.0, 9.0, "Approved", "POS", "escalate_amount"),
 )
 
@@ -189,14 +198,14 @@ def _insert_synthetic_charges(
     for charge in SYNTHETIC_CHARGES:
         values = {
             "transaction_id": charge.transaction_id,
-            "transaction_date": datetime.combine(charge.day, datetime.min.time()).replace(hour=12),
+            "transaction_date": charge.posted_at,
             "product_id": product_id,
             "customer_id": customer_id,
             "transaction_type": "Purchase",
             "transaction_category": f"Team-generated (synthetic demo charge: {charge.scenario})",
             "amount": charge.amount,
             "currency": DEMO_CURRENCY,
-            "amount_usd": round(charge.amount * _usd_rate(con, DEMO_CURRENCY, charge.day), 2),
+            "amount_usd": round(charge.amount * _usd_rate(con, DEMO_CURRENCY, charge.posted_at.date()), 2),
             "channel": charge.channel,
             "merchant_name": charge.merchant_name,
             "merchant_category": charge.merchant_category,

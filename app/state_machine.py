@@ -110,7 +110,7 @@ from app.policy import (
     ABUSE_GUARD_WINDOW_DAYS,
     AUTO_RESOLVE_REQUIRED_STATUS,
     DISPUTE_COMPLAINT_CATEGORY,
-    DUPLICATE_WINDOW_DAYS,
+    DUPLICATE_WINDOW_MINUTES,
     MATCH_DATE_TOLERANCE_DAYS,
     MAX_CASE_TURNS,
     MAX_CLARIFICATION_ROUNDS,
@@ -129,7 +129,7 @@ from app.transactions import (
     TransactionCandidate,
     count_own_charges_at_merchant,
     count_prior_complaints,
-    find_own_duplicate_twins,
+    find_own_duplicate_evidence,
     get_case_history,
     get_customer_profile,
     get_own_transaction,
@@ -194,9 +194,10 @@ def _dispute_context(
             prior_complaint_count=count_prior_complaints(session, day),
         )
     )
-    twins = find_own_duplicate_twins(
-        session, matched, window_days=DUPLICATE_WINDOW_DAYS, required_status=AUTO_RESOLVE_REQUIRED_STATUS,
+    duplicates = find_own_duplicate_evidence(
+        session, matched, window_minutes=DUPLICATE_WINDOW_MINUTES, required_status=AUTO_RESOLVE_REQUIRED_STATUS,
     )
+    twins = duplicates.twins
     pair_credited = bool(twins) and (
         any(cases.credited_case_for_transaction(session.customer_id, t, db_path=db_path) for t in twins)
         or cases.credited_case_for_key(
@@ -218,6 +219,7 @@ def _dispute_context(
             ) if matched.merchant_name else None
         ),
         duplicate_twins=twins,
+        repeat_charges=duplicates.repeats,
         duplicate_pair_credited=pair_credited,
         recent_unrecognized_credits=credits.unrecognized_count,
         recent_credited_usd=credits.total_usd,

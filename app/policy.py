@@ -27,9 +27,11 @@ AD-11's rows, in order:
      never on the claim:
        - duplicate: a verifiable twin exists (an Approved charge at the same
          merchant, exact amount, currency and type, at most
-         DUPLICATE_WINDOW_DAYS apart: a pending hold or a declined retry was
-         never collected, so it is not a second charge) and no
-         charge of the pair was credited before -> reverse it.
+         DUPLICATE_WINDOW_MINUTES apart by full timestamp: a pending hold or
+         a declined retry was never collected, so it is not a second charge)
+         and no charge of the pair was credited before -> reverse it. Equal
+         charges further apart are two purchases: they go to a person, named
+         as evidence, never reversed on the customer's word.
        - unrecognized: card-not-present purchase (Web/App), no other charge
          of theirs at the same merchant (an existing relationship with the
          merchant contradicts "I never used it"), and
@@ -95,9 +97,12 @@ MAX_AUTO_CREDIT_TOTAL_USD = 200.0
 CARD_NOT_PRESENT_CHANNELS = ("Web", "App")
 UNRECOGNIZED_ELIGIBLE_TYPES = ("Purchase",)
 DUPLICATE_ELIGIBLE_TYPES = ("Purchase", "Payment")
-# A duplicate settlement can post the next day, so the twin may be one day
-# apart. Two equal charges a week apart are two purchases, not a duplicate.
-DUPLICATE_WINDOW_DAYS = 1
+# A real duplicate (a double swipe, a processor retry) posts seconds to
+# minutes after the original; two equal taxi fares on consecutive days are two
+# rides. DESIGN ARGUMENT, not a measurement: the warehouse holds no pair of
+# same-customer, same-merchant, same-amount charges at any distance, so it
+# cannot size the window (docs/policy/duplicate-window.md).
+DUPLICATE_WINDOW_MINUTES = 10
 
 MAX_CLARIFICATION_ROUNDS = 2
 
@@ -291,6 +296,9 @@ class DisputeContext:
     other_charges_at_merchant: int | None
     # Ids of this customer's charges that make this one a verifiable duplicate.
     duplicate_twins: tuple[str, ...]
+    # Ids of equal charges (same merchant, amount, currency, type, Approved)
+    # further apart than the window: separate purchases, the advisor's evidence.
+    repeat_charges: tuple[str, ...]
     # A charge of the duplicate pair was already credited by this system.
     duplicate_pair_credited: bool
     recent_unrecognized_credits: int
@@ -395,10 +403,15 @@ def _duplicate_failures(txn: TransactionCandidate, ctx: DisputeContext) -> list[
     reasons: list[str] = []
     if txn.transaction_type not in DUPLICATE_ELIGIBLE_TYPES:
         reasons.append(f"transaction_type={txn.transaction_type!r}: not a purchase or payment")
-    if not ctx.duplicate_twins:
+    if not ctx.duplicate_twins and ctx.repeat_charges:
+        reasons.append(
+            f"the other charge(s) at the same merchant and amount ({', '.join(ctx.repeat_charges)}) posted "
+            f"more than {DUPLICATE_WINDOW_MINUTES} minutes apart: separate purchases, not a duplicate"
+        )
+    elif not ctx.duplicate_twins:
         reasons.append(
             "customer reports a duplicate but no other charge at the same merchant and amount "
-            f"within {DUPLICATE_WINDOW_DAYS} day(s) was found"
+            f"within {DUPLICATE_WINDOW_MINUTES} minutes was found"
         )
     if ctx.duplicate_pair_credited:
         reasons.append("the other charge of the duplicate pair was already credited")

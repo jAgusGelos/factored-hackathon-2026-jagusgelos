@@ -7,6 +7,7 @@ from datetime import date
 import duckdb
 import pytest
 
+from app.policy import DUPLICATE_WINDOW_MINUTES
 from etl.build_fixture import (
     DEMO_USERNAME,
     OVER_LIMIT_CHARGE_ID,
@@ -135,8 +136,16 @@ def test_synthetic_charges_cover_every_demo_scenario():
     assert {"auto_resolve", "duplicate_pair", "escalate_fraud_score", "escalate_amount"} <= scenarios
     pair = [c for c in SYNTHETIC_CHARGES if c.scenario == "duplicate_pair"]
     assert len(pair) == 2 and pair[0].amount == pair[1].amount
-    assert abs((pair[0].day - pair[1].day).days) <= 3
-    assert all(date(2026, 5, 18) <= c.day <= date(2026, 6, 17) for c in SYNTHETIC_CHARGES)
+    # AD-14: a real double charge, minutes apart on the same day.
+    gap_minutes = abs((pair[0].posted_at - pair[1].posted_at).total_seconds()) / 60
+    assert pair[0].posted_at.date() == pair[1].posted_at.date()
+    assert gap_minutes <= DUPLICATE_WINDOW_MINUTES
+    # The same fare on consecutive days: two purchases, outside the window.
+    repeat = [c for c in SYNTHETIC_CHARGES if c.scenario == "repeat_purchase"]
+    assert len(repeat) == 2 and repeat[0].amount == repeat[1].amount
+    assert repeat[0].merchant_name == repeat[1].merchant_name
+    assert (repeat[1].posted_at.date() - repeat[0].posted_at.date()).days == 1
+    assert all(date(2026, 5, 18) <= c.posted_at.date() <= date(2026, 6, 17) for c in SYNTHETIC_CHARGES)
 
 
 def test_demo_users_has_a_single_account(tmp_path):
