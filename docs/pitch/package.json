@@ -1,0 +1,12 @@
+{
+  "name": "pitch-deck-tools",
+  "private": true,
+  "description": "Screenshot and export scripts for the pitch deck",
+  "scripts": {
+    "capture": "node scripts/capture-screens.cjs",
+    "export": "node scripts/export-deck.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

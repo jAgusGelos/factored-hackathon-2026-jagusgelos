@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 380" width="1180" height="380" role="img" aria-labelledby="title desc">
+  <title id="title">The model reads, the code decides</title>
+  <desc id="desc">A customer message goes to the language model, which only extracts the facts. A state machine and policy in code decide, using only the customer's own ledger, and pay only on evidence. The outcome is one of three: resolve, ask, or hand off. Replies use only facts the code allows.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6472"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Liberation Sans", Arial, sans-serif; }
+    .eyebrow { font-size: 20px; font-weight: 800; letter-spacing: 1.5px; }
+    .title { font-size: 26px; font-weight: 800; }
+    .line { font-size: 24px; }
+    .strong { font-size: 24px; font-weight: 800; }
+    .flow { stroke: #5b6472; stroke-width: 2.5; fill: none; }
+  </style>
+
+  <rect x="2" y="128" width="150" height="104" rx="12" fill="#ffffff" stroke="#c3c9d3" stroke-width="2"/>
+  <text x="77" y="174" text-anchor="middle" class="title" fill="#1a2130">Customer</text>
+  <text x="77" y="206" text-anchor="middle" class="line" fill="#5b6472">ES · PT</text>
+
+  <line x1="152" y1="180" x2="192" y2="180" class="flow" marker-end="url(#arrow)"/>
+
+  <rect x="196" y="92" width="300" height="176" rx="12" fill="#fdf1de" stroke="#a15c00" stroke-width="2"/>
+  <text x="220" y="130" class="eyebrow" fill="#7a4500">THE MODEL READS</text>
+  <text x="220" y="168" class="title" fill="#1a2130">Claude Haiku 4.5</text>
+  <text x="220" y="206" class="line" fill="#1a2130">Extracts the facts.</text>
+  <text x="220" y="244" class="strong" fill="#7a4500">Never decides.</text>
+
+  <line x1="496" y1="180" x2="536" y2="180" class="flow" marker-end="url(#arrow)"/>
+
+  <rect x="540" y="78" width="350" height="204" rx="12" fill="#14335c"/>
+  <text x="566" y="116" class="eyebrow" fill="#c9d6e8">THE CODE DECIDES</text>
+  <text x="566" y="154" class="title" fill="#ffffff">State machine + policy</text>
+  <text x="566" y="196" class="line" fill="#ffffff">Pays only on evidence.</text>
+  <text x="566" y="236" class="line" fill="#c9d6e8">The classifier can only</text>
+  <text x="566" y="264" class="line" fill="#c9d6e8">escalate.</text>
+
+  <line x1="715" y1="282" x2="715" y2="306" class="flow"/>
+  <path d="M535 320 a180 14 0 0 1 360 0 v38 a180 14 0 0 1 -360 0 z" fill="#e5f5ec" stroke="#1a7f4e" stroke-width="2"/>
+  <ellipse cx="715" cy="320" rx="180" ry="14" fill="none" stroke="#1a7f4e" stroke-width="2"/>
+  <text x="715" y="356" text-anchor="middle" class="strong" fill="#145c39">Customer's own ledger only</text>
+
+  <line x1="890" y1="180" x2="922" y2="180" class="flow"/>
+  <path d="M922 108 V252" class="flow"/>
+  <line x1="922" y1="108" x2="946" y2="108" class="flow" marker-end="url(#arrow)"/>
+  <line x1="922" y1="180" x2="946" y2="180" class="flow" marker-end="url(#arrow)"/>
+  <line x1="922" y1="252" x2="946" y2="252" class="flow" marker-end="url(#arrow)"/>
+
+  <rect x="950" y="80" width="226" height="56" rx="28" fill="#e5f5ec" stroke="#1a7f4e" stroke-width="2"/>
+  <text x="1063" y="116" text-anchor="middle" class="strong" fill="#145c39">✓ Resolve</text>
+  <rect x="950" y="152" width="226" height="56" rx="28" fill="#e8eef6" stroke="#205493" stroke-width="2"/>
+  <text x="1063" y="188" text-anchor="middle" class="strong" fill="#205493">? Ask</text>
+  <rect x="950" y="224" width="226" height="56" rx="28" fill="#ffffff" stroke="#14335c" stroke-width="2"/>
+  <text x="1063" y="260" text-anchor="middle" class="strong" fill="#14335c">→ Hand off</text>
+
+  <path d="M1063 80 V36 H346 V88" class="flow" stroke-dasharray="7 6" marker-end="url(#arrow)"/>
+  <text x="704" y="26" text-anchor="middle" class="line" fill="#5b6472">Replies use only facts the code allows</text>
+</svg>
