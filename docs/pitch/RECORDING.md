@@ -75,9 +75,9 @@ landscape and lock exposure and focus on your face (long-press on the face in th
 
 ## Choosing takes and handing over
 
-By default the most recently modified file of each id is used, which is the newest take for
-the script's recordings. A phone clip's file time is when it was copied, so after copying several
-phone takes of one line, pick the one you want. To choose another one, write
+By default the take with the highest number of each id is used: the script always numbers a
+new take one above the highest, so that is the newest one. Name phone clips the same way (the
+next number up). To choose another one, write
 `video/takes/selection.json`:
 
 ```json

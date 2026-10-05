@@ -50,7 +50,7 @@ next_take_path() {
   for f in "$TAKES_DIR/${take}"_*.*; do
     [[ -e "$f" ]] || continue
     k="${f##*/${take}_}"; k="${k%%.*}"
-    [[ "$k" =~ ^[0-9]+$ ]] && (( k > n )) && n=$k
+    [[ "$k" =~ ^[0-9]+$ ]] && (( 10#$k > n )) && n=$((10#$k))
   done
   echo "$TAKES_DIR/${take}_$((n + 1)).mkv"
 }

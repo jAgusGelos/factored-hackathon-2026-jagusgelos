@@ -5,8 +5,8 @@
     $PY video/scripts/ingest_takes.py --takes T05 T06  # just these
     $PY video/scripts/ingest_takes.py --no-matte       # skip background removal
 
-For each take id in video/narration/lines.json that has a file in video/takes/ (the most
-recently modified <TAKE>_<n>.* unless video/takes/selection.json picks another n):
+For each take id in video/narration/lines.json that has a file in video/takes/ (the highest
+<TAKE>_<n>.* unless video/takes/selection.json picks another n):
 
 1. Aligns the line's words to the audio (CTC forced alignment with wav2vec2-base-960h, ported
    from align_vo.py of the pdoom-video "Motion as Code" kit, MIT) and trims the take to the
@@ -90,7 +90,7 @@ def find_take(takes_dir: Path, take: str, selection: dict) -> Path | None:
         if not chosen:
             sys.exit(f"selection.json picks {take}_{selection[take]}, which is not in {takes_dir}")
         return chosen[0]
-    return max(candidates, key=lambda p: p.stat().st_mtime)
+    return max(candidates, key=take_number)
 
 
 def load_audio(path: Path) -> np.ndarray:

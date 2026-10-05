@@ -25,7 +25,6 @@ const BUBBLE_ZOOM = { transform: 'scale(1.4) translateY(-9%)', transformOrigin: 
 const CUTOUT_EDGE_MASK =
   'linear-gradient(to right, transparent 0%, black 16%, black 84%, transparent 100%), linear-gradient(to top, transparent 0%, black 14%)';
 
-
 /**
  * The builder on camera for a run of lines. Each line shows its own ingested take (cut out when
  * the ingest produced a matte, the plain take otherwise), held on its first frame before it speaks and on its
@@ -84,12 +83,12 @@ const Take: React.FC<{ line: TimedLine; mode: PresenterMode; offset: number }> =
   const presenter = line.presenter;
   if (!presenter) return null;
   const matte = presenter.matte;
-  const edgeMask = matte && mode === 'full';
+  const fadeEdges = Boolean(matte) && mode === 'full';
   const takeFrame = Math.min(Math.max(frame - offset, 0), line.frames - 1);
   return (
     <AbsoluteFill
       style={
-        edgeMask
+        fadeEdges
           ? { maskImage: CUTOUT_EDGE_MASK, WebkitMaskImage: CUTOUT_EDGE_MASK, maskComposite: 'intersect', WebkitMaskComposite: 'source-in' }
           : { borderRadius: mode === 'full' ? 18 : undefined, overflow: 'hidden' }
       }
