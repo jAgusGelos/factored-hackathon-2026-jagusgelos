@@ -21,7 +21,7 @@ test fold 2026-02-01 to 2026-06-17, 84,269 charges, 71 frauds (MEASURED).
 |---|---|---|---|---|---|
 | **shipped: `fraud_score > 30`** | **48** | **48** | **23** | **100%** | **USD 38.13** |
 | previous default: `fraud_score >= 30` | 66 | 48 | 23 | 72.7% | USD 38.38 |
-| model gate (not shipped): stacked logistic risk > 0.003527 | 166 | 48 | 23 | 28.9% | USD 39.78 |
+| model gate (not shipped): stacked logistic risk >= 0.003527 | 166 | 48 | 23 | 28.9% | USD 39.78 |
 
 - Cost model: an escalation costs USD 1.18 (425 s median handle time, MEASURED but not
   dispute-specific, at USD 10/h, ASSUMED); a fraud credited automatically costs its amount

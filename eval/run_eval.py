@@ -820,6 +820,13 @@ def _gate_row(label: str, rule: str, measured: dict) -> dict:
     }
 
 
+def _previous_default(fraud_report: dict) -> dict:
+    """The old `fraud_score >= 30` gate as measured on the test fold; its
+    `threshold` is the previous default, read from the report, never restated.
+    """
+    return fraud_report["thresholds"]["scores"]["fraud_score"]["test_current_policy_30"]
+
+
 def _measured_gates(fraud_report: dict) -> dict:
     """The three candidate gates on the fraud model's chronological test fold
     (MEASURED by `python -m etl.evaluate_fraud_model`, transaction-level proxy population).
@@ -828,6 +835,7 @@ def _measured_gates(fraud_report: dict) -> dict:
     scores = thresholds["scores"]
     model = fraud_report["selected_on_validation"]
     model_threshold = scores[model]["threshold_chosen_on_val"]
+    previous = _previous_default(fraud_report)
     return {
         "label": "MEASURED",
         "population": thresholds["population"]["definition"],
@@ -835,13 +843,14 @@ def _measured_gates(fraud_report: dict) -> dict:
         "test_rows": thresholds["population"]["test_rows"],
         "gates": [
             _gate_row("shipped", SHIPPED_FRAUD_GATE, scores["fraud_score"]["test"]),
-            _gate_row("previous default", "fraud_score >= 30", scores["fraud_score"]["test_current_policy_30"]),
-            _gate_row("model gate (not shipped)", f"{model} risk > {model_threshold}", scores[model]["test"]),
+            _gate_row("previous default", f"fraud_score >= {previous['threshold']:g}", previous),
+            # `etl.evaluate_fraud_model.expected_cost` escalates at score >= threshold.
+            _gate_row("model gate (not shipped)", f"{model} risk >= {model_threshold}", scores[model]["test"]),
         ],
     }
 
 
-def _fixture_gates() -> dict:
+def _fixture_gates(previous_max_fraud_score: float) -> dict:
     """How the same gates read the demo fixture's charges (model estimate precomputed offline)."""
     con = fixture_db.get_connection(REAL_FIXTURE_PATH)
     try:
@@ -855,18 +864,23 @@ def _fixture_gates() -> dict:
         "label": "SIMULATED (demo fixture, synthetic charges included)",
         "charges": len(rows),
         "flagged_by_shipped_gate": [r[0] for r in rows if fraud_score_flagged(r[1])],
-        "flagged_by_previous_default": [r[0] for r in rows if r[1] is not None and r[1] >= AUTO_RESOLVE_MAX_FRAUD_SCORE],
-        "flagged_by_model_gate": [r[0] for r in rows if r[2] is not None and r[2] > r[3]],
+        "flagged_by_previous_default": [r[0] for r in rows if r[1] is not None and r[1] >= previous_max_fraud_score],
+        "flagged_by_model_gate": [r[0] for r in rows if r[2] is not None and r[2] >= r[3]],
     }
 
 
 def build_fraud_gate_section(fraud_report_path: Path = FRAUD_REPORT_PATH) -> dict:
     if not fraud_report_path.exists():
-        return {"shipped": SHIPPED_FRAUD_GATE, "measured": None, "note": f"{fraud_report_path} not found"}
+        return {
+            "shipped": SHIPPED_FRAUD_GATE, "measured": None, "fixture": None,
+            "note": f"{fraud_report_path} not found",
+        }
+    fraud_report = json.loads(fraud_report_path.read_text())
+    previous_max_fraud_score = _previous_default(fraud_report)["threshold"]
     return {
         "shipped": SHIPPED_FRAUD_GATE,
-        "measured": _measured_gates(json.loads(fraud_report_path.read_text())),
-        "fixture": _fixture_gates() if REAL_FIXTURE_PATH.exists() else None,
+        "measured": _measured_gates(fraud_report),
+        "fixture": _fixture_gates(previous_max_fraud_score) if REAL_FIXTURE_PATH.exists() else None,
         "note": (
             "The policy gates on fraud_score above 30 (AD-15): on the test fold it catches the same frauds "
             "as the previous >= 30 default with fewer escalations, and the fraud-risk model gate catches no "
