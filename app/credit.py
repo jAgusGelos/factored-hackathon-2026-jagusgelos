@@ -33,7 +33,7 @@ def _simulate_provisional_credit(
         },
     )
     if reason == DisputeReason.UNRECOGNIZED:
-        turn.log_event("simulated_card_block", {"reference": reference, "simulated": True})
+        turn.log_event("simulated_card_block", {"reference": reference, "trigger": "credit", "simulated": True})
         turn.log_event("credit_review_queued", {"reference": reference, "reversible": True})
 
 

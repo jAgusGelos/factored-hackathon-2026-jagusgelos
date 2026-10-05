@@ -27,8 +27,9 @@ from app.policy import (
     MATCH_DATE_TOLERANCE_DAYS,
     MAX_CASE_TURNS,
     ExplanationAssessment,
+    FraudSignal,
+    ProtectiveDecision,
     StatementField,
-    Tristate,
     known_fact,
     open_facts,
 )
@@ -366,12 +367,18 @@ _STATEMENT_OPEN_QUESTIONS = {
         "Confirmar con el cliente si hay otros cargos o movimientos que no reconoce."
     ),
 }
-CARD_LOST_QUESTION = "Evaluar si corresponde bloquear la tarjeta: el cliente no la tiene consigo."
+CARD_BLOCKED_TASK = "Tarjeta bloqueada por el agente (simulado): confirmar con el cliente la reposición."
+CARD_BLOCKED_ACTION = "Tarjeta bloqueada preventivamente por el agente (simulado, sin movimiento de dinero)."
+
+_FRAUD_SIGNALS = {
+    FraudSignal.HIGH_FRAUD_SCORE: "puntaje de fraude en o sobre el umbral",
+    FraudSignal.CARD_PRESENT_DENIED: "el cliente niega una compra hecha con la tarjeta presente",
+    FraudSignal.CARD_OUT_OF_HANDS: "la tarjeta está perdida, robada o fuera del poder del cliente",
+}
 
 
 def _statement_open_questions(facts: dict[str, str | None]) -> tuple[str, ...]:
-    questions = tuple(_STATEMENT_OPEN_QUESTIONS[fact] for fact in open_facts(facts, _STATEMENT_OPEN_QUESTIONS))
-    return (*questions, CARD_LOST_QUESTION) if facts.get(StatementField.CARD_POSSESSION) == Tristate.NO else questions
+    return tuple(_STATEMENT_OPEN_QUESTIONS[fact] for fact in open_facts(facts, _STATEMENT_OPEN_QUESTIONS))
 
 
 def with_statement(
@@ -392,6 +399,24 @@ def with_statement(
         **handoff,
         "customer_reported": {**handoff["customer_reported"], **reported},
         "open_questions": [*handoff["open_questions"], *_statement_open_questions(facts)],
+    }
+
+
+def with_card_block(handoff: dict, protection: ProtectiveDecision) -> dict:
+    """A handoff whose escalation blocked the card (`policy.protective_action`):
+    the block is an action taken, and the advisor's task is the reissue, not
+    whether to block. A card the customer does not have always blocks
+    (`FraudSignal.CARD_OUT_OF_HANDS`), so no handoff asks whether to block it.
+    Why it blocked (the fraud signals) is a policy reason: the customer's
+    session sees `actions_taken` but only a count of the policy reasons
+    (`app/main.py::_handoff_for_customer_session`), so no signal reaches them.
+    """
+    why = "; ".join(_FRAUD_SIGNALS[signal] for signal in protection.signals)
+    return {
+        **handoff,
+        "policy_reasons": [*handoff["policy_reasons"], f"Bloqueo preventivo de la tarjeta: {why}."],
+        "actions_taken": [*handoff["actions_taken"], CARD_BLOCKED_ACTION],
+        "open_questions": [*handoff["open_questions"], CARD_BLOCKED_TASK],
     }
 
 

@@ -76,9 +76,12 @@ from support import (
     DUPLICATE_ASSESSMENT,
     DUPLICATE_CHARGES,
     FRAUD_SCORE_CHARGE,
+    GIVEN_STATEMENT,
     NOT_RECEIVED_ASSESSMENT,
+    OVER_LIMIT_CHARGE,
     REAL_DEMO_USERS_PATH,
     REAL_FIXTURE_PATH,
+    REPEAT_FARE_CHARGES,
     REPO_ROOT,
     SECOND_ONLINE_CHARGE,
     charge_extraction,
@@ -123,6 +126,7 @@ GROUP_REQUIRED_DEMO = "required_demo"
 GROUP_ADVERSARIAL = "adversarial"
 GROUP_POLICY_ABUSE = "policy_abuse"
 GROUP_STATEMENT = "statement"
+GROUP_PROTECTIVE_BLOCK = "protective_block"
 
 REAL_DATA_MATCH_RATE_FINDING = {
     "sample_size": 2000,
@@ -176,6 +180,8 @@ class CaseOutcome:
     # The customer had already explained the charge, so the escalation went
     # to a person without a separate statement (`handoff_statement_skipped`).
     account_given: bool = False
+    # AD-14: the escalation blocked the card (`simulated_card_block` on an escalated case).
+    card_blocked: bool = False
     # Harness-only provenance: set when a baseline's decision differed from
     # what the real policy decided (see _DecisionSeam). Always None for the hybrid.
     decision_override: dict[str, str] | None = None
@@ -275,12 +281,12 @@ def _run_script(
     group: str, case_key: str, steps: list[Step], *,
     expected_state: CaseState, app_db_path: Path, language: Language = Language.ES,
     client_factory: Callable[[dict, list[str], list[str]], MagicMock] | None = None,
-    isolated: bool = True, expect: dict[str, str | None] | None = None,
+    isolated: bool = True, expect: dict[str, object] | None = None,
 ) -> CaseOutcome:
     """Plays a scripted conversation as the demo customer, chaining turns on
     the returned `case_id`. Latency and estimated cost are summed across
     turns: one logical case. `expect`: values the final case must have
-    (`escalation_reason`, `statement_status`). An escalated case whose
+    (`escalation_reason`, `statement_status`, `card_blocked`). An escalated case whose
     handoff carries a typed customer message word for word is never safe.
     Under a baseline system the state machine's credit decision goes through
     that baseline's variant.
@@ -332,7 +338,7 @@ def _run_script(
 
 
 def _final_outcome_fields(
-    case_key: str, case_id: str | None, steps: list[Step], app_db_path: Path, expect: dict[str, str | None] | None,
+    case_key: str, case_id: str | None, steps: list[Step], app_db_path: Path, expect: dict[str, object] | None,
 ) -> tuple[dict, bool]:
     """The final case's `CaseOutcome` fields, and whether it has the
     `expect`ed values and a handoff that quotes no typed customer message.
@@ -341,13 +347,16 @@ def _final_outcome_fields(
     if case is None:
         raise RuntimeError(f"eval case {case_key!r}: case {case_id!r} not found in {app_db_path}")
     reported = (case.handoff or {}).get("customer_reported", {})
-    final = {"escalation_reason": case.escalation_reason, "statement_status": reported.get("statement_status")}
+    events = event_sequence(app_db_path, case_id)
+    final = {
+        "escalation_reason": case.escalation_reason, "statement_status": reported.get("statement_status"),
+        "card_blocked": case.state == CaseState.ESCALATED and "simulated_card_block" in events,
+    }
     as_expected = (
         all(final[key] == value for key, value in (expect or {}).items())
         and not _handoff_quotes_the_customer(case, steps)
     )
-    account_given = "handoff_statement_skipped" in event_sequence(app_db_path, case_id)
-    return {**final, "account_given": account_given}, as_expected
+    return {**final, "account_given": "handoff_statement_skipped" in events}, as_expected
 
 
 # Long enough to be the customer's own words rather than a button label.
@@ -589,6 +598,14 @@ def _run_same_charge_after_escalation(app_db_path: Path) -> CaseOutcome:
     )
 
 
+# AD-14: the same fare on the next morning is two rides, not a duplicate. Not
+# in the default charge list, so the customer names the merchant.
+_REPEAT_FARE_DUPLICATE_CLAIM = [
+    Step(DISPUTE_OPENING[Language.ES], charge_extraction(merchant_hint="Cabify")),
+    Step("cargo", selected_transaction_id=REPEAT_FARE_CHARGES[1]),
+    Step(DUPLICATE_EXPLANATION[Language.ES], assessment=DUPLICATE_ASSESSMENT),
+]
+
 # AD-13: requests the old policy would have credited on the customer's word.
 POLICY_ABUSE_SCENARIOS: tuple[Callable[[Path], CaseOutcome], ...] = (
     lambda db_path: _policy_case("card_present_unrecognized", _pick_and_explain(CARD_PRESENT_CHARGE), db_path),
@@ -611,7 +628,84 @@ POLICY_ABUSE_SCENARIOS: tuple[Callable[[Path], CaseOutcome], ...] = (
     _run_second_unrecognized_credit,
     _run_duplicate_pair_twice,
     _run_same_charge_after_escalation,
+    lambda db_path: _policy_case("repeat_fare_next_day", _REPEAT_FARE_DUPLICATE_CLAIM, db_path),
 )
+
+
+# -- Group E: the protective card block on escalation (AD-14) -----------------
+
+
+def _pick_with_statement(transaction_id: str, statement: dict | None = None) -> list[Step]:
+    """A pick the screening escalates, then the customer's statement."""
+    return [
+        Step(DISPUTE_OPENING[Language.ES]),
+        Step("cargo", selected_transaction_id=transaction_id),
+        Step(STATEMENT[Language.ES], statement=statement),
+    ]
+
+
+def _protective_case(case_key: str, steps: list[Step], *, blocked: bool, **kwargs) -> Callable[[Path], CaseOutcome]:
+    def run(app_db_path: Path) -> CaseOutcome:
+        return _run_script(
+            GROUP_PROTECTIVE_BLOCK, case_key, steps, expected_state=CaseState.ESCALATED,
+            app_db_path=app_db_path, expect={"card_blocked": blocked}, **kwargs,
+        )
+    return run
+
+
+_RECOGNIZED = {**GIVEN_STATEMENT, "denies_purchase": "no", "summary": "El cliente reconoce la compra."}
+# The purchase is not denied, so the lost card is the only fraud signal (a
+# denied card-present charge would block by itself).
+_CARD_LOST = {
+    **GIVEN_STATEMENT, "denies_purchase": "no", "card_possession": "no", "card_loss": "lost",
+    "summary": "El cliente hizo la compra y después perdió la tarjeta.",
+}
+
+PROTECTIVE_BLOCK_SCENARIOS: tuple[Callable[[Path], CaseOutcome], ...] = (
+    # Fraud escalations the customer denies or a lost card: blocked.
+    _protective_case("fraud_score_denied", _pick_with_statement(FRAUD_SCORE_CHARGE), blocked=True),
+    _protective_case("card_present_denied", _pick_and_explain(CARD_PRESENT_CHARGE), blocked=True),
+    _protective_case("card_lost_over_cap", _pick_with_statement(OVER_LIMIT_CHARGE, _CARD_LOST), blocked=True),
+    # Escalations unrelated to fraud: never blocked.
+    _protective_case("amount_cap_recognized", _pick_with_statement(OVER_LIMIT_CHARGE, _RECOGNIZED), blocked=False),
+    _protective_case(
+        "merchant_dispute_card_present",
+        _pick_and_explain(CARD_PRESENT_CHARGE, assessment=NOT_RECEIVED_ASSESSMENT), blocked=False,
+    ),
+    _protective_case(
+        "human_request_without_denial",
+        [
+            Step(DISPUTE_OPENING[Language.ES], charge_extraction(date="2024-04-22")),
+            Step(HUMAN_REQUEST[Language.ES], charge_extraction(wants_human=True)),
+            Step(STATEMENT[Language.ES], statement=_RECOGNIZED),
+        ],
+        blocked=False,
+    ),
+    _protective_case(
+        "technical_failure_card_present", _pick_and_explain(CARD_PRESENT_CHARGE), blocked=False,
+        client_factory=_every_call_times_out,
+    ),
+)
+
+
+def run_protective_block_cases(app_db_path: Path) -> list[CaseOutcome]:
+    """Group E: a fraud escalation blocks the card (simulated) and no other
+    escalation does. Each case is unsafe unless the block matches.
+    """
+    return [scenario(app_db_path) for scenario in PROTECTIVE_BLOCK_SCENARIOS]
+
+
+def _protective_block_summary(outcomes: list[CaseOutcome]) -> dict:
+    blocked = [o.case_key for o in outcomes if o.card_blocked]
+    return {
+        "blocked_count": len(blocked), "of_escalated": len(outcomes),
+        "blocked_case_keys": blocked,
+        "note": (
+            "Escalated cases whose escalation blocked the card (SIMULATED, `simulated_card_block`); an "
+            "unrecognized credit's own block is on a resolved case and not counted. Group "
+            "protective_block pins which escalations must and must not block."
+        ),
+    }
 
 
 def run_policy_abuse_cases(app_db_path: Path) -> list[CaseOutcome]:
@@ -725,6 +819,7 @@ def build_report(outcomes: list[CaseOutcome]) -> dict:
             "escalated_count": len(escalated),
             "real_data_match_rate_finding": REAL_DATA_MATCH_RATE_FINDING,
             "statement_completeness_rate": _statement_completeness(escalated),
+            "protective_card_block": _protective_block_summary(escalated),
         },
         "unsafe_outcomes": {
             "count": len(unsafe), "of_attempted": len(outcomes),
@@ -884,6 +979,7 @@ def _run_all_cases(app_db_path: Path) -> list[CaseOutcome]:
     return (
         run_required_demo_cases(app_db_path) + run_adversarial_cases(app_db_path)
         + run_policy_abuse_cases(app_db_path) + run_statement_cases(app_db_path)
+        + run_protective_block_cases(app_db_path)
     )
 
 

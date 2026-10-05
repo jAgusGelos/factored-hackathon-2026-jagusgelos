@@ -38,6 +38,9 @@ from etl.build_fixture import (
     OVER_LIMIT_CHARGE_ID as OVER_LIMIT_CHARGE,
 )
 from etl.build_fixture import (
+    REPEAT_FARE_CHARGE_IDS as REPEAT_FARE_CHARGES,
+)
+from etl.build_fixture import (
     SECOND_ONLINE_CHARGE_ID as SECOND_ONLINE_CHARGE,
 )
 
@@ -48,7 +51,7 @@ REAL_DEMO_USERS_PATH = REPO_ROOT / "data" / "demo_users.json"
 __all__ = [
     "AUTO_RESOLVE_CHARGE", "CARD_PRESENT_CHARGE", "CONTRADICTED_ASSESSMENT", "CONVINCING_ASSESSMENT", "DEMO_USERNAME", "DUPLICATE_ASSESSMENT",
     "DUPLICATE_CHARGES", "EXPLANATION", "FRAUD_SCORE_CHARGE", "GIVEN_STATEMENT", "NOT_RECEIVED_ASSESSMENT", "OVER_LIMIT_CHARGE",
-    "REAL_DEMO_USERS_PATH", "REAL_FIXTURE_PATH", "REPO_ROOT", "SECOND_ONLINE_CHARGE", "STATEMENT", "STATEMENT_DECLINED",
+    "REAL_DEMO_USERS_PATH", "REAL_FIXTURE_PATH", "REPEAT_FARE_CHARGES", "REPO_ROOT", "SECOND_ONLINE_CHARGE", "STATEMENT", "STATEMENT_DECLINED",
     "STATEMENT_WITHOUT_CARD_FACT", "app_db_rows", "charge_extraction",
     "charge_report", "demo_session", "event_sequence", "logged_events", "mock_anthropic_client", "session_for",
     "statement_down_client",

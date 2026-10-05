@@ -238,6 +238,6 @@ def _finish(
     handoff = handoffs.with_statement(pending.handoff, status=status, summary=statement.summary, facts=statement.facts)
     case = turn.case
     return finish_pending_escalation(
-        turn, pending, handoff, claimed_events=[*noted, *events], append_statement=text,
+        turn, pending, handoff, claimed_events=[*noted, *events], facts=statement.facts, append_statement=text,
         statement_facts=statement.to_dict(), expected_statement_counts=(case.statement_followups, case.statement_declines),
     )

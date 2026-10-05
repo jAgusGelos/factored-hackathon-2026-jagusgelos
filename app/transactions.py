@@ -16,7 +16,7 @@ Function inventory (kept in sync with the signature-inspection test):
   - get_case_history(session, category, before_date)
   - count_prior_complaints(session, before_date)
   - count_own_charges_at_merchant(session, merchant_name, exclude_transaction_id)
-  - find_own_duplicate_twins(session, txn, window_days)
+  - find_own_duplicate_evidence(session, txn, window_minutes)
 """
 
 from __future__ import annotations
@@ -304,38 +304,57 @@ def count_own_charges_at_merchant(
     return row[0]
 
 
-def find_own_duplicate_twins(
-    session: Session, txn: TransactionCandidate, *, window_days: int, required_status: str,
+@dataclass(frozen=True)
+class DuplicateEvidence:
+    """This customer's OTHER charges equal to one charge (same merchant, exact
+    amount, currency and type, in the required status), split by how far
+    apart they posted: `twins` within the duplicate window, `repeats` beyond it.
+    """
+
+    twins: tuple[str, ...]
+    repeats: tuple[str, ...]
+
+
+def find_own_duplicate_evidence(
+    session: Session, txn: TransactionCandidate, *, window_minutes: int, required_status: str,
     db_path: Path | None = None,
-) -> tuple[str, ...]:
-    """Ids of this session's OTHER transactions that make `txn` a verifiable
-    duplicate: same merchant, same exact amount and currency, same type, in
-    `required_status` (a pending hold or a declined retry was never
-    collected), at most `window_days` apart (AD-13). A charge without a
-    merchant name has no verifiable twin. `customer_id` is never a parameter.
+) -> DuplicateEvidence:
+    """This session's OTHER transactions equal to `txn`: same merchant, same
+    exact amount and currency, same type, in `required_status` (a pending hold
+    or a declined retry was never collected). A twin posted at most
+    `window_minutes` apart makes `txn` a verifiable duplicate (AD-14); a later
+    or earlier equal charge is a separate purchase. Both timestamps are read
+    from the fixture by id (a charge rebuilt from a case snapshot only keeps
+    the day). A charge without a merchant name has no verifiable twin.
+    `customer_id` is never a parameter.
     """
     if not txn.merchant_name:
-        return ()
+        return DuplicateEvidence(twins=(), repeats=())
     con = fixture_db.get_connection(db_path)
     try:
         rows = con.execute(
             """
-            SELECT transaction_id FROM transactions
-            WHERE customer_id = ?
-              AND transaction_id <> ?
-              AND merchant_name = ?
-              AND currency = ?
-              AND CAST(amount AS DOUBLE) = ?
-              AND transaction_type IS NOT DISTINCT FROM ?
-              AND transaction_status = ?
-              AND ABS(DATE_DIFF('day', CAST(transaction_date AS DATE), CAST(? AS DATE))) <= ?
-            ORDER BY transaction_id
+            SELECT o.transaction_id,
+                   ABS(EPOCH(CAST(o.transaction_date AS TIMESTAMP)) - EPOCH(CAST(t.transaction_date AS TIMESTAMP)))
+            FROM transactions o
+            JOIN transactions t ON t.customer_id = o.customer_id AND t.transaction_id = ?
+            WHERE o.customer_id = ?
+              AND o.transaction_id <> t.transaction_id
+              AND o.merchant_name = t.merchant_name
+              AND o.currency = t.currency
+              AND CAST(o.amount AS DOUBLE) = CAST(t.amount AS DOUBLE)
+              AND o.transaction_type IS NOT DISTINCT FROM t.transaction_type
+              AND o.transaction_status = ?
+              AND o.transaction_date IS NOT NULL
+              AND t.transaction_date IS NOT NULL
+            ORDER BY o.transaction_id
             """,
-            [
-                session.customer_id, txn.transaction_id, txn.merchant_name, txn.currency, txn.amount,
-                txn.transaction_type, required_status, txn.transaction_date, window_days,
-            ],
+            [txn.transaction_id, session.customer_id, required_status],
         ).fetchall()
     finally:
         con.close()
-    return tuple(row[0] for row in rows)
+    window_seconds = window_minutes * 60
+    return DuplicateEvidence(
+        twins=tuple(row[0] for row in rows if row[1] <= window_seconds),
+        repeats=tuple(row[0] for row in rows if row[1] > window_seconds),
+    )

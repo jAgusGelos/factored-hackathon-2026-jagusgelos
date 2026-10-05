@@ -13,7 +13,7 @@ sections below keep those numbers, namespaced by feature.
 - A citation that names its feature (`usability-s2 AD-1`, `statement-before-handoff AD-4`) points
   to that feature's section below.
 - A bare `AD-n` belongs to the feature named in the module's docstring or in the comment around
-  it. When neither names a feature, it is a **dispute-agent** decision: AD-1 to AD-13 are the core
+  it. When neither names a feature, it is a **dispute-agent** decision: AD-1 to AD-14 are the core
   product decisions, and most citations in `app/` and `tests/` mean those.
 - "plan.md AD-x" in a code comment refers to the local planning record of the feature that
   module belongs to; the matching entry here holds the same decision.
@@ -244,6 +244,48 @@ after Milestone 6. AD-13 was decided on 2026-09-30 without a plan section (see i
   and the system-level comparison's `ablation_no_evidence_check` shows what this check stops on
   those cases.
 - **Source:** commit 21794ae (2026-09-30); README.md "Dispute policy: the evidence decides, not the claim (AD-13)"; CONFORMANCE.md row 15; the thresholds in `app/policy.py`.
+
+### AD-14: Duplicates by minutes, and a protective card block when a case escalates for fraud
+
+- **Status:** Accepted, implemented (branch `feat/banking-policy`). Supersedes AD-13's duplicate
+  row ("at most 1 day apart"); the rest of AD-13 stands.
+- **Date:** 2026-10-04
+- **Context:** two holes a banker would spot in AD-13. (1) A duplicate twin could be up to one day
+  apart, so two legitimate equal taxi fares on consecutive days got one reversed on the customer's
+  word; real duplicates (a double swipe, a processor retry) post minutes apart. (2) The most
+  obviously fraudulent cases got the weakest treatment: a denied charge with fraud score 91, or a
+  lost or stolen card, went to a person in up to 3 business days with no protective action, and
+  blocking the card was only an advisor task.
+- **Options:** keep the 1-day window; size the window from the data; set it by design. For the
+  fraud cases: leave blocking to the advisor; block on any escalation; block only on an
+  escalation the customer's own claim and a fraud signal both support.
+- **Decision:**
+  - **Duplicate window:** `DUPLICATE_WINDOW_MINUTES = 10`, compared on full timestamps read from
+    the fixture by id. MEASURED: the warehouse holds 0 same-customer, same-merchant, same-amount
+    charge pairs at any distance (130,690 transactions), so the data cannot size the window. The
+    10 minutes are a DESIGN ARGUMENT: retries post within minutes, repeat purchases hours apart
+    (`docs/policy/duplicate-window.md`). Equal charges further apart are separate purchases: they
+    go to a person with both charges named as evidence, never reversed automatically.
+  - **Protective block:** `policy.protective_action` is a pure function returning a closed
+    `ProtectiveDecision` (`ProtectiveAction` plus `FraudSignal`s). The card is blocked (SIMULATED,
+    logged as `simulated_card_block` with `trigger: escalation`) when the customer denies the
+    charge (reason `unrecognized` or statement `denies_purchase=yes`) or the card is out of their
+    hands (reason `card_lost_stolen`, statement `card_loss` lost or stolen, or `card_possession=no`),
+    and there is a fraud signal: fraud score at or above 30, a card-present charge they deny, or the
+    card out of their hands. Never on an amount cap the customer does not deny, a merchant dispute,
+    a request for a person without a denial or a technical failure. No money moves.
+- **Consequences:** the escalation path (`case_turn.finish_escalated` with an account, and
+  `finish_pending_escalation` after the statement) applies the decision, logs the block only after
+  the escalating compare-and-set is claimed, adds it to the handoff's actions taken (its fraud
+  signals go to the policy reasons, which the customer's session only counts), replaces the
+  advisor's "should we block" question with "confirm the reissue", and tells the customer in the
+  ES and PT notice ("usted" register). The eval adds a `protective_block` group (3 cases that must
+  block, 4 that must not) and a `repeat_fare_next_day` abuse case; the ablation without the
+  evidence check now credits 6 cases instead of 4 (`repeat_fare_next_day` and the protective
+  group's `card_present_denied`).
+- **Source:** `.workspace/features/banking-policy/decisions.md` (D1 to D14, local planning record,
+  not in the repo); in the repo: `app/policy.py` (`DUPLICATE_WINDOW_MINUTES`, `protective_action`)
+  and `docs/policy/duplicate-window.md`.
 
 ## usability-s1-flujo
 

@@ -222,3 +222,27 @@ def test_get_case_never_sends_the_open_questions_of_a_handoff_stored_before_poli
 
     handoff = client.get(f"/api/case/{case_id}").json()["handoff"]
     assert handoff == {"facts": stored["facts"], "actions_taken": ["x"], "evidence": []}
+
+
+def test_get_case_never_shows_the_customer_why_the_card_was_blocked(client):
+    """AD-14: the block is an action the customer may see; the fraud signals
+    behind it are policy reasons, which the customer's session only counts.
+    """
+    from app import cases, handoffs
+    from app.policy import FraudSignal, ProtectiveAction, ProtectiveDecision
+
+    _login(client)
+    case_id = client.post("/api/chat", json={"message": "hola"}).json()["case_id"]
+    stored = {
+        "request_summary": "El cliente disputa un cargo.", "verified_facts": {}, "customer_reported": {},
+        "policy_reasons": [], "actions_taken": ["x"], "evidence": [], "open_questions": [],
+    }
+    signals = (FraudSignal.HIGH_FRAUD_SCORE, FraudSignal.CARD_PRESENT_DENIED)
+    blocked = handoffs.with_card_block(stored, ProtectiveDecision(ProtectiveAction.CARD_BLOCK, signals))
+    cases.update_case(case_id, state="escalated", handoff=blocked)
+
+    handoff = client.get(f"/api/case/{case_id}").json()["handoff"]
+    assert handoffs.CARD_BLOCKED_ACTION in handoff["actions_taken"]
+    assert handoff["policy_reason_count"] == 1
+    text = json.dumps(handoff, ensure_ascii=False).lower()
+    assert not any(word in text for word in ("fraude", "umbral", "puntaje", "fraud", "score", "tarjeta presente"))
