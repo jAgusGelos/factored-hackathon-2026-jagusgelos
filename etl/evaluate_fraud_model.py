@@ -156,16 +156,28 @@ def expected_cost(y: np.ndarray, score: np.ndarray, amount: np.ndarray, threshol
     }
 
 
-def candidate_thresholds(score: np.ndarray, max_candidates: int = 400) -> np.ndarray:
-    uniq = np.unique(score[~np.isnan(score)])
-    if len(uniq) > max_candidates:
-        uniq = np.unique(np.quantile(uniq, np.linspace(0, 1, max_candidates)))
-    return np.concatenate([uniq, [np.inf]])
+def candidate_thresholds(score: np.ndarray) -> np.ndarray:
+    """Every distinct score plus "never escalate": any threshold between two
+    consecutive distinct scores escalates the same charges as the upper one."""
+    return np.concatenate([np.unique(score[~np.isnan(score)]), [np.inf]])
 
 
-def best_threshold(y, score, amount, assumptions) -> dict:
-    results = [expected_cost(y, score, amount, t, assumptions) for t in candidate_thresholds(score)]
-    return min(results, key=lambda r: (r["total_cost_usd"], -r["threshold"]))
+def best_threshold(y: np.ndarray, score: np.ndarray, amount: np.ndarray, assumptions: dict) -> dict:
+    """Exact cost minimum over every candidate threshold, in one sorted pass:
+    escalating `score >= t` costs one escalation per charge at or above t plus
+    the loss of every fraud below t. Ties on cost go to the higher threshold
+    (fewer escalations for the same cost)."""
+    escalation, ops = unit_costs(assumptions)
+    order = np.argsort(score, kind="mergesort")
+    sorted_score = score[order]
+    fraud_loss = np.where(y[order], amount[order] + ops, 0.0)
+    loss_at_or_above = np.concatenate([np.cumsum(fraud_loss[::-1])[::-1], [0.0]])
+    thresholds = candidate_thresholds(score)
+    first_at_or_above = np.searchsorted(sorted_score, thresholds, side="left")
+    escalated = len(sorted_score) - first_at_or_above
+    cost = escalated * escalation + (fraud_loss.sum() - loss_at_or_above[first_at_or_above])
+    best = np.flatnonzero(np.isclose(cost, cost.min(), rtol=0, atol=1e-9))[-1]
+    return expected_cost(y, score, amount, thresholds[best], assumptions)
 
 
 def cost_population(fold: pd.DataFrame) -> pd.DataFrame:

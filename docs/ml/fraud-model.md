@@ -74,7 +74,7 @@ past features unchanged.
 - Selection on validation PR-AUC only; the test fold was scored after every choice was fixed.
 - Training uses every fraud plus a fixed 10% sample of legitimate rows, weighted x10 (an unbiased
   estimate of the full loss; validation and test are always scored in full).
-- Calibration: Platt scaling fitted on validation for each variant's selected model.
+- Calibration: Platt scaling fitted on validation for the selected configuration of each model family and variant (4 models).
 
 ## Baselines and candidates
 
@@ -188,7 +188,7 @@ The existing intake classifier (AD-6) predicts complaint `priority` with macro-F
 for the majority class. The same pipeline and chronological split, refit on shuffled training
 labels 100 times, scores a mean macro-F1 of 0.2434 (95th percentile 0.2607); the real model's
 permutation p-value is 0.45. A random guesser that follows the class proportions gets 0.2494. The
-mutual information of every intake feature with `priority` is below its own 95th percentile under
+mutual information of every intake feature with `priority` is not above its own 95th percentile under
 50 label shuffles (largest: `product_type` 0.0013 nats against an entropy of 1.14 nats for
 `priority`). Conclusion: **at intake, `priority` carries no signal these features can recover**.
 The classifier's lift over the majority baseline is the lift any class-balanced guesser gets.

@@ -26,7 +26,7 @@ for the per-charge fraud-risk model.
 
 Training rows: every positive plus a fixed 10% sample of negatives, each kept
 negative weighted x10 so the weighted loss is an unbiased estimate of the
-full-data loss. This keeps a 16-fit grid within minutes on ~2M rows; it does
+full-data loss. This keeps a 28-fit grid within minutes on ~2M rows; it does
 not touch validation or test, which are always scored in full.
 """
 

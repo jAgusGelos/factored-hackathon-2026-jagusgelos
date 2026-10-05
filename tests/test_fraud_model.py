@@ -118,3 +118,18 @@ def test_mirrored_policy_constants_match_app_policy():
     assert ev.AUTO_RESOLVE_MAX_AMOUNT_USD == policy.AUTO_RESOLVE_MAX_AMOUNT_USD
     assert ev.AUTO_RESOLVE_REQUIRED_STATUS == policy.AUTO_RESOLVE_REQUIRED_STATUS
     assert ev.CURRENT_POLICY_MAX_FRAUD_SCORE == policy.AUTO_RESOLVE_MAX_FRAUD_SCORE
+
+
+def test_best_threshold_is_the_exact_minimum_over_every_distinct_score():
+    rng = np.random.default_rng(3)
+    y = rng.random(3000) < 0.02
+    score = np.round(np.where(y, rng.uniform(10, 100, 3000), rng.uniform(0, 40, 3000)), 2)
+    amount = rng.uniform(5, 200, 3000)
+    a = {"handle_seconds": 425.0, "hourly_rate_usd": 10.0, "wrong_credit_ops_usd": 25.0}
+    brute = min(
+        (ev.expected_cost(y, score, amount, t, a) for t in [*np.unique(score), np.inf]),
+        key=lambda r: (round(r["total_cost_usd"], 9), -r["threshold"]),
+    )
+    fast = ev.best_threshold(y, score, amount, a)
+    assert fast["threshold"] == brute["threshold"]
+    assert fast["total_cost_usd"] == pytest.approx(brute["total_cost_usd"])
