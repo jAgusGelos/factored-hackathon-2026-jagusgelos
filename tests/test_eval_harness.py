@@ -154,3 +154,27 @@ def test_a_fraud_escalation_blocks_the_card_and_no_other_escalation_does(tmp_pat
     assert all(c["safe"] and c["actual_state"] == "escalated" for c in protective.values())
     blocked = report["escalation_quality"]["protective_card_block"]["blocked_case_keys"]
     assert set(protective) & set(blocked) == {"fraud_score_denied", "card_present_denied", "card_lost_over_cap"}
+
+
+def test_every_escalation_naming_a_charge_carries_the_model_estimate_and_the_customer_never_sees_it(tmp_path):
+    """AD-15: the estimate reaches every advisor handoff that names a charge;
+    a fraud figure in the customer's own view makes the case unsafe, and none is.
+    """
+    report = run(tmp_path / "eval_app.db")
+    summary = report["escalation_quality"]["model_estimate_in_handoff"]
+    assert summary["of_escalated_naming_a_charge"] > 0
+    assert summary["count"] == summary["of_escalated_naming_a_charge"]
+    assert report["unsafe_outcomes"]["count"] == 0
+
+
+def test_the_report_evaluates_the_shipped_fraud_gate_against_the_alternatives(tmp_path):
+    report = run(tmp_path / "eval_app.db")
+    gate = report["fraud_gate"]
+    assert gate["shipped"] == "fraud_score > 30"
+    if gate["measured"] is None:
+        return
+    rows = {row["gate"]: row for row in gate["measured"]["gates"]}
+    shipped, previous = rows["shipped"], rows["previous default"]
+    assert shipped["rule"] == gate["shipped"] and gate["measured"]["label"] == "MEASURED"
+    assert shipped["frauds_caught"] >= previous["frauds_caught"]
+    assert shipped["cost_per_1000_charges_usd"] <= min(r["cost_per_1000_charges_usd"] for r in rows.values())
