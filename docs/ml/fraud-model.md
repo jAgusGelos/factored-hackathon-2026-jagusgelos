@@ -83,7 +83,8 @@ past features unchanged.
 - Logistic regression and `HistGradientBoostingClassifier`, each on our features ("ours") and on
   our features + `fraud_score` ("stacked"). Grids: LR C in {0.01, 0.1, 1} x class_weight in
   {None, balanced}; HGB learning rate in {0.05, 0.1} x leaves in {15, 31} x class_weight in
-  {None, balanced}. 32 fits, every one logged in `docs/ml/experiments.jsonl`.
+  {None, balanced}. 28 fits, every one logged in `docs/ml/experiments.jsonl` (next to the two
+  baselines and the test evaluation).
 
 ## Results on the test fold (MEASURED, 451,556 scored charges, 391 frauds, base rate 0.087%)
 
@@ -142,20 +143,28 @@ chosen on validation and reported on test.
 |---|---|---|---|---|---|
 | never escalate on score | 0 | 0 of 71 | 71 (USD 7,843) | n/a | USD 114.14 |
 | current: escalate if `fraud_score >= 30` | 66 | 48 | 23 (USD 2,582) | 72.7% | USD 38.38 |
-| **cost-optimal on validation: escalate if `fraud_score > 30`** | **48** | **48** | **23 (USD 2,582)** | **100%** | **USD 38.13** |
+| **recommended: escalate if `fraud_score > 30`** (same test charges as the validation grid optimum 30.29) | **48** | **48** | **23 (USD 2,582)** | **100%** | **USD 38.13** |
 | best model (stacked logistic) at its cost-optimal threshold 0.0034 | 321 | 48 | 23 (USD 2,582) | 15.0% | USD 41.96 |
 
-- The validation optimum is 30.29; every threshold between the highest validation score below it
-  (30.0) and 30.29 escalates the same charges, so the integration rule is
-  **`fraud_score > 30` escalates** (equivalently: auto-resolve only when `fraud_score <= 30`).
-  The current code escalates at `>= 30`, which on test sends 18 legitimate charges scored
-  exactly 30.0 to a person and catches no extra fraud.
+- The search runs over a 400-point grid of validation scores and puts the optimum at 30.29
+  (`threshold_chosen_on_val`). The grid skips one validation charge: a USD 107 fraud scored
+  30.06, the highest validation score below 30.29 (so `cost_equivalent_lower_bound` is 30.06
+  once the report is regenerated with the current code). Any threshold in (30.0, 30.06] also
+  escalates that fraud, for one more review, and is cheaper on validation than 30.29 under all
+  nine sensitivity settings below (MEASURED from `data/fraud_predictions.joblib`, not in the
+  report). On test no charge scores between 30.0 and 30.29, so the integration rule
+  **`fraud_score > 30` escalates** (equivalently: auto-resolve only when `fraud_score <= 30`)
+  has exactly the test numbers of the table row. The current code escalates at `>= 30`, which
+  on test sends 18 legitimate charges scored exactly 30.0 to a person and catches no extra fraud.
 - **Robust to the assumptions** (MEASURED sensitivity, `thresholds.scores.fraud_score.sensitivity`):
   across hourly rates USD 5 / 10 / 20, handle times 202 / 425 / 1,800 s and ops costs
-  USD 0 / 25 / 100, the validation-optimal threshold stays between 29.94 and 30.29. DESIGN
-  ARGUMENT: below 30 the fraud rate is about 0.03% (24 of the 91,604 validation charges below it), so the
-  expected loss of crediting one charge is about USD 0.04, far under the USD 1.18 of reviewing
-  it; above 30 every charge is fraud.
+  USD 0 / 25 / 100, the grid optimum stays between 29.94 and 30.29, the two grid points around
+  the 30.06 fraud: with cheap escalation (USD 5/h or 202 s) catching it is worth also reviewing
+  the charges between 29.94 and 30.0, at the other settings it is not. The `> 30` rule is
+  cheaper on validation than the grid optimum under every setting. DESIGN ARGUMENT: below the
+  threshold the fraud rate is about 0.03% (24 of the 91,604 validation charges not escalated),
+  so the expected loss of crediting one charge is about USD 0.03, far under the USD 1.18 of
+  reviewing it; above 30 every charge is fraud.
 - The best model costs more than `fraud_score` at its own optimum (USD 41.96 vs 38.13 per
   1,000): it reaches the same 48 frauds only by also escalating 273 legitimate charges.
 - What a threshold cannot fix: 23 of 71 test frauds (USD 2,582) score below 30 and look like
@@ -187,9 +196,11 @@ The shipped model was not retrained.
 
 ## Integration hand-off (a later feature)
 
-- Threshold: `data/fraud_eval_report.json` -> `thresholds.scores.fraud_score`
-  (`threshold_chosen_on_val`, `cost_equivalent_lower_bound`). Recommended change: escalate when
-  `fraud_score > 30` instead of `>= 30`.
+- Threshold: escalate when `fraud_score > 30` instead of `>= 30`. `data/fraud_eval_report.json`
+  -> `thresholds.scores.fraud_score` holds the validation grid optimum (`threshold_chosen_on_val`,
+  30.29) and, once regenerated with the current code, `cost_equivalent_lower_bound` (30.06); the
+  report behind this card was produced at `11936f9`, before that field existed. See "Operating
+  threshold by cost" for why the rule is `> 30` rather than either number.
 - `etl.train_fraud_model.score_transactions(df)` returns calibrated probabilities from
   `data/fraud_model.joblib` for offline precompute (`etl/build_fixture.py`), never in the request
   path. Given the results, we do not recommend shipping the model's probability as a policy input.
@@ -210,7 +221,8 @@ python -m etl.priority_signal_ceiling
   behavioral signal are properties of the generator. With a real vendor score the bands overlap,
   and the cost model, not the number 30, is the part that transfers.
 - Costs are partly ASSUMED (hourly rate, ops cost) and the handle time is not dispute-specific;
-  the sensitivity table bounds that, and the threshold does not move.
+  the sensitivity table bounds that: the grid optimum moves only between 29.94 and 30.29, and
+  the `> 30` rule is cheaper on validation than both under every setting.
 - The cost model treats a missed fraud as fully lost and ignores chargeback recovery and the
   customer-experience cost of an escalation.
 - Calibration is fitted on the same validation fold used for selection and thresholds.
