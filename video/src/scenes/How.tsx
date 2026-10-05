@@ -7,7 +7,7 @@ import { Glow, useSvgId } from '../components/Stage';
 import { FactChip, LineKaraoke, MonoLabel } from '../components/Type';
 import { FACTS } from '../facts';
 import { lineOf, sceneOf, wordFrame } from '../timeline';
-import { COLOR, FONT, HEIGHT, WIDTH } from '../theme';
+import { CLAMP, COLOR, FONT, HEIGHT, WIDTH } from '../theme';
 
 const scene = sceneOf('how');
 const how1 = lineOf(scene, 'how1');
@@ -103,9 +103,9 @@ const SLICE_MIN_W = 36;
 const DataSlice: React.FC = () => {
   const frame = useCurrentFrame();
   const sliceW = Math.max(SLICE_MIN_W, (BAND.w * FACTS.subset.rowCount) / FACTS.subset.totalRows);
-  const shrink = interpolate(frame, [monthAt - 6, monthAt + 14], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const shrink = interpolate(frame, [monthAt - 6, monthAt + 14], [0, 1], CLAMP);
   const fullOpacity = interpolate(shrink, [0, 1], [0.55, 0.18]);
-  const bandIn = interpolate(frame, [how2.from, how2.from + 12], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const bandIn = interpolate(frame, [how2.from, how2.from + 12], [0, 1], CLAMP);
   const rowsId = useSvgId();
   return (
     <AbsoluteFill>

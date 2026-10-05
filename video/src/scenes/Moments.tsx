@@ -11,7 +11,7 @@ import m2Meta from '../meta/footage/m2.json';
 import m3Meta from '../meta/footage/m3.json';
 import ptMeta from '../meta/footage/pt.json';
 import { lineOf, sceneOf, wordFrame } from '../timeline';
-import { COLOR, FONT, alpha } from '../theme';
+import { CLAMP, COLOR, FONT, alpha } from '../theme';
 
 const m1Scene = sceneOf('m1');
 const m1Clip: CaptionedClip = {
@@ -134,12 +134,9 @@ const HandoffFile: React.FC = () => {
     frame,
     [handoffAt, verifiedAt, storyAt, openAt],
     [HANDOFF_SCROLL.top, HANDOFF_SCROLL.verified, HANDOFF_SCROLL.story, HANDOFF_SCROLL.open],
-    { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' },
+    CLAMP,
   );
-  const visible = interpolate(frame, [handoffAt + 8, handoffAt + 18, m3c.from - 20, m3c.from - 8], [0, 1, 1, 0], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
+  const visible = interpolate(frame, [handoffAt + 8, handoffAt + 18, m3c.from - 20, m3c.from - 8], [0, 1, 1, 0], CLAMP);
   if (visible <= 0) return null;
   return (
     <AbsoluteFill style={{ opacity: visible }}>
@@ -182,12 +179,9 @@ const HandoffFile: React.FC = () => {
 export const MomentHandOff: React.FC = () => {
   const frame = useCurrentFrame();
   const inPortuguese = frame >= m3c.from - 12;
-  const chapterOut = interpolate(frame, [handoffAt - 4, handoffAt + 6], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-  const chapterBack = interpolate(frame, [m3c.from - 12, m3c.from], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-  const deadlineChip = interpolate(frame, [escalatedAt, escalatedAt + 10, handoffAt - 4, handoffAt + 4], [0, 1, 1, 0], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
+  const chapterOut = interpolate(frame, [handoffAt - 4, handoffAt + 6], [1, 0], CLAMP);
+  const chapterBack = interpolate(frame, [m3c.from - 12, m3c.from], [0, 1], CLAMP);
+  const deadlineChip = interpolate(frame, [escalatedAt, escalatedAt + 10, handoffAt - 4, handoffAt + 4], [0, 1, 1, 0], CLAMP);
   return (
     <AbsoluteFill>
       <AbsoluteFill style={{ opacity: Math.max(chapterOut, chapterBack) }}>

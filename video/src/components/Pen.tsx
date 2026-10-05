@@ -1,7 +1,7 @@
 import { getLength, getPointAtLength } from '@remotion/paths';
 import React from 'react';
 import { Easing, interpolate, useCurrentFrame } from 'remotion';
-import { COLOR, alpha } from '../theme';
+import { CLAMP, COLOR, alpha } from '../theme';
 import { useSvgId } from './Stage';
 
 export const PenPath: React.FC<{
@@ -17,8 +17,7 @@ export const PenPath: React.FC<{
   const maskId = useSvgId();
   const length = getLength(d);
   const progress = interpolate(frame, [from, to], [0, 1], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
+    ...CLAMP,
     easing: Easing.inOut(Easing.cubic),
   });
   if (progress <= 0) return null;

@@ -1,14 +1,13 @@
 import React from 'react';
 import { AbsoluteFill, Audio, Sequence, interpolate, staticFile, useCurrentFrame } from 'remotion';
 import type { TimedLine, TimedScene } from '../timeline';
+import { CLAMP } from '../theme';
 
 const DIP_FRAMES = 9;
-const fadeClamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
-
 /** Scene content dips through the background at both ends: old out, then new in, never a muddy mix. */
 export const SceneFade: React.FC<{ frames: number; children: React.ReactNode }> = ({ frames, children }) => {
   const frame = useCurrentFrame();
-  const opacity = interpolate(frame, [0, DIP_FRAMES, frames - DIP_FRAMES, frames], [0, 1, 1, 0], fadeClamp);
+  const opacity = interpolate(frame, [0, DIP_FRAMES, frames - DIP_FRAMES, frames], [0, 1, 1, 0], CLAMP);
   return <AbsoluteFill style={{ opacity }}>{children}</AbsoluteFill>;
 };
 
@@ -45,7 +44,7 @@ export const WhileLine: React.FC<{ line: TimedLine; until: number; lead?: number
   children,
 }) => {
   const frame = useCurrentFrame();
-  const opacity = interpolate(frame, [line.from - lead, line.from, until - 6, until], [0, 1, 1, 0], fadeClamp);
+  const opacity = interpolate(frame, [line.from - lead, line.from, until - 6, until], [0, 1, 1, 0], CLAMP);
   if (opacity <= 0) return null;
   return <AbsoluteFill style={{ opacity }}>{children}</AbsoluteFill>;
 };
@@ -58,7 +57,7 @@ export const Appear: React.FC<{ at: number; frames?: number; rise?: number; styl
   children,
 }) => {
   const frame = useCurrentFrame();
-  const p = interpolate(frame, [at, at + frames], [0, 1], fadeClamp);
+  const p = interpolate(frame, [at, at + frames], [0, 1], CLAMP);
   if (p <= 0) return null;
   return <div style={{ position: 'absolute', opacity: p, transform: `translateY(${(1 - p) * rise}px)`, ...style }}>{children}</div>;
 };

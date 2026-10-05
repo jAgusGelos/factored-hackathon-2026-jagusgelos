@@ -2,7 +2,7 @@ import React from 'react';
 import { interpolate, useCurrentFrame } from 'remotion';
 import type { Fact, Honesty } from '../facts';
 import type { TimedLine, Word } from '../timeline';
-import { COLOR, FONT, FPS, alpha } from '../theme';
+import { CLAMP, COLOR, FONT, FPS, alpha } from '../theme';
 import { WhileLine } from './Scene';
 
 const WIPE_S = 0.12;
@@ -62,7 +62,7 @@ const KaraokeWord: React.FC<{ display: string; t: number; word: Word; emphasis: 
 export const Karaoke: React.FC<{ line: TimedLine; size: number; width: number; emphasis?: string[] }> = ({ line, size, width, emphasis = [] }) => {
   const frame = useCurrentFrame();
   const t = (frame - line.from) / FPS;
-  const appear = interpolate(frame, [line.from - 8, line.from], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const appear = interpolate(frame, [line.from - 8, line.from], [0, 1], CLAMP);
   const emphasized = new Set(emphasis.map(normalize));
   const timings = timingsForDisplay(line);
   return (

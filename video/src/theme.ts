@@ -29,6 +29,7 @@ export const FONT = {
 export const FPS = 30;
 export const WIDTH = 1920;
 export const HEIGHT = 1080;
+export const CLAMP = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 
 export const BRAND = {
   bank: 'LATAM Bank',

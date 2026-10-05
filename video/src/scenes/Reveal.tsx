@@ -6,18 +6,16 @@ import { Appear, SfxTrack, VoiceTrack } from '../components/Scene';
 import { Glow } from '../components/Stage';
 import { LineKaraoke, MonoLabel } from '../components/Type';
 import { lineOf, sceneOf, wordFrame } from '../timeline';
-import { BRAND, COLOR, FONT, HEIGHT, WIDTH } from '../theme';
+import { BRAND, CLAMP, COLOR, FONT, HEIGHT, WIDTH } from '../theme';
 
 const scene = sceneOf('reveal');
 const reveal1 = lineOf(scene, 'reveal1');
 const reveal2 = lineOf(scene, 'reveal2');
 const titleAt = wordFrame(reveal2, 'Dispute');
-const fadeClamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
-
 export const ProductTitle: React.FC<{ at: number; x: number; y: number; size?: number }> = ({ at, x, y, size = 150 }) => {
   const frame = useCurrentFrame();
-  const sweep = interpolate(frame, [at, at + 36], [-30, 130], fadeClamp);
-  const rise = interpolate(frame, [at - 4, at + 12], [0, 1], fadeClamp);
+  const sweep = interpolate(frame, [at, at + 36], [-30, 130], CLAMP);
+  const rise = interpolate(frame, [at - 4, at + 12], [0, 1], CLAMP);
   return (
     <div style={{ position: 'absolute', left: x, top: y, opacity: rise, transform: `translateY(${(1 - rise) * 24}px)` }}>
       <MonoLabel size={24} color={COLOR.signal} style={{ marginBottom: 14 }}>

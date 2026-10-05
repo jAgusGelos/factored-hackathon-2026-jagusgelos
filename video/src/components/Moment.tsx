@@ -2,7 +2,7 @@ import React from 'react';
 import { AbsoluteFill, interpolate, useCurrentFrame } from 'remotion';
 import { MODEL_NAME } from '../facts';
 import type { TimedLine, TimedScene } from '../timeline';
-import { COLOR, FONT, alpha } from '../theme';
+import { CLAMP, COLOR, FONT, alpha } from '../theme';
 import { Laptop, clipEventFrame, clipTaps, type Clip } from './Device';
 import { PRESENTER_BUBBLE, PresenterTrack } from './Presenter';
 import { SfxTrack, VoiceTrack, type Cue } from './Scene';
@@ -61,10 +61,7 @@ function activeCaption(clip: CaptionedClip, frame: number): CaptionCue | undefin
 
 export const ClipOnLaptop: React.FC<{ clip: CaptionedClip }> = ({ clip }) => {
   const frame = useCurrentFrame();
-  const opacity = interpolate(frame, [clip.from, clip.from + 8, clip.until - 8, clip.until], [0, 1, 1, 0], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
+  const opacity = interpolate(frame, [clip.from, clip.from + 8, clip.until - 8, clip.until], [0, 1, 1, 0], CLAMP);
   if (opacity <= 0) return null;
   const caption = activeCaption(clip, frame);
   return (
@@ -100,7 +97,7 @@ export const MomentScene: React.FC<{
 }> = ({ scene, chapter, clip, resultEvent, result }) => {
   const frame = useCurrentFrame();
   const resultAt = clipEventFrame(clip, resultEvent);
-  const p = interpolate(frame, [resultAt + 4, resultAt + 14], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const p = interpolate(frame, [resultAt + 4, resultAt + 14], [0, 1], CLAMP);
   return (
     <AbsoluteFill>
       <Chapter {...chapter} />

@@ -7,7 +7,7 @@ import { Appear, SfxTrack, VoiceTrack } from '../components/Scene';
 import { Caption, FactChip, LineKaraoke, MonoLabel } from '../components/Type';
 import { FACTS } from '../facts';
 import { lineOf, sceneOf, wordFrame } from '../timeline';
-import { COLOR, FONT, HEIGHT, WIDTH, alpha } from '../theme';
+import { CLAMP, COLOR, FONT, HEIGHT, WIDTH, alpha } from '../theme';
 
 const scene = sceneOf('cold');
 const cold1 = lineOf(scene, 'cold1');
@@ -27,7 +27,7 @@ const countTo = wordFrame(cold3, 'hours');
 
 export const Cold: React.FC = () => {
   const frame = useCurrentFrame();
-  const phoneOut = interpolate(frame, [cold3.from - 12, cold3.from + 6], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const phoneOut = interpolate(frame, [cold3.from - 12, cold3.from + 6], [1, 0], CLAMP);
   return (
     <AbsoluteFill>
       <LineKaraoke line={cold1} until={cold2.from - 4} at={TEXT_AT} size={62} width={1100} emphasis={['recognize']} />
@@ -115,8 +115,7 @@ const WaitClock: React.FC = () => {
   const frame = useCurrentFrame();
   if (frame < cold3.from - 10) return null;
   const p = interpolate(frame, [countFrom, countTo + 6], [0, 1], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
+    ...CLAMP,
     easing: Easing.inOut(Easing.cubic),
   });
   const appear = interpolate(frame, [cold3.from - 10, cold3.from + 6], [0, 1], { extrapolateRight: 'clamp' });

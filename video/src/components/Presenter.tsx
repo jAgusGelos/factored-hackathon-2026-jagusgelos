@@ -1,7 +1,7 @@
 import React from 'react';
 import { AbsoluteFill, Freeze, OffthreadVideo, Sequence, interpolate, staticFile, useCurrentFrame } from 'remotion';
 import type { TimedLine } from '../timeline';
-import { COLOR, FONT, alpha } from '../theme';
+import { CLAMP, COLOR, FONT, alpha } from '../theme';
 
 type PresenterMode = 'full' | 'bubble';
 
@@ -40,10 +40,7 @@ export const PresenterTrack: React.FC<{ lines: TimedLine[]; mode: PresenterMode;
 }) => {
   const frame = useCurrentFrame();
   const start = enterAt ?? lines[0].from - FADE * 2;
-  const opacity = interpolate(frame, [start, start + FADE * 2, until - FADE * 2, until], [0, 1, 1, 0], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
+  const opacity = interpolate(frame, [start, start + FADE * 2, until - FADE * 2, until], [0, 1, 1, 0], CLAMP);
   return (
     <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, opacity }}>
       <Frame mode={mode}>
