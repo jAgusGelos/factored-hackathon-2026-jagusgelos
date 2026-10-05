@@ -28,7 +28,8 @@ Total recording time: about 45 minutes for 2-3 takes of each line.
 
 ## Framing per placement
 
-The teleprompter shows the placement of each take under its id.
+The teleprompter header shows each take's placement (from `video/narration/lines.json`); the table
+below is a summary of it.
 
 | Placement | Takes | Framing |
 |---|---|---|
@@ -49,8 +50,10 @@ video/scripts/record_take.sh ROOMTONE    # 10 s of silence in the room, stops by
 video/scripts/record_take.sh T01         # one take; press q in the terminal to stop
 ```
 
-`AUDIO_SRC=<name>` picks another microphone and `VIDEO_DEV=/dev/video2` another camera. Each run
-saves `video/takes/<TAKE>_<n>.mkv` and never overwrites an earlier take.
+`AUDIO_SRC=<name>` picks another microphone and `VIDEO_DEV=/dev/videoN` another camera (`--check`
+lists them; a node with no MJPEG mode is the camera's metadata or IR node, not a picture). Each run
+saves `video/takes/<TAKE>_<n>.mkv` and never overwrites an earlier take. Press q in the terminal,
+not in the preview window: closing the preview ends the take early.
 
 For every take:
 
@@ -79,8 +82,9 @@ By default the last take of each id is used. To choose another one, write
 { "T01": 2, "T05": 1 }
 ```
 
-Then tell Claude "the takes are in". The ingest step (`video/scripts/ingest_takes.py`) trims each
-take to its words, cleans and levels the voice to about -15 LUFS, cuts you out of the background,
+Then tell Claude "the takes are in". The ingest step (`video/scripts/ingest_takes.py`, or
+`--takes T15` for one re-recorded line) trims each take to its words, cleans the voice using the
+room tone as the noise profile, levels it to about -15 LUFS, cuts you out of the background,
 and re-times the whole video to your delivery.
 
 ## Lines that may change

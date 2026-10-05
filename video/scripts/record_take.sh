@@ -22,9 +22,9 @@ AUDIO_SRC="${AUDIO_SRC:-default}"
 ROOMTONE_SECONDS=10
 
 largest_mjpeg_size() {
-  ffmpeg -hide_banner -f v4l2 -list_formats compressed -i "$VIDEO_DEV" 2>&1 \
+  { ffmpeg -hide_banner -f v4l2 -list_formats compressed -i "$VIDEO_DEV" 2>&1 \
     | grep -i mjpeg | grep -oE '[0-9]+x[0-9]+' \
-    | awk -Fx '{ print $1 * $2, $0 }' | sort -n | tail -1 | cut -d' ' -f2
+    | awk -Fx '{ print $1 * $2, $0 }' | sort -n | tail -1 | cut -d' ' -f2; } || true
 }
 
 check_devices() {
@@ -61,13 +61,18 @@ if [[ ! "$TAKE" =~ ^(T[0-9]{2}|ROOMTONE)$ ]]; then
 fi
 
 VIDEO_SIZE="${VIDEO_SIZE:-$(largest_mjpeg_size)}"
+if [[ -z "$VIDEO_SIZE" ]]; then
+  echo "$VIDEO_DEV offers no MJPEG mode (it may be the camera's metadata or IR node)." >&2
+  echo "Run 'record_take.sh --check' and pick another VIDEO_DEV." >&2
+  exit 1
+fi
 mkdir -p "$TAKES_DIR"
 OUT="$(next_take_path "$TAKE")"
 LIMIT=()
 [[ "$TAKE" == "ROOMTONE" ]] && LIMIT=(-t "$ROOMTONE_SECONDS")
 
 echo "Recording $OUT ($VIDEO_SIZE @ ${VIDEO_FPS} fps, mic: $AUDIO_SRC)"
-echo "Stay silent 1 s, say the line, stay silent 1 s, then press q here."
+echo "Stay silent 1 s, say the line, stay silent 1 s, then press q HERE (not in the preview window)."
 
 # Two outputs: the take (H.264 near-lossless + FLAC) and a small raw preview piped to ffplay.
 ffmpeg -hide_banner -loglevel warning -stats \

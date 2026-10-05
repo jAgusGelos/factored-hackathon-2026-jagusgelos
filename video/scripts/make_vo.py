@@ -3,7 +3,9 @@
 Run with MoneyPrinterTurbo's own interpreter so its services import cleanly:
 
     MPT=/home/agus/Escritorio/MoneyPrinterTurbo
-    $MPT/.venv/bin/python video/scripts/make_vo.py --mpt $MPT [--only how2 close1]
+    $MPT/.venv/bin/python video/scripts/make_vo.py --mpt $MPT [--only how2 close1] [--force]
+
+Lines that ingest_takes.py replaced with the presenter's own take are kept unless --force.
 
 Writes one MP3 per narration line to video/public/vo/<id>.mp3, an SRT per line next to it
 (MoneyPrinterTurbo's subtitle aligner), and video/src/meta/vo.json with each line's duration
@@ -91,6 +93,7 @@ def render_line(voice, line: dict, spec: dict) -> dict:
 def main() -> None:
     args_parser = parser(__doc__)
     args_parser.add_argument("--only", nargs="*", help="regenerate only these line ids")
+    args_parser.add_argument("--force", action="store_true", help="also replace lines the presenter recorded")
     args = args_parser.parse_args()
     attach(args.mpt)
     from app.services import voice
@@ -102,7 +105,9 @@ def main() -> None:
 
     result = []
     for line in spec["lines"]:
-        keep_previous = args.only and line["id"] not in args.only and line["id"] in previous
+        recorded = previous.get(line["id"], {}).get("source") == "presenter"
+        skipped = args.only and line["id"] not in args.only
+        keep_previous = line["id"] in previous and (skipped or (recorded and not args.force))
         rendered = previous[line["id"]] if keep_previous else render_line(voice, line, spec)
         result.append(rendered)
         print(f"{line['id']}: {rendered['duration']:.2f}s, {len(rendered['words'])} words")
