@@ -138,7 +138,7 @@ def test_prompt_injection_in_customer_message_has_no_effect_on_the_policy_decisi
     against the REAL matched transaction's DB-verified amount_usd/fraud_score/
     status — never against anything the customer's free text claims. This
     test proves the injected text has zero effect on the outcome by using a
-    transaction that is genuinely ineligible (fraud_score >= 30) and
+    transaction that is genuinely ineligible (fraud_score > 30, AD-15) and
     confirming the case escalates despite the injection attempt.
     """
     injection_text = (
