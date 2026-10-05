@@ -342,7 +342,7 @@ def main(argv: list[str] | None = None) -> int:
         raise FileNotFoundError(f"{args.predictions} not found: run `python -m etl.train_fraud_model` first")
     report = evaluate(joblib.load(args.predictions), args.docs_dir)
     args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(report, indent=2, ensure_ascii=False))
+    args.report.write_text(json.dumps(report, indent=2, ensure_ascii=False, default=str))
     append_experiment(args.experiments, {
         "run_group": report["run_group"], "git_sha": report["git_sha"], "model": "test_evaluation",
         "split": report["split"], "metrics": report["test_point_estimates"],
