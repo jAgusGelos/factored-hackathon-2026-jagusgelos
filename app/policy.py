@@ -14,7 +14,7 @@ AD-11's rows, in order:
      escalate if still ambiguous.
   4. Auto-resolution eligible (AD-13). Before anything else the charge must
      pass the SCREENING conditions, common to every reason: status ==
-     "Approved", fraud_score < 30, amount_usd <= 200, no older than MAX_TRANSACTION_AGE_DAYS,
+     "Approved", fraud_score <= 30 (AD-15), amount_usd <= 200, no older than MAX_TRANSACTION_AGE_DAYS,
      customer_status == "Active", < 3 dataset disputes in the same category
      in the trailing 90 days, the classifier does not predict Critical, and
      the automatic credits this system granted the customer in the trailing
@@ -53,7 +53,7 @@ AD-11's rows, in order:
      the investigation shows the customer made the charge).
   7. Protective card block on escalation (AD-14, `protective_action`): when
      the customer denies the charge or says the card is out of their hands,
-     and the case goes to a person for a fraud reason (fraud score at/above
+     and the case goes to a person for a fraud reason (fraud score above
      the threshold, a card-present charge they deny, a lost or stolen card),
      the card is blocked (SIMULATED) before the handoff. Never on an
      escalation unrelated to fraud; no money moves.
@@ -83,6 +83,16 @@ MATCH_AMOUNT_PCT_TOLERANCE = 0.05
 MATCH_AMOUNT_MIN_TOLERANCE = 2.0
 
 AUTO_RESOLVE_MAX_AMOUNT_USD = 200.0
+# AD-15: the highest vendor fraud_score that may still be auto-resolved; above
+# it the case escalates. Cost-justified, not a default: chosen on the
+# validation fold by expected cost (escalation USD 1.18 vs a missed fraud's
+# amount + USD 25), the optimum (30.0, 30.06] is the same rule in all nine
+# cost-sensitivity settings, and on the test fold "> 30" catches the same 48
+# of 71 frauds as the old ">= 30" with 48 escalations instead of 66 (MEASURED,
+# docs/ml/fraud-model.md). The fraud-risk model did not beat fraud_score
+# (test PR-AUC 0.707 vs 0.720), so the gate stays on fraud_score; the model's
+# estimate reaches only the advisor's handoff and no function here reads it
+# (tests/test_policy_not_overridden.py).
 AUTO_RESOLVE_MAX_FRAUD_SCORE = 30.0
 AUTO_RESOLVE_REQUIRED_STATUS = "Approved"
 AUTO_RESOLVE_REQUIRED_CUSTOMER_STATUS = "Active"
@@ -138,6 +148,10 @@ DISPUTE_COMPLAINT_CATEGORY = "Transactions"
 # AD-6/AD-11 Row 5 (Milestone 3): a classifier prediction of this label is
 # ONE OR-condition that can force escalation — see evaluate_resolution()'s
 # docstring for the hard boundary on what this can and cannot do.
+# AD-15 keeps it as an escalation-only signal although its signal ceiling shows
+# no lift (macro-F1 0.2448 vs 0.2434 for shuffled labels, p = 0.45, MEASURED):
+# it can only send a case to a person, and it predicts Critical for few cases
+# (Critical recall 0.058 on its test split).
 CLASSIFIER_ESCALATION_LABEL = "Critical"
 
 # Milestone 9: the customer's own explanation of what happened. The LLM only
@@ -365,8 +379,8 @@ def screening_failures(txn: TransactionCandidate, ctx: DisputeContext) -> tuple[
         )
     if txn.transaction_status != AUTO_RESOLVE_REQUIRED_STATUS:
         reasons.append(f"transaction_status={txn.transaction_status!r}, not Approved")
-    if txn.fraud_score is None or txn.fraud_score >= AUTO_RESOLVE_MAX_FRAUD_SCORE:
-        reasons.append(f"fraud_score={txn.fraud_score} at/above the {AUTO_RESOLVE_MAX_FRAUD_SCORE} threshold")
+    if txn.fraud_score is None or fraud_score_flagged(txn.fraud_score):
+        reasons.append(f"fraud_score={txn.fraud_score} above the {AUTO_RESOLVE_MAX_FRAUD_SCORE} threshold")
     age_days = (ctx.as_of - _day(txn.transaction_date)).days
     if age_days < 0:
         reasons.append(f"charge is dated {-age_days} day(s) after the data as-of date {ctx.as_of}")
@@ -380,7 +394,10 @@ def screening_failures(txn: TransactionCandidate, ctx: DisputeContext) -> tuple[
             f"{ABUSE_GUARD_WINDOW_DAYS} days (abuse guard)"
         )
     if ctx.classifier_priority == CLASSIFIER_ESCALATION_LABEL:
-        reasons.append(f"priority classifier predicted {CLASSIFIER_ESCALATION_LABEL!r} (decision support only)")
+        reasons.append(
+            f"priority classifier predicted {CLASSIFIER_ESCALATION_LABEL!r} (decision support only; "
+            "no measured lift over shuffled labels, AD-15)"
+        )
     return tuple(reasons)
 
 
@@ -592,10 +609,10 @@ class ProtectiveDecision:
 
 
 def fraud_score_flagged(fraud_score: float | None) -> bool:
-    """A score the model flags as fraud. A missing score is no signal here
-    (screening already refuses it a credit).
+    """A vendor score above the cost-justified threshold (AD-15). A missing
+    score is no signal here (screening already refuses it a credit).
     """
-    return fraud_score is not None and fraud_score >= AUTO_RESOLVE_MAX_FRAUD_SCORE
+    return fraud_score is not None and fraud_score > AUTO_RESOLVE_MAX_FRAUD_SCORE
 
 
 def protective_action(

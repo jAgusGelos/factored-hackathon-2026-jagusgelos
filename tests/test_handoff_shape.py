@@ -16,11 +16,16 @@ from app.case_model import EscalationReason, ReportedCharge
 from app.cases import Case
 from app.llm import ConfirmationAnswer
 from app.policy import FraudSignal, ProtectiveAction, ProtectiveDecision
+from app.transactions import FraudRiskEstimate
 from tests.support import HANDOFF_KEYS, clean_assessment, clean_txn
+
+CHARGE_RECORD_KEYS = (
+    "transaction_id", "merchant", "amount", "currency", "date", "channel", "status", "category", "charge_confirmed",
+)
 
 CHARGE = clean_txn(transaction_id="TRX-9", merchant_name="Uber", amount=38500.0, currency="COP", channel="App")
 SAID = ReportedCharge(amount=38500.0, date=date(2026, 6, 14), currency=None, merchant="Uber")
-POLICY_REASON = "fraud_score=91.0 at/above the 30.0 threshold"
+POLICY_REASON = "fraud_score=91.0 above the 30.0 threshold"
 CUSTOMER_TEXT = "No reconozco un cargo de 38.500 pesos del 14 de junio"
 
 
@@ -82,10 +87,39 @@ def test_a_policy_escalation_carries_the_charge_record_and_its_reasons():
     handoff = PRODUCERS["ineligible_match"]()
     assert handoff.verified_facts == {
         "transaction_id": "TRX-9", "merchant": "Uber", "amount": "38500.0", "currency": "COP",
-        "date": "2026-06-09", "channel": "App", "status": "Approved", "category": "Retail", "charge_confirmed": "sí",
+        "date": "2026-06-09", "channel": "App", "status": "Approved", "category": "Retail",
+        "fraud_score": "5.0",
+        "fraud_score_threshold": "30.0 (umbral de la política: por encima, el caso va a una persona)",
+        "charge_confirmed": "sí",
     }
     assert handoff.policy_reasons == (POLICY_REASON,)
     assert handoff.open_questions == (handoffs.POLICY_REVIEW_QUESTION,)
+
+
+def test_the_advisor_sees_the_model_estimate_labelled_as_an_estimate_with_its_version():
+    """AD-15: the precomputed fraud-risk estimate and its cost threshold reach
+    the advisor as a model estimate (never as a verified fact) with the model
+    version that produced it.
+    """
+    estimate = FraudRiskEstimate(risk=0.999376, threshold=0.003527, model_version="logistic_stacked-d7c46aeb")
+    charge = clean_txn(fraud_score=91.0, fraud_risk=estimate)
+    handoff = handoffs.ineligible_match(
+        SAID, charge, (POLICY_REASON,), how_identified=handoffs.ChargeIdentification.PICK,
+    ).handoff
+    facts = handoff.verified_facts
+    assert facts["fraud_score"] == "91.0"
+    assert facts["fraud_risk_estimate"].startswith("99.9 % (estimación del modelo, no un hecho verificado")
+    assert "la política no la usa" in facts["fraud_risk_estimate"]
+    assert facts["fraud_risk_threshold"].startswith("0.353 %")
+    assert facts["fraud_model_version"] == "logistic_stacked-d7c46aeb"
+    assert set(facts) - set(CHARGE_RECORD_KEYS) <= handoffs.INTERNAL_FACTS
+
+
+def test_a_charge_without_scores_carries_no_fraud_facts():
+    handoff = handoffs.ineligible_match(
+        SAID, clean_txn(fraud_score=None), (POLICY_REASON,), how_identified=handoffs.ChargeIdentification.PICK,
+    ).handoff
+    assert not set(handoff.verified_facts) & handoffs.INTERNAL_FACTS
 
 
 def test_what_the_customer_said_stays_apart_from_the_record():

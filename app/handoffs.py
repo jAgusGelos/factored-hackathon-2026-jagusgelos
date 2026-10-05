@@ -24,6 +24,7 @@ from app.case_model import (
 from app.charge_search import iso_day
 from app.llm import ConfirmationAnswer
 from app.policy import (
+    AUTO_RESOLVE_MAX_FRAUD_SCORE,
     MATCH_DATE_TOLERANCE_DAYS,
     MAX_CASE_TURNS,
     ExplanationAssessment,
@@ -90,6 +91,38 @@ def _yes_no(flag: bool) -> str:
     return "sí" if flag else "no"
 
 
+# Fraud figures in the advisor's verified facts (AD-15). The customer's own
+# session never receives them (`app/main.py::handoff_for_customer_session`).
+INTERNAL_FACTS = frozenset({
+    "fraud_score", "fraud_score_threshold", "fraud_risk_estimate", "fraud_risk_threshold", "fraud_model_version",
+})
+
+
+def _percent(probability: float) -> str:
+    return f"{probability * 100:.3g} %"
+
+
+def _fraud_facts(charge: TransactionCandidate) -> dict[str, str]:
+    """The vendor score with the policy threshold, and the offline model's
+    estimate labelled as such: the model never decides (AD-15).
+    """
+    facts: dict[str, str] = {}
+    if charge.fraud_score is not None:
+        facts["fraud_score"] = str(charge.fraud_score)
+        facts["fraud_score_threshold"] = (
+            f"{AUTO_RESOLVE_MAX_FRAUD_SCORE} (umbral de la política: por encima, el caso va a una persona)"
+        )
+    estimate = charge.fraud_risk
+    if estimate is not None:
+        facts["fraud_risk_estimate"] = (
+            f"{_percent(estimate.risk)} (estimación del modelo, no un hecho verificado; apoyo a la decisión, "
+            "la política no la usa)"
+        )
+        facts["fraud_risk_threshold"] = f"{_percent(estimate.threshold)} (umbral de costo del modelo, referencia)"
+        facts["fraud_model_version"] = estimate.model_version
+    return facts
+
+
 def _verified_charge(charge: TransactionCandidate | None, *, confirmed: bool | None) -> dict[str, str]:
     if charge is None:
         return {}
@@ -103,7 +136,7 @@ def _verified_charge(charge: TransactionCandidate | None, *, confirmed: bool | N
         "status": charge.transaction_status,
         "category": charge.merchant_category,
     }
-    verified = {k: v for k, v in record.items() if v is not None}
+    verified = {**{k: v for k, v in record.items() if v is not None}, **_fraud_facts(charge)}
     if confirmed is None:
         return verified
     return {**verified, "charge_confirmed": _yes_no(confirmed)}
@@ -371,7 +404,7 @@ CARD_BLOCKED_TASK = "Tarjeta bloqueada por el agente (simulado): confirmar con e
 CARD_BLOCKED_ACTION = "Tarjeta bloqueada preventivamente por el agente (simulado, sin movimiento de dinero)."
 
 _FRAUD_SIGNALS = {
-    FraudSignal.HIGH_FRAUD_SCORE: "puntaje de fraude en o sobre el umbral",
+    FraudSignal.HIGH_FRAUD_SCORE: "puntaje de fraude sobre el umbral",
     FraudSignal.CARD_PRESENT_DENIED: "el cliente niega una compra hecha con la tarjeta presente",
     FraudSignal.CARD_OUT_OF_HANDS: "la tarjeta está perdida, robada o fuera del poder del cliente",
 }
@@ -409,7 +442,7 @@ def with_card_block(handoff: dict, protection: ProtectiveDecision) -> dict:
     (`FraudSignal.CARD_OUT_OF_HANDS`), so no handoff asks whether to block it.
     Why it blocked (the fraud signals) is a policy reason: the customer's
     session sees `actions_taken` but only a count of the policy reasons
-    (`app/main.py::_handoff_for_customer_session`), so no signal reaches them.
+    (`app/main.py::handoff_for_customer_session`), so no signal reaches them.
     """
     why = "; ".join(_FRAUD_SIGNALS[signal] for signal in protection.signals)
     return {

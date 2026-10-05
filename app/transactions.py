@@ -30,6 +30,19 @@ from app.auth import Session
 
 
 @dataclass(frozen=True)
+class FraudRiskEstimate:
+    """The offline fraud-risk model's estimate for one charge, precomputed into
+    the fixture by `etl/build_fixture.py` (no model runs at request time). A
+    model estimate for the advisor, never a policy input (AD-15), never shown
+    to the customer.
+    """
+
+    risk: float
+    threshold: float
+    model_version: str
+
+
+@dataclass(frozen=True)
 class TransactionCandidate:
     transaction_id: str
     transaction_date: date
@@ -43,13 +56,16 @@ class TransactionCandidate:
     channel: str | None
     is_synthetic: bool
     transaction_type: str | None = None
+    # None for a fixture built before the estimate existed.
+    fraud_risk: FraudRiskEstimate | None = None
 
     def to_snapshot(self) -> dict:
-        """The charge as stored JSON: every field but the fraud score, the
-        day under `date` (`cases.Case.pending_escalation`).
+        """The charge as stored JSON: every field but the fraud score and the
+        model's estimate, the day under `date` (`cases.Case.pending_escalation`).
         """
         snapshot = asdict(self)
         del snapshot["fraud_score"]
+        del snapshot["fraud_risk"]
         # DuckDB hands back a datetime for the date column; the snapshot keeps the day.
         snapshot["date"] = snapshot.pop("transaction_date").isoformat()[:10]
         return snapshot
@@ -96,6 +112,10 @@ def _row_to_candidate(row: tuple) -> TransactionCandidate:
         channel=row[9],
         is_synthetic=bool(row[10]),
         transaction_type=row[11],
+        fraud_risk=(
+            FraudRiskEstimate(risk=row[12], threshold=row[13], model_version=row[14])
+            if row[12] is not None and row[13] is not None and row[14] is not None else None
+        ),
     )
 
 
@@ -103,8 +123,23 @@ _TRANSACTION_COLUMNS = """
     transaction_id, CAST(transaction_date AS TIMESTAMP), CAST(amount AS DOUBLE),
     currency, CAST(amount_usd AS DOUBLE), CAST(fraud_score AS DOUBLE),
     transaction_status, merchant_name, merchant_category, channel,
-    CAST(_is_synthetic AS BOOLEAN), transaction_type
+    CAST(_is_synthetic AS BOOLEAN), transaction_type, {fraud_risk}
 """
+_FRAUD_RISK_COLUMNS = (
+    "CAST(fraud_risk AS DOUBLE), CAST(fraud_risk_threshold AS DOUBLE), fraud_model_version"
+)
+_NO_FRAUD_RISK = "NULL, NULL, NULL"
+
+
+def _transaction_columns(con) -> str:
+    """The candidate columns; a fixture built before the precomputed
+    fraud-risk estimate (`etl/build_fixture.py`) reads it as absent.
+    """
+    scored = con.execute(
+        "SELECT COUNT(*) FROM information_schema.columns "
+        "WHERE table_name = 'transactions' AND column_name = 'fraud_risk'"
+    ).fetchone()[0]
+    return _TRANSACTION_COLUMNS.format(fraud_risk=_FRAUD_RISK_COLUMNS if scored else _NO_FRAUD_RISK)
 
 
 def search_own_transactions(
@@ -125,7 +160,7 @@ def search_own_transactions(
     try:
         rows = con.execute(
             f"""
-            SELECT {_TRANSACTION_COLUMNS}
+            SELECT {_transaction_columns(con)}
             FROM transactions
             WHERE customer_id = ?
               AND currency = ?
@@ -189,7 +224,7 @@ def list_own_charges(
     con = fixture_db.get_connection(db_path)
     try:
         rows = con.execute(
-            f"SELECT {_TRANSACTION_COLUMNS} FROM transactions WHERE {' AND '.join(clauses)} "
+            f"SELECT {_transaction_columns(con)} FROM transactions WHERE {' AND '.join(clauses)} "
             f"ORDER BY {order} LIMIT ?",
             [*params, *order_params, limit],
         ).fetchall()
@@ -211,7 +246,7 @@ def get_own_transaction(
     con = fixture_db.get_connection(db_path)
     try:
         row = con.execute(
-            f"SELECT {_TRANSACTION_COLUMNS} FROM transactions WHERE customer_id = ? AND transaction_id = ?",
+            f"SELECT {_transaction_columns(con)} FROM transactions WHERE customer_id = ? AND transaction_id = ?",
             [session.customer_id, transaction_id],
         ).fetchone()
     finally:
