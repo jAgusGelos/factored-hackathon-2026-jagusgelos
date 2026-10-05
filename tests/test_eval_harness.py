@@ -62,7 +62,7 @@ def test_run_covers_the_policy_abuse_scenarios(tmp_path):
     assert policy_keys == {
         "card_present_unrecognized", "merchant_history_unrecognized", "duplicate_without_twin",
         "not_received_merchant_dispute", "explanation_injection", "second_unrecognized_credit",
-        "duplicate_pair_twice", "same_charge_after_escalation",
+        "duplicate_pair_twice", "same_charge_after_escalation", "repeat_fare_next_day",
     }
     assert all(c["actual_state"] == "escalated" for c in report["by_group"]["policy_abuse"])
 
@@ -142,3 +142,14 @@ def test_run_writes_a_report_file(tmp_path, monkeypatch):
     assert report_path.exists()
     assert Path(report_path).stat().st_size > 0
     assert "system_comparison" in json.loads(report_path.read_text())
+
+
+def test_a_fraud_escalation_blocks_the_card_and_no_other_escalation_does(tmp_path):
+    report = run(tmp_path / "eval_app.db")
+    protective = {c["case_key"]: c for c in report["by_group"]["protective_block"]}
+
+    assert {k for k, c in protective.items() if c["card_blocked"]} == {
+        "fraud_score_denied", "card_present_denied", "card_lost_over_cap",
+    }
+    assert all(c["safe"] and c["actual_state"] == "escalated" for c in protective.values())
+    assert report["escalation_quality"]["protective_card_block"]["blocked_count"] >= 3
