@@ -54,9 +54,9 @@ Source: README "Demand analysis", closing paragraph.
 3. **Protects, hands off.** The customer denies an online charge with a high fraud score: the
    agent blocks the card (simulated) before the handoff, and a person gets the customer's
    statement, the verified facts and the open questions already in the file. Screen: the
-   advisor's case file ("Hechos verificados", from the record; its "Acciones realizadas" lists
-   "Tarjeta bloqueada preventivamente por el agente (simulado)").
-   Caption: "Likely fraud: the card is blocked, and a person gets the verified facts and the customer's account."
+   advisor's case file, cropped to "Acciones realizadas" (its "Hechos verificados" come from the record), which lists
+   "Tarjeta bloqueada preventivamente por el agente (simulado, sin movimiento de dinero)").
+   Caption: "Likely fraud: the card is blocked first, then a person gets a complete file of verified facts."
 
 **Strip:** Spanish and Portuguese · Credits and card blocks are simulated (the live URL is on slide 6)
 
@@ -122,10 +122,10 @@ complaints.affected_product_id → products, 0 of 44,570).
 Source: `data/extraction_manifest.json` (`windowed_date_range`, `tables[].row_count`); `etl/extract.py`
 (`DEFAULT_WINDOW_DAYS = 30`);
 `docs/challenge/challenge-brief.md` ("transactions: 5,000,000 rows"); `docs/architecture-decisions.md`
-AD-2; README "Demo data" and "Known limitations" (6 of the 16 charges are real dataset rows; re-counted on main's fixture, 2026-10-05).
+AD-2; `data/fixture.duckdb` re-counted 2026-10-05 (6 of the 16 charges are real dataset rows) and `docs/eval/measured-eval.md` "Limitations" (the root README still says 14 charges).
 
 **Panel C, fraud model vs the bank's score:**
-- Trained offline on 2 years of transactions: 2,951,642 rows (2024-06-17 to 2026-06-17). MEASURED.
+- Data: 2 years of transactions, 2,951,642 rows (2024-06-17 to 2026-06-17), split by date into train (1,528,441 rows, legitimate rows sampled at 10%), validation and test. MEASURED. (On the slide: "2,951,642 transactions over 2 years, split by date".)
 - Test PR-AUC on 451,556 scored charges (391 frauds): the bank's `fraud_score` 0.720, our stacked
   model 0.707 (paired 95% CI of the difference [-0.024, -0.005]). It does not beat the bank's
   score. MEASURED.
@@ -164,7 +164,7 @@ the first run, real Claude Haiku 4.5 through the real app.
 
 **Supporting lines (all MEASURED, same source):**
 - 18 / 18 resolvable cases resolved (safe automated resolutions, every run).
-- 26 / 26 card blocks right (protective card block on the labeled escalated cases, every run).
+- 26 / 26 card-block calls right (block or no block, on the 26 escalated cases with a block label; 14 of the 28 labeled escalations expect a block; every run).
 - 3.0 s median reply (typed turn p50, range 2.68-3.44 over runs), p95 7.7 s.
 - $0.004 per case ($0.0040, measured tokens at Haiku 4.5 list price).
 
@@ -174,7 +174,7 @@ the first run, real Claude Haiku 4.5 through the real app.
 |---|---|---|---|
 | Our hybrid (Claude Haiku 4.5, 3 runs) | 43 | 0 | 0 |
 | Regex extractor (model's extraction swapped for rules, 1 run) | 43 | 0 | 0 |
-| Always escalate (the safety anchor, scored from labels) | n/a | 0 | 18 |
+| Always escalate (the safety anchor, scored from labels, as on the slide) | n/a | 0 | 18 |
 
 "Correct" means final state, escalation reason and credit all match the label (0.896).
 Source: `docs/eval/measured-eval.md`, "Results (v2)" and "Reading the comparison".

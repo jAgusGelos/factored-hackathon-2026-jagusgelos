@@ -65,11 +65,11 @@ labels and the top bar are smaller metadata.
 | 4 | 130,690 of 5,000,000 transactions, 30-day window 2026-05-18 to 2026-06-17; complaints 67,095 in full | MEASURED | `data/extraction_manifest.json`; `docs/challenge/challenge-brief.md` (5,000,000 rows); `etl/extract.py` (`DEFAULT_WINDOW_DAYS = 30`) |
 | 4 (copy only) | Fixture: 1 dataset customer and 10 labeled synthetic charges | Count | `data/fixture.duckdb` re-counted 2026-10-05 (6 real, 10 synthetic rows); `docs/eval/measured-eval.md` "Limitations" |
 | 4 | Why a subset: no S3 at runtime, reproducible, free-plan deploy, a dispute needs only the recent ledger | DESIGN ARGUMENT | `docs/architecture-decisions.md` AD-2 |
-| 4 | Fraud model trained on 2,951,642 transactions over 2 years | MEASURED | `docs/ml/fraud-model.md`, "Data" |
+| 4 | Fraud model data: 2,951,642 transactions over 2 years, split by date (train fold 1,528,441) | MEASURED | `docs/ml/fraud-model.md`, "Data" |
 | 4 | Test PR-AUC: bank `fraud_score` 0.720, our model 0.707 (does not beat it) | MEASURED | `docs/ml/fraud-model.md`, "Results on the test fold"; AD-15 |
 | 4 | Gate `fraud_score > 30`: 48 escalations on test, all fraud | MEASURED (costs partly ASSUMED) | `docs/ml/fraud-model.md`, "Operating threshold by cost"; `docs/policy/fraud-gate.md` |
 | 4 | Priority classifier: no measured lift, p = 0.45 | MEASURED | `docs/ml/fraud-model.md`, "Priority classifier: signal ceiling" |
-| 5 | 0 of 48 unsafe in each of 3 runs; 18 / 18 resolved; 26 / 26 card blocks right; 43 / 48 correct | MEASURED | `docs/eval/measured-eval.md`, "Results (v2)"; `docs/eval/measured-eval-summary.json` |
+| 5 | 0 of 48 unsafe in each of 3 runs; 18 / 18 resolved; 26 / 26 card-block calls right (block or no block on 26 labeled escalations); 43 / 48 correct | MEASURED | `docs/eval/measured-eval.md`, "Results (v2)"; `docs/eval/measured-eval-summary.json` |
 | 5 | Comparison: hybrid 43 / 0 / 0, regex extractor 43 / 0 / 0, always escalate n/a / 0 / 18 | MEASURED | `docs/eval/measured-eval.md`, "Results (v2)" |
 | 5 | 3.0 s median reply, p95 7.7 s; $0.004 per case | MEASURED | `docs/eval/measured-eval.md`, latency and cost rows |
 | 5 | Unsafe rate below about 7% (Wilson 95% upper bound) | MEASURED | `docs/eval/measured-eval.md`, "Results (v2)" |
