@@ -394,8 +394,8 @@ def _unrecognized_failures(txn: TransactionCandidate, ctx: DisputeContext) -> li
         reasons.append("merchant has no name: the customer's history with it cannot be checked")
     elif ctx.other_charges_at_merchant > 0:
         reasons.append(
-            f"customer has {ctx.other_charges_at_merchant} other charge(s) at {txn.merchant_name!r} "
-            "they do not dispute"
+            f"customer has {ctx.other_charges_at_merchant} other charge(s) at {txn.merchant_name!r}: "
+            "an existing relationship with the merchant contradicts never having used it"
         )
     if ctx.recent_unrecognized_credits >= MAX_UNRECOGNIZED_AUTO_CREDITS:
         reasons.append(
