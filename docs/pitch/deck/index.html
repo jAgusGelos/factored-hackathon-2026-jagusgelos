@@ -172,6 +172,7 @@
   .bars__fill { height: 100%; border-radius: var(--radius-sm); width: calc(var(--v) / var(--bars-max) * 100%); display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; font-size: 18px; font-weight: 800; }
   .bars__fill--base { background: var(--border-strong); color: var(--text); }
   .bars__fill--model { background: var(--primary); color: var(--on-primary); }
+  .bars--fraud { --bars-max: 0.8; }
 
   .proof { display: grid; grid-template-columns: 330px 1fr; gap: 40px; margin-top: 16px; }
   .hero-num { font-size: 108px; line-height: 0.95; font-weight: 800; color: var(--success-strong); letter-spacing: -4px; }
@@ -266,9 +267,9 @@
         <p class="moment__caption">Two matching charges: the customer picks from their own. It never guesses.</p>
       </article>
       <article class="moment moment--handoff">
-        <div class="moment__head"><span class="moment__n">3</span><h2 class="moment__title">Steps aside, file ready</h2></div>
-        <div class="shot" role="img" aria-label="Advisor's case file: verified facts from the record, then what the customer reported" style="--src:url(assets/handoff-case-file.png); --iw:542; --s:0.574; --x:0; --y:440; --dx:28px;"></div>
-        <p class="moment__caption">Fails the policy: a person gets verified facts, the customer's account and open questions.</p>
+        <div class="moment__head"><span class="moment__n">3</span><h2 class="moment__title">Protects, hands off</h2></div>
+        <div class="shot" role="img" aria-label="Advisor's case file: verified facts from the record, then what the customer reported" style="--src:url(assets/handoff-case-file.png); --iw:542; --s:0.574; --x:0; --y:425; --dx:28px;"></div>
+        <p class="moment__caption">Likely fraud: the card is blocked, and a person gets the verified facts and the customer's account.</p>
       </article>
     </div>
     <div class="strip">
@@ -286,12 +287,12 @@
       <div class="rule"><p class="rule__what">Policy and permissions live in code</p><p class="rule__value">No lookup can reach another customer's ledger.</p></div>
       <div class="rule"><p class="rule__what">Verified facts only</p><p class="rule__value">A persuasive claim the record contradicts still goes to a person.</p></div>
     </div>
-    <p class="source">Design argument, enforced in code: an exhaustive sweep over every reason and all 128 combinations of the other conditions shows the classifier never causes a credit (<code>tests/test_policy_not_overridden.py</code>) · 990 automated tests · <code>docs/architecture-decisions.md</code> AD-3, AD-5, AD-13.</p>
+    <p class="source">Design argument, enforced in code: an exhaustive sweep over every reason and all 128 combinations of the other conditions shows the classifier never causes a credit (<code>tests/test_policy_not_overridden.py</code>) · 1,121 automated tests · <code>docs/architecture-decisions.md</code> AD-3, AD-5, AD-13 to AD-15.</p>
   </section>
 
   <section class="slide slide--paper" id="slide-4" aria-label="Slide 4: Data and ML">
     <header class="topbar"><span class="topbar__num"><b>04</b> / 06 · Data &amp; ML</span><span>Real data, honest numbers</span></header>
-    <h1 class="headline">Real challenge data, with every shortcut explained.</h1>
+    <h1 class="headline">Honest models: we ship only what the numbers back.</h1>
     <div class="cards">
       <section class="card">
         <h2 class="card__head">ETL with contracts</h2>
@@ -310,52 +311,54 @@
         </div>
       </section>
       <section class="card">
-        <h2 class="card__head">Priority classifier</h2>
+        <h2 class="card__head">Fraud model vs the bank</h2>
         <div class="card__body">
-          <div class="row"><p class="row__label">Held-out test <span class="label label--measured">Measured</span></p><p class="row__value">Chronological split: <b>11,543</b> train, <b>2,037</b> test</p></div>
+          <div class="row"><p class="row__label">Trained offline <span class="label label--measured">Measured</span></p><p class="row__value"><b>2,951,642</b> transactions over 2 years</p></div>
           <div class="row">
-            <p class="row__label">Macro-F1 <span class="label label--measured">Measured</span></p>
-            <div class="bars">
-              <span class="bars__name">Baseline</span><div class="bars__track"><div class="bars__fill bars__fill--base" style="--v: 0.1662">0.1662</div></div>
-              <span class="bars__name">Model</span><div class="bars__track"><div class="bars__fill bars__fill--model" style="--v: 0.2448">0.2448</div></div>
+            <p class="row__label">Test PR-AUC <span class="label label--measured">Measured</span></p>
+            <div class="bars bars--fraud">
+              <span class="bars__name">Bank</span><div class="bars__track"><div class="bars__fill bars__fill--model" style="--v: 0.720">0.720</div></div>
+              <span class="bars__name">Ours</span><div class="bars__track"><div class="bars__fill bars__fill--base" style="--v: 0.707">0.707</div></div>
             </div>
           </div>
-          <div class="row"><p class="row__label">Role</p><p class="row__value">Can add a reason to escalate, <b>never approve a credit</b></p></div>
+          <div class="row"><p class="row__label">Shipped instead</p><p class="row__value">A cost-justified gate, <b>fraud score &gt; 30</b>. The model only informs the advisor.</p></div>
         </div>
       </section>
     </div>
-    <p class="value-line">Full complaints and a 30-day ledger for analysis; a small fixture where privacy matters more.</p>
-    <p class="source">Sources: <code>etl/schema_contract.py</code>, <code>data/lineage_manifest.json</code>, <code>data/extraction_manifest.json</code>, <code>data/classifier_eval_report.json</code> (baseline 0.1662, model 0.2448, +0.0786: a modest gain, reported as such). The live app reads only a fixture: 1 dataset customer and 8 labeled synthetic charges.</p>
+    <p class="value-line">Our model lost to the bank's score, so it never decides: the rule the numbers back does.</p>
+    <p class="source">Sources: <code>etl/schema_contract.py</code>, <code>data/lineage_manifest.json</code>, <code>data/extraction_manifest.json</code>; <code>docs/ml/fraud-model.md</code>, AD-15 (on test, the gate's 48 escalations are all fraud). The priority classifier shows no measured lift (p = 0.45) and can only escalate.</p>
   </section>
 
   <section class="slide" id="slide-5" aria-label="Slide 5: Proof">
-    <header class="topbar"><span class="topbar__num"><b>05</b> / 06 · Proof</span><span>Evaluation</span></header>
-    <h1 class="headline">40 scripted attacks and edge cases. Zero unsafe outcomes.</h1>
+    <header class="topbar"><span class="topbar__num"><b>05</b> / 06 · Proof</span><span>Evaluation on the real model</span></header>
+    <h1 class="headline">48 held-out conversations on the real model. Zero unsafe outcomes.</h1>
     <div class="proof">
       <div>
-        <div class="hero-num">0<small> / 40</small></div>
-        <p class="hero-caption">unsafe outcomes <span class="label label--simulated">Simulated</span></p>
+        <div class="hero-num">0<small> / 48</small></div>
+        <p class="hero-caption">unsafe, in each of 3 runs <span class="label label--measured">Measured</span></p>
         <div class="latency">
-          <p class="latency__item"><b>3.2 s</b> median to resolve, real Claude Haiku 4.5 <span class="label label--measured">Measured</span></p>
-          <p class="latency__item"><b>0.05-0.14 s</b> for a button tap, no model call <span class="label label--measured">Measured</span></p>
+          <p class="latency__item"><b>18 / 18</b> resolvable cases resolved</p>
+          <p class="latency__item"><b>26 / 26</b> card blocks right</p>
+          <p class="latency__item"><b>3.0 s</b> median reply (p95 7.7 s)</p>
+          <p class="latency__item"><b>$0.004</b> per case</p>
         </div>
       </div>
       <div>
         <table class="compare">
           <thead>
-            <tr><th>Same 40 cases <span class="label label--simulated">Simulated</span></th><th class="num">Correct resolutions<br>of 6</th><th class="num">Unsafe credits<br>of 34</th><th class="num">Correct transfers<br>of 30</th></tr>
+            <tr><th>Same 48 cases <span class="label label--measured">Measured</span></th><th class="num">Correct<br>of 48</th><th class="num">Unsafe<br>of 48</th><th class="num">Unneeded transfers<br>of 18</th></tr>
           </thead>
           <tbody>
-            <tr class="ours"><td class="sys">Our hybrid<small>evidence check in code</small></td><td class="num">6</td><td class="num">0</td><td class="num">30</td></tr>
-            <tr><td class="sys">Always escalate<small>the safety anchor</small></td><td class="num bad">0</td><td class="num">0</td><td class="num">30</td></tr>
-            <tr><td class="sys">No evidence check<small>the ablation</small></td><td class="num">6</td><td class="num bad">4</td><td class="num bad">26</td></tr>
+            <tr class="ours"><td class="sys">Our hybrid<small>Claude Haiku 4.5, 3 runs</small></td><td class="num">43</td><td class="num">0</td><td class="num">0</td></tr>
+            <tr><td class="sys">Regex extractor<small>model swapped for rules, 1 run</small></td><td class="num">43</td><td class="num">0</td><td class="num">0</td></tr>
+            <tr><td class="sys">Always escalate<small>the safety anchor</small></td><td class="num muted">n/a</td><td class="num">0</td><td class="num bad">18</td></tr>
           </tbody>
         </table>
-        <p class="read">Escalating everything is safe but helps no one. Dropping the evidence check pays 4 credits a person should have reviewed. The hybrid keeps both.</p>
+        <p class="read">Escalating everything is safe but helps no one. The code, not the model, keeps it safe: the 5 misses moved no money. <span class="muted">Offline suite, mocked model: dropping the evidence check pays 6 unsafe credits.</span> <span class="label label--simulated">Simulated</span></p>
       </div>
     </div>
-    <p class="caveat"><b>Read with its limits:</b> a constructed offline suite with a mocked model, written by the policy's author. It is not a held-out workload; the only held-out evaluation is the classifier's chronological split.</p>
-    <p class="source">Sources: <code>data/eval_report.json</code> (<code>unsafe_outcomes</code>, <code>system_comparison</code>); real-model latency from manual runs on 2026-09-30 (resolving turn 1.3-6.6 s over 8 ES/PT runs), README "Evaluation results".</p>
+    <p class="caveat"><b>Read with its limits:</b> one customer's account, messages written by a model that never saw the policy, labels fixed before the first run. 0 of 48 bounds the unsafe rate below about 7% (95%), not at zero.</p>
+    <p class="source">Sources: <code>docs/eval/measured-eval.md</code> (v2, 2026-10-05, ES and PT, Wilson 95% bound, cost at list price); simulated suite: <code>data/eval_report.json</code>.</p>
   </section>
 
   <section class="slide slide--navy" id="slide-6" aria-label="Slide 6: What's next">
@@ -366,7 +369,7 @@
       <li class="step"><p class="step__n">STEP 1</p><p class="step__title">Real identity</p><p class="step__text">The bank's identity verification replaces the demo login.</p></li>
       <li class="step"><p class="step__n">STEP 2</p><p class="step__title">Managed database</p><p class="step__text">Replicated storage across several instances, not local SQLite.</p></li>
       <li class="step"><p class="step__n">STEP 3</p><p class="step__title">Monitoring</p><p class="step__text">The structured, correlated event log feeds alerting.</p></li>
-      <li class="step"><p class="step__n">STEP 4</p><p class="step__title">Real traffic</p><p class="step__text">Policy thresholds and the live model validated on held-out cases.</p></li>
+      <li class="step"><p class="step__n">STEP 4</p><p class="step__title">Real traffic</p><p class="step__text">Thresholds and the live model re-validated on real customer traffic.</p></li>
     </ol>
     <dl class="links">
       <dt>Live demo</dt><dd><a href="https://factored-hackaton-latest.onrender.com/">factored-hackaton-latest.onrender.com</a></dd>
