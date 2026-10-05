@@ -95,6 +95,22 @@ export const Cold: React.FC = () => {
   );
 };
 
+const ClockTick: React.FC<{ hour: number }> = ({ hour }) => {
+  const a = -Math.PI / 2 + (hour / CLOCK_HOURS) * Math.PI * 2;
+  const major = hour % 6 === 0;
+  const inner = major ? CLOCK.r - 26 : CLOCK.r - 12;
+  return (
+    <line
+      x1={CLOCK.x + inner * Math.cos(a)}
+      y1={CLOCK.y + inner * Math.sin(a)}
+      x2={CLOCK.x + CLOCK.r * Math.cos(a)}
+      y2={CLOCK.y + CLOCK.r * Math.sin(a)}
+      stroke={COLOR.boneDim}
+      strokeWidth={major ? 2 : 1}
+    />
+  );
+};
+
 const WaitClock: React.FC = () => {
   const frame = useCurrentFrame();
   if (frame < cold3.from - 10) return null;
@@ -114,21 +130,9 @@ const WaitClock: React.FC = () => {
     <AbsoluteFill style={{ opacity: appear }}>
       <svg width={WIDTH} height={HEIGHT} style={{ position: 'absolute' }}>
         <circle cx={CLOCK.x} cy={CLOCK.y} r={CLOCK.r} fill="none" stroke={COLOR.boneDim} strokeOpacity={0.35} strokeWidth={2} />
-        {Array.from({ length: CLOCK_HOURS }, (_, i) => {
-          const a = -Math.PI / 2 + (i / CLOCK_HOURS) * Math.PI * 2;
-          const inner = i % 6 === 0 ? CLOCK.r - 26 : CLOCK.r - 12;
-          return (
-            <line
-              key={i}
-              x1={CLOCK.x + inner * Math.cos(a)}
-              y1={CLOCK.y + inner * Math.sin(a)}
-              x2={CLOCK.x + CLOCK.r * Math.cos(a)}
-              y2={CLOCK.y + CLOCK.r * Math.sin(a)}
-              stroke={COLOR.boneDim}
-              strokeWidth={i % 6 === 0 ? 2 : 1}
-            />
-          );
-        })}
+        {Array.from({ length: CLOCK_HOURS }, (_, hour) => (
+          <ClockTick key={hour} hour={hour} />
+        ))}
         <circle
           cx={CLOCK.x}
           cy={CLOCK.y}

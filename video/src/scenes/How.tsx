@@ -52,17 +52,20 @@ const DiagramNode: React.FC<{ node: DiagramNodeSpec }> = ({ node }) => (
   </Appear>
 );
 
+const DiagramArrow: React.FC<{ from: DiagramNodeSpec; to: DiagramNodeSpec }> = ({ from, to }) => {
+  const y = NODE_Y + NODE_H / 2;
+  return <PenPath d={`M ${from.x + from.w} ${y} L ${to.x} ${y}`} from={to.at + 4} to={to.at + 12} spark={false} />;
+};
+
 const Diagram: React.FC = () => (
   <AbsoluteFill>
     <svg width={WIDTH} height={HEIGHT} style={{ position: 'absolute' }}>
       {NODES.map((node) => (
         <PenPath key={node.title} d={boxPath(node.x, NODE_Y, node.w, NODE_H)} from={node.at} to={node.at + PEN_FRAMES} color={node.color} width={2} />
       ))}
-      {NODES.slice(1).map((node, i) => {
-        const prev = NODES[i];
-        const y = NODE_Y + NODE_H / 2;
-        return <PenPath key={`arrow-${node.title}`} d={`M ${prev.x + prev.w} ${y} L ${node.x} ${y}`} from={node.at + 4} to={node.at + 12} spark={false} />;
-      })}
+      {NODES.slice(1).map((node, i) => (
+        <DiagramArrow key={`arrow-${node.title}`} from={NODES[i]} to={node} />
+      ))}
       <PenPath
         d={`M ${NODES[1].x + NODES[1].w / 2} ${NODE_Y + NODE_H} C ${NODES[1].x + 120} ${CREDIT.y + 40}, ${CREDIT.x - 120} ${CREDIT.y + 60}, ${CREDIT.x} ${CREDIT.y + CREDIT.h / 2}`}
         from={strikeAt}

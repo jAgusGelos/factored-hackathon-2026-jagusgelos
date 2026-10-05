@@ -47,19 +47,19 @@ export const PresenterTrack: React.FC<{ lines: TimedLine[]; mode: PresenterMode;
   return (
     <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, opacity }}>
       <Frame mode={mode}>
-        {lines.map((line, i) => {
-          const slotStart = i === 0 ? start : line.from;
-          const slotEnd = lines[i + 1]?.from ?? until;
-          return (
-            <Sequence key={line.id} from={slotStart} durationInFrames={Math.max(1, slotEnd - slotStart)} layout="none">
-              {line.presenter ? <Take line={line} mode={mode} offset={line.from - slotStart} /> : <Placeholder take={line.take} mode={mode} />}
-            </Sequence>
-          );
-        })}
+        {lines.map((line, i) => (
+          <PresenterSlot key={line.id} line={line} mode={mode} slotStart={i === 0 ? start : line.from} slotEnd={lines[i + 1]?.from ?? until} />
+        ))}
       </Frame>
     </div>
   );
 };
+
+const PresenterSlot: React.FC<{ line: TimedLine; mode: PresenterMode; slotStart: number; slotEnd: number }> = ({ line, mode, slotStart, slotEnd }) => (
+  <Sequence from={slotStart} durationInFrames={Math.max(1, slotEnd - slotStart)} layout="none">
+    {line.presenter ? <Take line={line} mode={mode} offset={line.from - slotStart} /> : <Placeholder take={line.take} mode={mode} />}
+  </Sequence>
+);
 
 const Frame: React.FC<{ mode: PresenterMode; children: React.ReactNode }> = ({ mode, children }) =>
   mode === 'bubble' ? (

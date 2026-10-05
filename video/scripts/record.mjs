@@ -178,20 +178,30 @@ class Recorder {
     return t - this.frames[0].t - removed;
   }
 
+  concatList(kept) {
+    const entries = kept.flatMap((frame, i) => this.concatEntry(frame, kept[i + 1]?.t ?? this.stoppedAt));
+    return [...entries, `file '${kept.at(-1).file}'`];
+  }
+
+  concatEntry(frame, until) {
+    const duration = this.cutTime(until) - this.cutTime(frame.t);
+    return [`file '${frame.file}'`, `duration ${Math.max(duration, 0.001).toFixed(4)}`];
+  }
+
+  toCutEvent(event, toVideoScale) {
+    return {
+      ...event,
+      t: Number(this.cutTime(event.t).toFixed(3)),
+      ...(event.x === undefined ? {} : { x: Math.round(event.x * toVideoScale), y: Math.round(event.y * toVideoScale) }),
+    };
+  }
+
   encode() {
     const isInsideCutWait = (frame) => this.waits.some(([a, b]) => frame.t > a + WAIT_KEEP_S && frame.t < b);
     const kept = this.frames.filter((frame) => !isInsideCutWait(frame));
     if (!kept.length) throw new Error(`${this.clip}: no frames captured`);
-    const lines = [];
-    kept.forEach((f, i) => {
-      const next = kept[i + 1];
-      const until = next ? next.t : this.stoppedAt;
-      const duration = this.cutTime(until) - this.cutTime(f.t);
-      lines.push(`file '${f.file}'`, `duration ${Math.max(duration, 0.001).toFixed(4)}`);
-    });
-    lines.push(`file '${kept.at(-1).file}'`);
     const list = path.join(this.dir, 'frames.txt');
-    fs.writeFileSync(list, lines.join('\n'));
+    fs.writeFileSync(list, this.concatList(kept).join('\n'));
     fs.mkdirSync(OUT_DIR, { recursive: true });
     const out = path.join(OUT_DIR, `${this.clip}.mp4`);
     const outWidth = Math.min(1920, this.viewport.width * SCALE);
@@ -203,11 +213,7 @@ class Recorder {
     if (ffmpeg.status !== 0) throw new Error(`ffmpeg failed for ${this.clip}: ${ffmpeg.stderr}`);
 
     const toVideoScale = outWidth / this.viewport.width;
-    const events = this.events.map((e) => ({
-      ...e,
-      t: Number(this.cutTime(e.t).toFixed(3)),
-      ...(e.x === undefined ? {} : { x: Math.round(e.x * toVideoScale), y: Math.round(e.y * toVideoScale) }),
-    }));
+    const events = this.events.map((e) => this.toCutEvent(e, toVideoScale));
     const duration = this.cutTime(this.stoppedAt);
     fs.mkdirSync(META_DIR, { recursive: true });
     fs.writeFileSync(

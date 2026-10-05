@@ -24,10 +24,14 @@ function timingsForDisplay(line: TimedLine): Word[] {
   return line.text.split(' ').map((word) => {
     const position = (offset / totalDisplay) * totalTimed;
     offset += word.length + 1;
-    let index = 0;
-    while (index + 1 < timedOffsets.length && timedOffsets[index + 1] <= position + 0.5) index += 1;
-    return line.words[index];
+    return line.words[timedIndexAt(timedOffsets, position)];
   });
+}
+
+function timedIndexAt(timedOffsets: number[], position: number): number {
+  let index = 0;
+  while (index + 1 < timedOffsets.length && timedOffsets[index + 1] <= position + 0.5) index += 1;
+  return index;
 }
 
 function wordState(t: number, word: Word): { state: WordState; wipe: number } {
