@@ -2,13 +2,14 @@
 //
 //   node video/scripts/record.mjs [m1 m2 m3 pt]
 //
-// Needs the repo's .env (ANTHROPIC_API_KEY) and data/ (fixture, demo users) in the worktree.
+// Needs the repo's .env (ANTHROPIC_API_KEY) and data/ (fixture, demo users) in the worktree, and
+// APP_PYTHON pointing at a Python with requirements.txt installed (default: <repo>/.venv).
 // Each clip gets a fresh app server with an empty data/app.db, because the policy
 // remembers credits across cases (a second take of m1 would otherwise go to a person).
 //
 // Frames come from Chromium's screencast (sharp JPEGs at 2x scale, not Playwright's
 // low-bitrate video). The model's waiting time is cut down to WAIT_KEEP_S in the output:
-// the footage shows real replies, only the dead time is shorter, and VIDEO.md says so.
+// the footage shows real replies, only the dead time is shorter (disclosed in docs/pitch/VIDEO.md).
 // Output: video/public/footage/<clip>.mp4 plus video/src/meta/footage/<clip>.json with
 // the tap positions and the time each reply landed, on the cut timeline.
 
@@ -20,7 +21,7 @@ import { chromium } from 'playwright';
 
 const VIDEO_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const REPO = path.dirname(VIDEO_DIR);
-const PYTHON = process.env.APP_PYTHON ?? '/home/agus/Escritorio/factored-hackathon-2026-jagusgelos/.venv/bin/python';
+const PYTHON = process.env.APP_PYTHON ?? path.join(REPO, '.venv', 'bin', 'python');
 const PORT = Number(process.env.RECORD_PORT ?? 8812);
 const BASE = `http://127.0.0.1:${PORT}`;
 const VIEWPORT = { width: 1200, height: 750 };
@@ -28,6 +29,10 @@ const HANDOFF_VIEWPORT = { width: 1200, height: 2200 };
 const SCALE = 2;
 const FPS = 30;
 const WAIT_KEEP_S = 0.9;
+// The typing bubble needs a moment to appear; the cut starts after it is on screen.
+const WAIT_LEAD_S = 0.25;
+const SERVER_START_TRIES = 60;
+const SERVER_POLL_MS = 500;
 const TYPE_DELAY_MS = 38;
 const RAW_DIR = path.join(VIDEO_DIR, 'recordings');
 const OUT_DIR = path.join(VIDEO_DIR, 'public', 'footage');
@@ -43,15 +48,17 @@ async function startServer() {
   for (const suffix of ['', '-wal', '-shm']) fs.rmSync(path.join(REPO, 'data', `app.db${suffix}`), { force: true });
   const server = spawn(PYTHON, ['-m', 'uvicorn', 'app.main:app', '--port', String(PORT)], {
     cwd: REPO,
-    stdio: ['ignore', 'ignore', 'pipe'],
+    stdio: ['ignore', 'ignore', 'inherit'],
   });
-  for (let i = 0; i < 60; i += 1) {
+  const spawnFailed = new Promise((_, reject) => server.once('error', reject));
+  for (let i = 0; i < SERVER_START_TRIES; i += 1) {
+    if (server.exitCode !== null) throw new Error(`app server exited with ${server.exitCode}; is port ${PORT} free?`);
     try {
-      if ((await fetch(BASE + '/')).ok) return server;
-    } catch {
-      // not listening yet
+      if ((await Promise.race([fetch(BASE + '/'), spawnFailed])).ok) return server;
+    } catch (error) {
+      if (error.code === 'ENOENT') throw new Error(`cannot run ${PYTHON}; set APP_PYTHON`);
     }
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, SERVER_POLL_MS));
   }
   server.kill();
   throw new Error(`app server did not start on ${BASE}`);
@@ -59,6 +66,7 @@ async function startServer() {
 
 /** The next clip's server must not find this one still answering on the same port. */
 async function stopServer(server) {
+  if (server.exitCode !== null || server.signalCode !== null) return;
   const exited = new Promise((resolve) => server.once('exit', resolve));
   server.kill();
   await exited;
@@ -91,7 +99,6 @@ class Recorder {
       maxWidth: this.viewport.width * SCALE,
       maxHeight: this.viewport.height * SCALE,
     });
-    this.t0 = Date.now() / 1000;
   }
 
   now() {
@@ -109,6 +116,7 @@ class Recorder {
   async tap(locator, name) {
     await locator.scrollIntoViewIfNeeded();
     const box = await locator.boundingBox();
+    if (!box) throw new Error(`${this.clip}: tap target "${name}" is not on screen`);
     this.mark(name, { kind: 'tap', x: box.x + box.width / 2, y: box.y + box.height / 2 });
     await this.hold(350);
     await locator.click();
@@ -123,13 +131,15 @@ class Recorder {
     await this.page.keyboard.press('Enter');
   }
 
-  /** Waits for the agent's reply; the wait itself is cut down in the output. */
   async reply(name) {
     const waitStart = this.now();
-    await this.page.locator('.msg-bubble--typing').first().waitFor({ state: 'attached', timeout: 5_000 }).catch(() => {});
-    await this.page.locator('.msg-bubble--typing').waitFor({ state: 'detached', timeout: 60_000 });
+    const typing = this.page.locator('.msg-bubble--typing');
+    await typing.first().waitFor({ state: 'attached', timeout: 5_000 }).catch((error) => {
+      if (error.name !== 'TimeoutError') throw error;
+    });
+    await typing.waitFor({ state: 'detached', timeout: 60_000 });
     const waitEnd = this.now();
-    this.waits.push([waitStart + 0.25, waitEnd]);
+    this.waits.push([waitStart + WAIT_LEAD_S, waitEnd]);
     this.mark(name, { kind: 'reply' });
     await this.hold(1_800);
   }
@@ -152,7 +162,9 @@ class Recorder {
   }
 
   encode() {
-    const kept = this.frames.filter((f) => !this.waits.some(([a, b]) => f.t > a + WAIT_KEEP_S && f.t < b));
+    const isInsideCutWait = (frame) => this.waits.some(([a, b]) => frame.t > a + WAIT_KEEP_S && frame.t < b);
+    const kept = this.frames.filter((frame) => !isInsideCutWait(frame));
+    if (!kept.length) throw new Error(`${this.clip}: no frames captured`);
     const lines = [];
     kept.forEach((f, i) => {
       const next = kept[i + 1];
@@ -288,7 +300,7 @@ const clips = requested.length ? requested : Object.keys(CLIPS);
 const browser = await chromium.launch();
 try {
   for (const clip of clips) {
-    if (!CLIPS[clip]) throw new Error(`unknown clip ${clip}; known: ${Object.keys(CLIPS).join(', ')}`);
+    if (!Object.hasOwn(CLIPS, clip)) throw new Error(`unknown clip ${clip}; known: ${Object.keys(CLIPS).join(', ')}`);
     await recordClip(browser, clip);
   }
 } finally {
