@@ -132,7 +132,8 @@ def load_transactions(
     try:
         cols = ", ".join(f"t.{c}" for c in RAW_COLUMNS)
         if customers_warehouse_path is not None:
-            con.execute(f"ATTACH '{customers_warehouse_path}' AS cw (READ_ONLY)")
+            quoted = str(customers_warehouse_path).replace("'", "''")
+            con.execute(f"ATTACH '{quoted}' AS cw (READ_ONLY)")
             customers = "cw.customers"
         else:
             customers = "customers"
@@ -150,6 +151,17 @@ def load_transactions(
     return df
 
 
+def clean_transactions(df: pd.DataFrame) -> pd.DataFrame:
+    """The row rules of `load_transactions` for frames that did not come from
+    it (scoring): drop rows without `customer_id` or `transaction_date`, then
+    keep one row per `transaction_id`, the earliest. Scoring then sees the
+    same rows training saw, whatever order the caller passes them in."""
+    dated = df.assign(transaction_date=pd.to_datetime(df["transaction_date"]))
+    keyed = dated[dated["customer_id"].notna() & dated["transaction_date"].notna()]
+    ordered = keyed.sort_values(["transaction_id", "transaction_date"], kind="mergesort")
+    return ordered.drop_duplicates("transaction_id", keep="first")
+
+
 def _amount_usd(df: pd.DataFrame) -> pd.Series:
     rate = df["currency"].map(FIXED_USD_RATES)
     return df["amount_usd"].fillna(df["amount"] / rate)
@@ -161,10 +173,11 @@ def _haversine_km(lat1, lon1, lat2, lon2) -> np.ndarray:
     return 2 * _EARTH_RADIUS_KM * np.arcsin(np.sqrt(np.clip(a, 0.0, 1.0)))
 
 
-def _sort_key(customer_codes: np.ndarray, seconds: np.ndarray) -> np.ndarray:
+def _sort_key(customer_codes: np.ndarray, time_rank: np.ndarray, n_ranks: int) -> np.ndarray:
     # Customers occupy disjoint key ranges, so one binary search over the key
-    # never crosses from one customer into another.
-    return customer_codes.astype(np.int64) * np.int64(10**11) + seconds
+    # never crosses from one customer into another. Ranking the full-precision
+    # timestamps (not truncating to seconds) keeps "strictly earlier" exact.
+    return customer_codes.astype(np.int64) * np.int64(n_ranks + 1) + time_rank
 
 
 def _strictly_prior_index(key: np.ndarray, starts: np.ndarray) -> np.ndarray:
@@ -253,8 +266,10 @@ def build_features(raw: pd.DataFrame) -> pd.DataFrame:
     df = df.reset_index(drop=True)
 
     codes, _ = pd.factorize(df["customer_id"], sort=False)
-    seconds = df["transaction_date"].to_numpy().astype("datetime64[s]").astype(np.int64)
-    key = _sort_key(codes, seconds)
+    nanos = df["transaction_date"].to_numpy().astype("datetime64[ns]").astype(np.int64)
+    seconds = nanos / 1e9
+    unique_nanos, time_rank = np.unique(nanos, return_inverse=True)
+    key = _sort_key(codes, time_rank, len(unique_nanos))
     n = len(df)
     is_start = np.ones(n, dtype=bool)
     is_start[1:] = codes[1:] != codes[:-1]
@@ -269,7 +284,8 @@ def build_features(raw: pd.DataFrame) -> pd.DataFrame:
     df["n_prior_txns"] = (first_at_or_after - starts).astype(float)
     df["hours_since_prev_txn"] = (seconds - _take(seconds, prior)) / _SECONDS_PER_HOUR
     for label, window_seconds in (("txns_last_1h", 3600), ("txns_last_24h", 86400)):
-        window_start = np.searchsorted(key, key - window_seconds, side="left")
+        window_rank = np.searchsorted(unique_nanos, nanos - window_seconds * 10**9, side="left")
+        window_start = np.searchsorted(key, _sort_key(codes, window_rank, len(unique_nanos)), side="left")
         df[label] = (first_at_or_after - np.maximum(window_start, starts)).astype(float)
 
     log_amount = np.log1p(df["amount_usd_filled"].clip(lower=0).to_numpy())
@@ -294,7 +310,8 @@ def build_features(raw: pd.DataFrame) -> pd.DataFrame:
     df["customer_tenure_days"] = (df["transaction_date"] - registration).dt.days.astype(float)
     for col in CATEGORICAL_FEATURES:
         df[col] = df[col].fillna("missing").astype(str)
-    df[TARGET_COLUMN] = df[TARGET_COLUMN].astype(bool)
+    if TARGET_COLUMN in df.columns:
+        df[TARGET_COLUMN] = df[TARGET_COLUMN].astype(bool)
 
     return df.sort_values(["transaction_date", "transaction_id"], kind="mergesort").reset_index(drop=True)
 

@@ -8,8 +8,8 @@ re-splits), and writes `data/fraud_eval_report.json` plus the charts under
 ## What is computed
 
 - Ranking on the test fold, comparison population (rows with fraud_score):
-  PR-AUC (primary), ROC-AUC, recall at FPR 0.1% and 1%, with stratified
-  bootstrap 95% CIs and a paired CI of PR-AUC(model) - PR-AUC(fraud_score).
+  PR-AUC (primary), ROC-AUC, recall at FPR 0.1% and 1%, with paired
+  customer-cluster bootstrap 95% CIs and a paired CI of PR-AUC(model) - PR-AUC(fraud_score).
 - Calibration (reliability bins + Brier) of the calibrated model probabilities.
 - Cost-based operating thresholds, chosen on VALIDATION and reported on test,
   for fraud_score and for the best model (see `COST_ASSUMPTIONS`).
@@ -22,18 +22,22 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score, roc_curve
+from joblib import Parallel, delayed
+from sklearn.metrics import auc, average_precision_score, brier_score_loss, roc_curve
 
 from etl.fraud_features import BASELINE_SCORE_COLUMN as SCORE
 from etl.fraud_features import TARGET_COLUMN as TARGET
 from etl.train_fraud_model import (
+    DATA_WINDOW,
     DEFAULT_EXPERIMENTS_PATH,
     DEFAULT_PREDICTIONS_PATH,
+    _git_sha,
     append_experiment,
 )
 
@@ -76,44 +80,61 @@ SENSITIVITY = {
 }
 
 
-def recall_at_fpr(y: np.ndarray, score: np.ndarray, fpr_target: float) -> float:
-    fpr, tpr, _ = roc_curve(y, score)
+def _recall_at(fpr: np.ndarray, tpr: np.ndarray, fpr_target: float) -> float:
     ok = fpr <= fpr_target
     return float(tpr[ok].max()) if ok.any() else 0.0
 
 
+def recall_at_fpr(y: np.ndarray, score: np.ndarray, fpr_target: float) -> float:
+    fpr, tpr, _ = roc_curve(y, score)
+    return _recall_at(fpr, tpr, fpr_target)
+
+
 def ranking_metrics(y: np.ndarray, score: np.ndarray) -> dict[str, float]:
-    out = {
-        "pr_auc": float(average_precision_score(y, score)),
-        "roc_auc": float(roc_auc_score(y, score)),
-    }
+    fpr, tpr, _ = roc_curve(y, score)
+    out = {"pr_auc": float(average_precision_score(y, score)), "roc_auc": float(auc(fpr, tpr))}
     for f in FPR_POINTS:
-        out[f"recall_at_fpr_{f:g}"] = recall_at_fpr(y, score, f)
+        out[f"recall_at_fpr_{f:g}"] = _recall_at(fpr, tpr, f)
     return out
 
 
-def _stratified_indices(y: np.ndarray, rng: np.random.Generator) -> np.ndarray:
-    pos, neg = np.flatnonzero(y), np.flatnonzero(~y)
-    return np.concatenate([rng.choice(pos, len(pos)), rng.choice(neg, len(neg))])
-
-
-def bootstrap(y: np.ndarray, scores: dict[str, np.ndarray], reference: str, n: int = N_BOOTSTRAP) -> dict:
-    """Stratified bootstrap (positives and negatives resampled separately, so
-    every replicate keeps the fold's fraud count). The same replicate indices
-    are shared by every score, which makes the differences paired."""
+def _cluster_indices(groups: np.ndarray, n_replicates: int) -> list[np.ndarray]:
+    """Row indices of `n_replicates` customer-cluster bootstrap samples: each
+    replicate draws customers with replacement and keeps all their rows, so
+    charges of one customer (which share history features) move together."""
     rng = np.random.default_rng(RANDOM_STATE)
-    samples: dict[str, list[dict[str, float]]] = {k: [] for k in scores}
-    for _ in range(n):
-        idx = _stratified_indices(y, rng)
-        for name, s in scores.items():
-            samples[name].append(ranking_metrics(y[idx], s[idx]))
+    codes, _ = pd.factorize(groups)
+    order = np.argsort(codes, kind="mergesort")
+    counts = np.bincount(codes)
+    starts = np.concatenate([[0], np.cumsum(counts)[:-1]])
+    replicates = []
+    for _ in range(n_replicates):
+        drawn = rng.integers(0, len(counts), len(counts))
+        lengths = counts[drawn]
+        offsets = np.repeat(starts[drawn] - np.concatenate([[0], np.cumsum(lengths)[:-1]]), lengths)
+        replicates.append(order[offsets + np.arange(lengths.sum())])
+    return replicates
+
+
+def _replicate_metrics(y: np.ndarray, scores: dict[str, np.ndarray], idx: np.ndarray) -> dict[str, dict]:
+    return {name: ranking_metrics(y[idx], s[idx]) for name, s in scores.items()}
+
+
+def bootstrap(
+    y: np.ndarray, scores: dict[str, np.ndarray], groups: np.ndarray, reference: str, n: int = N_BOOTSTRAP
+) -> dict:
+    """Paired customer-cluster bootstrap: every score is evaluated on the same
+    resampled customers in each replicate, so differences are paired, and a
+    customer's charges are never split across a replicate's draws."""
+    replicates = _cluster_indices(groups, n)
+    results = Parallel(n_jobs=-1)(delayed(_replicate_metrics)(y, scores, idx) for idx in replicates)
     out = {}
-    for name, rows in samples.items():
-        frame = pd.DataFrame(rows)
+    frames = {name: pd.DataFrame([r[name] for r in results]) for name in scores}
+    for name, frame in frames.items():
         out[name] = {m: [round(float(frame[m].quantile(0.025)), 4), round(float(frame[m].quantile(0.975)), 4)]
                      for m in frame.columns}
         if name != reference:
-            diff = frame["pr_auc"] - pd.DataFrame(samples[reference])["pr_auc"]
+            diff = frame["pr_auc"] - frames[reference]["pr_auc"]
             out[name]["pr_auc_minus_reference"] = [
                 round(float(diff.quantile(0.025)), 4), round(float(diff.quantile(0.975)), 4)
             ]
@@ -167,6 +188,8 @@ def best_threshold(y: np.ndarray, score: np.ndarray, amount: np.ndarray, assumpt
     escalating `score >= t` costs one escalation per charge at or above t plus
     the loss of every fraud below t. Ties on cost go to the higher threshold
     (fewer escalations for the same cost)."""
+    if np.isnan(score).any():
+        raise ValueError("best_threshold needs a score for every row (filter missing scores first)")
     escalation, ops = unit_costs(assumptions)
     order = np.argsort(score, kind="mergesort")
     sorted_score = score[order]
@@ -193,8 +216,10 @@ def threshold_analysis(val: pd.DataFrame, test: pd.DataFrame, score_cols: dict[s
     v, t = cost_population(val), cost_population(test)
     yv, yt = v[TARGET].to_numpy(), t[TARGET].to_numpy()
     out = {"population": {
-        "definition": (f"fraud_score present, transaction_status {AUTO_RESOLVE_REQUIRED_STATUS}, "
-                       f"amount_usd <= {AUTO_RESOLVE_MAX_AMOUNT_USD}"),
+        "definition": (f"transaction-level proxy for the auto-credit population: fraud_score present, "
+                       f"transaction_status {AUTO_RESOLVE_REQUIRED_STATUS}, amount_usd <= {AUTO_RESOLVE_MAX_AMOUNT_USD}; "
+                       "the other AD-13 gates (age, customer status, dispute history, classifier, "
+                       "reason evidence) need a dispute, and no historical dispute links to a charge"),
         "val_rows": len(v), "val_frauds": int(yv.sum()), "test_rows": len(t), "test_frauds": int(yt.sum()),
     }, "assumptions": COST_ASSUMPTIONS, "unit_costs_usd": dict(zip(
         ("escalation", "wrong_credit_ops"), unit_costs(COST_ASSUMPTIONS), strict=True)), "scores": {}}
@@ -248,7 +273,7 @@ def error_analysis(test: pd.DataFrame, col: str, threshold: float) -> dict:
             "channel": frame["channel"].value_counts(normalize=True).round(3).to_dict(),
             "transaction_type": frame["transaction_type"].value_counts(normalize=True).round(3).to_dict(),
             "share_new_merchant": round(float(frame["is_new_merchant"].mean()), 3) if frame["is_new_merchant"].notna().any() else None,
-            "share_foreign_country": round(float(frame["is_foreign_country"].mean()), 3),
+            "share_foreign_country": round(float(frame["is_foreign_country"].mean()), 3) if frame["is_foreign_country"].notna().any() else None,
             "median_prior_txns": float(frame["n_prior_txns"].median()),
         }
 
@@ -258,7 +283,11 @@ def error_analysis(test: pd.DataFrame, col: str, threshold: float) -> dict:
 
 
 def render_charts(test: pd.DataFrame, score_cols: dict[str, str], calib_col: str, docs_dir: Path) -> list[str]:
-    import matplotlib
+    try:
+        import matplotlib
+    except ImportError:
+        logger.warning("matplotlib not installed (requirements-analysis.txt): charts skipped")
+        return []
 
     matplotlib.use("Agg")
     from matplotlib import pyplot as plt
@@ -317,7 +346,8 @@ def evaluate(pred: dict, docs_dir: Path | None = DEFAULT_DOCS_DIR) -> dict:
     scored = test[test[SCORE].notna()]
     y = scored[TARGET].to_numpy()
     point = {name: ranking_metrics(y, scored[col].to_numpy()) for name, col in score_cols.items()}
-    cis = bootstrap(y, {name: scored[col].to_numpy() for name, col in score_cols.items()}, reference="fraud_score")
+    cis = bootstrap(y, {name: scored[col].to_numpy() for name, col in score_cols.items()},
+                    groups=scored["customer_id"].to_numpy(), reference="fraud_score")
 
     unscored = test[test[SCORE].isna()]
     yu = unscored[TARGET].to_numpy()
@@ -334,7 +364,7 @@ def evaluate(pred: dict, docs_dir: Path | None = DEFAULT_DOCS_DIR) -> dict:
                              "brier_base_rate": float(brier_score_loss(y, np.full(len(y), y.mean()))),
                              "reliability": reliability(y, p)}
 
-    best_model = max(model_cols, key=lambda k: pred["models"][k]["val_metrics"]["val_pr_auc"])
+    best_model = pred["selected"]
     thresholds = threshold_analysis(val, test, {"fraud_score": SCORE, best_model: model_cols[best_model]})
     errors = {
         name: error_analysis(test, col, thresholds["scores"][name]["threshold_chosen_on_val"])
@@ -344,7 +374,7 @@ def evaluate(pred: dict, docs_dir: Path | None = DEFAULT_DOCS_DIR) -> dict:
 
     return _round({
         "split": pred["split"], "run_group": pred["run_group"], "git_sha": pred["git_sha"],
-        "data_profile": pred.get("data_profile"),
+        "data_profile": pred.get("data_profile"), "data_window": pred.get("data_window", DATA_WINDOW),
         "selected_on_validation": pred["selected"], "best_model": best_model,
         "validation": {"baselines": pred["baselines_val"],
                        "models": {k: v["val_metrics"] | {"params": v["params"]} for k, v in pred["models"].items()}},
@@ -369,7 +399,10 @@ def main(argv: list[str] | None = None) -> int:
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2, ensure_ascii=False, default=str))
     append_experiment(args.experiments, {
-        "run_group": report["run_group"], "git_sha": report["git_sha"], "model": "test_evaluation",
+        "run_group": report["run_group"], "git_sha": report["git_sha"], "evaluation_git_sha": _git_sha(),
+        "timestamp": datetime.now(UTC).isoformat(),
+        "data_window": report["data_window"], "model": "test_evaluation",
+        "features": {name: m["features"] for name, m in joblib.load(args.predictions)["models"].items()},
         "split": report["split"], "metrics": report["test_point_estimates"],
         "ci95": report["test_bootstrap_95ci"],
         "thresholds": {k: v["threshold_chosen_on_val"] for k, v in report["thresholds"]["scores"].items()},

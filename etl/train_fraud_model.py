@@ -22,7 +22,8 @@ for the per-charge fraud-risk model.
 - **Selection:** validation average precision (PR-AUC) on the comparison
   population. The test fold is scored once, by `etl/evaluate_fraud_model.py`.
 - **Calibration:** Platt scaling fitted on the validation fold for the
-  selected model of each variant (class weights distort raw probabilities).
+  selected configuration of each model family and variant (4 models; class
+  weights distort raw probabilities).
 
 Training rows: every positive plus a fixed 10% sample of negatives, each kept
 negative weighted x10 so the weighted loss is an unbiased estimate of the
@@ -62,6 +63,7 @@ from etl.fraud_features import (
     STACKED_FEATURE_COLUMNS,
     TARGET_COLUMN,
     build_features,
+    clean_transactions,
     load_features,
     profile_warehouse,
 )
@@ -125,6 +127,11 @@ def chronological_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, p
     train = df[(dates >= WARMUP_END) & (dates < TRAIN_END)]
     val = df[(dates >= TRAIN_END) & (dates < VAL_END)]
     test = df[dates >= VAL_END]
+    if dates.iloc[0] > WARMUP_END - pd.Timedelta(days=30):
+        raise ValueError(f"data starts {dates.iloc[0]}: less than 30 days of warm-up history before {WARMUP_END}")
+    for name, fold in (("train", train), ("validation", val), ("test", test)):
+        if len(fold) == 0 or not fold[TARGET_COLUMN].any():
+            raise ValueError(f"{name} fold has {len(fold)} rows and no fraud: check the extraction window")
     split = Split(
         warmup_end=str(WARMUP_END.date()), train_end=str(TRAIN_END.date()), val_end=str(VAL_END.date()),
         train_rows=len(train), train_positives=int(train[TARGET_COLUMN].sum()),
@@ -270,7 +277,7 @@ def _grid_search(
     best: dict[tuple[str, str], dict] = {}
     for variant, columns in VARIANTS.items():
         for family, builder in BUILDERS.items():
-            grid = LR_GRID if family == "logistic" else HGB_GRID
+            grid = {"logistic": LR_GRID, "hgb": HGB_GRID}[family]
             for params in grid:
                 pipe = builder(columns, **params)
                 pipe.fit(sample[list(columns)], y_sample, classify__sample_weight=weights)
@@ -311,7 +318,7 @@ def _fold_predictions(models: dict[str, dict], folds: dict[str, pd.DataFrame]) -
     ]
     predictions = {}
     for fold_name, fold in folds.items():
-        out = fold[[c for c in keep_cols if c in fold.columns]].copy()
+        out = fold[keep_cols].copy()
         out["rules_score"] = rules_score(fold)
         for name, model in models.items():
             raw = model["pipeline"].predict_proba(fold[model["features"]])[:, 1]
@@ -356,7 +363,7 @@ def predictions_bundle(result: dict, predictions: dict) -> dict:
     return {
         **predictions, "selected": result["selected"], "split": result["split"],
         "run_group": result["run_group"], "git_sha": result["git_sha"],
-        "baselines_val": result["baselines_val"], "data_profile": result.get("data_profile"),
+        "data_window": result.get("data_window", DATA_WINDOW), "baselines_val": result["baselines_val"], "data_profile": result.get("data_profile"),
         "models": {k: {kk: vv for kk, vv in v.items() if kk not in ("pipeline", "calibrator")}
                    for k, v in result["models"].items()},
     }
@@ -368,16 +375,17 @@ def score_transactions(df: pd.DataFrame, model_path: Path = DEFAULT_MODEL_PATH, 
 
     `df` holds raw `transactions` rows (the columns of
     `etl.fraud_features.RAW_COLUMNS` plus `home_country` and
-    `registration_date`). Include each customer's EARLIER transactions too:
-    the history features only see what is in `df`. Returns probabilities
-    aligned with `df`'s row order. `model` picks a stored model by name
+    `registration_date`; `is_fraud`, `fraud_score` for the "ours" models, and
+    `transaction_status` are not needed). Include each customer's EARLIER
+    transactions too: the history features only see what is in `df`. Returns
+    probabilities aligned with `df`'s row order (NaN for a row without
+    `customer_id` or `transaction_date`, which training never saw). `model` picks a stored model by name
     (default: the one selected on validation).
     """
     bundle = joblib.load(model_path)
     entry = bundle["models"][model or bundle["selected"]]
-    # Same one-row-per-transaction_id rule as `load_transactions` (training):
-    # a duplicated row would otherwise count twice in every later row's history.
-    feats = build_features(df.drop_duplicates("transaction_id"))
+    # A duplicated row would otherwise count twice in every later row's history.
+    feats = build_features(clean_transactions(df))
     raw = entry["pipeline"].predict_proba(feats[entry["features"]])[:, 1]
     proba = pd.Series(entry["calibrator"].transform(raw), index=feats["transaction_id"].to_numpy())
     return proba.reindex(df["transaction_id"].to_numpy()).to_numpy()

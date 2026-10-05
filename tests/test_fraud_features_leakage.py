@@ -58,6 +58,7 @@ def _brute_force(raw: pd.DataFrame) -> pd.DataFrame:
             amount_zscore=z,
             is_new_merchant=float(r.merchant_name not in set(prior.merchant_name.dropna())) if pd.notna(r.merchant_name) else math.nan,
             is_new_city=float(r.transaction_city not in set(prior.transaction_city.dropna())),
+            is_new_country=float(r.transaction_country not in set(prior.transaction_country.dropna())),
             prev_geo_hours=(t - geo.iloc[-1].transaction_date).total_seconds() / 3600 if len(geo) else math.nan,
         )
     return pd.DataFrame.from_dict(out, orient="index")
@@ -77,6 +78,10 @@ def raw():
         _row("T5", "2025-01-02 10:00:00", amount=80.0, merchant_name=None, latitude=20.97, longitude=-89.62),
         _row("T6", "2025-01-02 10:00:00", amount=90.0, merchant_name="Shop A"),
         _row("O2", "2025-01-02 10:00:00", customer="CLI-2", merchant_name="Shop A"),
+        # Sub-second order: S2 is strictly after S1 within the same second.
+        _row("S1", "2025-01-03 08:00:00.200", customer="CLI-3", merchant_name="Shop S"),
+        _row("S2", "2025-01-03 08:00:00.700", customer="CLI-3", merchant_name="Shop S",
+             transaction_country="Colombia"),
     ]
     return pd.DataFrame(rows)
 
@@ -85,7 +90,7 @@ def test_history_features_match_brute_force_strictly_prior(raw):
     feats = build_features(raw).set_index("transaction_id")
     expected = _brute_force(raw)
     for col in ("n_prior_txns", "hours_since_prev_txn", "txns_last_1h", "txns_last_24h",
-                "amount_zscore", "is_new_merchant", "is_new_city"):
+                "amount_zscore", "is_new_merchant", "is_new_city", "is_new_country"):
         for txn_id in expected.index:
             got, want = feats.loc[txn_id, col], expected.loc[txn_id, col]
             if pd.isna(want):

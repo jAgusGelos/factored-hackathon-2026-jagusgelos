@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import importlib.util
+
 import joblib
 import numpy as np
 import pandas as pd
@@ -10,7 +12,7 @@ import pytest
 
 from etl import evaluate_fraud_model as ev
 from etl import train_fraud_model as tr
-from etl.fraud_features import build_features
+from etl.fraud_features import build_features, clean_transactions
 
 
 def _synthetic_raw(n: int = 6000, seed: int = 0) -> pd.DataFrame:
@@ -90,23 +92,39 @@ def test_end_to_end_train_evaluate_and_score(tmp_path, monkeypatch):
     predictions = result.pop("predictions")
     model_path = tmp_path / "fraud_model.joblib"
     joblib.dump(result, model_path)
-    report = ev.evaluate(tr.predictions_bundle(result, predictions), docs_dir=tmp_path / "docs")
-    assert (tmp_path / "docs" / "fraud_pr_curve.png").exists()
-    assert "fraud_score" in report["thresholds"]["scores"]
+    has_matplotlib = importlib.util.find_spec("matplotlib") is not None
+    docs = tmp_path / "docs" if has_matplotlib else None
+    report = ev.evaluate(tr.predictions_bundle(result, predictions), docs_dir=docs)
+    if has_matplotlib:
+        assert (tmp_path / "docs" / "fraud_pr_curve.png").exists()
+    fraud_score_threshold = report["thresholds"]["scores"]["fraud_score"]
+    assert fraud_score_threshold["cost_equivalent_lower_bound"] < fraud_score_threshold["threshold_chosen_on_val"]
     assert report["test_point_estimates"]["fraud_score"]["pr_auc"] > 0.5  # planted signal
     for name, ci in report["test_bootstrap_95ci"].items():
         assert ci["pr_auc"][0] <= ci["pr_auc"][1], name
 
-    proba = tr.score_transactions(raw.sample(frac=1, random_state=1), model_path)
-    assert proba.shape == (len(raw),)
-    assert np.all((proba >= 0) & (proba <= 1))
+    # The scoring path reproduces the evaluated test predictions, whatever the
+    # input order, and needs neither the label nor transaction_status.
+    unlabeled = raw.drop(columns=["is_fraud", "transaction_status"]).sample(frac=1, random_state=1)
+    proba = pd.Series(tr.score_transactions(unlabeled, model_path), index=unlabeled["transaction_id"].to_numpy())
+    test_pred = predictions["test"].set_index("transaction_id")[f"p_{result['selected']}"]
+    np.testing.assert_allclose(proba.loc[test_pred.index].to_numpy(), test_pred.to_numpy(), rtol=1e-9)
 
-    # Duplicated raw rows (the source table has them) neither crash the
-    # reindex nor change any score.
+    # Duplicated ids neither crash the reindex nor change any score.
     with_dupes = pd.concat([raw, raw.head(50)], ignore_index=True)
     proba_dupes = tr.score_transactions(with_dupes, model_path)
     assert proba_dupes.shape == (len(with_dupes),)
     np.testing.assert_allclose(proba_dupes[: len(raw)], tr.score_transactions(raw, model_path))
+
+
+def test_dedupe_keeps_the_earliest_row_whatever_the_input_order():
+    rows = _synthetic_raw(20)
+    later_twin = rows.iloc[[3]].assign(transaction_date=rows.iloc[3]["transaction_date"] + pd.Timedelta(days=9),
+                                       amount=1.0)
+    for frame in (pd.concat([rows, later_twin]), pd.concat([later_twin, rows]).iloc[::-1]):
+        kept = clean_transactions(frame).set_index("transaction_id")
+        assert len(kept) == len(rows)
+        assert kept.loc[rows.iloc[3]["transaction_id"], "transaction_date"] == rows.iloc[3]["transaction_date"]
 
 
 def test_mirrored_policy_constants_match_app_policy():
