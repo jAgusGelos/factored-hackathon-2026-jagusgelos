@@ -106,6 +106,9 @@ RAW_COLUMNS = (
     "longitude",
     "fraud_score",
     "is_fraud",
+    # Loaded for the evaluation only (the cost model's auto-credit population
+    # is Approved charges), never a feature: see the exclusion table.
+    "transaction_status",
 )
 
 _SECONDS_PER_HOUR = 3600.0
