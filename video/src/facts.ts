@@ -1,4 +1,4 @@
-// Every number the video shows, with its source and honesty label. Change them here only.
+// Every eval, demand and data number the video shows, with its source and honesty label. Change them here only.
 
 export type Honesty = 'MEASURED' | 'SIMULATED' | 'ASSUMED' | 'DESIGN ARGUMENT' | 'PLACEHOLDER';
 
