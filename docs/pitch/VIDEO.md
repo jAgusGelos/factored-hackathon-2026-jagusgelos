@@ -1,6 +1,6 @@
 # Launch video
 
-A 2:16 launch-style pitch for the LATAM Bank Dispute Agent: Why (the 37 h wait), What (three
+A 2:11 launch-style pitch for the LATAM Bank Dispute Agent: Why (the 37 h wait), What (three
 moments of the real product), How (one trust beat), and the promise. Narration and shot list:
 [`video-script.md`](video-script.md). Recording guide for the presenter: [`RECORDING.md`](RECORDING.md).
 
