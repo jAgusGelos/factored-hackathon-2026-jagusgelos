@@ -166,13 +166,12 @@
   .row__value { font-size: 22px; line-height: 1.3; }
   .row__value b { color: var(--primary); }
   .value-line { margin-top: 14px; font-size: 24px; font-weight: 700; color: var(--primary); }
-  .bars { --bars-max: 0.3; display: grid; grid-template-columns: 104px 1fr; gap: 6px 10px; align-items: center; margin-top: 6px; }
+  .bars { --bars-max: 0.8; display: grid; grid-template-columns: 104px 1fr; gap: 6px 10px; align-items: center; margin-top: 6px; }
   .bars__name { font-size: 22px; color: var(--text-muted); font-weight: 600; }
-  .bars__track { height: 30px; background: var(--pending-bg); border-radius: var(--radius-sm); position: relative; }
-  .bars__fill { height: 100%; border-radius: var(--radius-sm); width: calc(var(--v) / var(--bars-max) * 100%); display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; font-size: 18px; font-weight: 800; }
+  .bars__track { height: 36px; background: var(--pending-bg); border-radius: var(--radius-sm); position: relative; }
+  .bars__fill { height: 100%; border-radius: var(--radius-sm); width: calc(var(--v) / var(--bars-max) * 100%); display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; font-size: 22px; font-weight: 800; }
   .bars__fill--muted { background: var(--border-strong); color: var(--text); }
   .bars__fill--accent { background: var(--primary); color: var(--on-primary); }
-  .bars--fraud { --bars-max: 0.8; }
 
   .proof { display: grid; grid-template-columns: 330px 1fr; gap: 40px; margin-top: 16px; }
   .hero-num { font-size: 108px; line-height: 0.95; font-weight: 800; color: var(--success-strong); letter-spacing: -4px; }
@@ -190,7 +189,7 @@
   .compare tr.ours td:first-child { font-weight: 800; color: var(--success-strong); }
   .compare .bad { color: var(--danger); }
   .compare .sys { font-weight: 700; }
-  .compare .sys small { display: block; font-size: 17px; font-weight: 500; color: var(--text-muted); }
+  .compare .sys small { display: block; font-size: 22px; font-weight: 500; color: var(--text-muted); }
   .read { font-size: 22px; line-height: 1.4; margin-top: 10px; }
   .caveat {
     margin-top: 12px; padding: 10px 16px; border-radius: var(--radius-md);
@@ -237,7 +236,7 @@
       </div>
       <div>
         <div class="bignum">37<span>h</span></div>
-        <p class="bignum-caption">median wait for a first response to "Cargo no reconocido" (unrecognized charge)</p>
+        <p class="bignum-caption">median wait for a first response to "<span lang="es">Cargo no reconocido</span>" (unrecognized charge)</p>
         <div class="chips">
           <span class="label label--measured">Measured</span>
           <span class="chip-dark">p90 58 h</span>
@@ -268,7 +267,7 @@
       </article>
       <article class="moment moment--handoff">
         <div class="moment__head"><span class="moment__n">3</span><h2 class="moment__title">Protects, hands off</h2></div>
-        <div class="shot" role="img" aria-label="Advisor's case file, actions taken: the agent blocked the card preventively (simulated, no money moved)" style="--src:url(assets/handoff-case-file.png); --iw:542; --s:0.574; --x:0; --y:2572; --dx:28px;"></div>
+        <div class="shot" role="img" aria-label="Advisor's case file, actions taken: the agent blocked the card preventively (simulated, no money moved)" style="--src:url(assets/handoff-case-file.png); --iw:542; --s:0.574; --x:0; --y:2530; --dx:28px;"></div>
         <p class="moment__caption">Likely fraud: the card is blocked first, then a person gets a complete file of verified facts.</p>
       </article>
     </div>
@@ -287,7 +286,7 @@
       <div class="rule"><p class="rule__what">Policy and permissions live in code</p><p class="rule__value">No lookup can reach another customer's ledger.</p></div>
       <div class="rule"><p class="rule__what">Verified facts only</p><p class="rule__value">A persuasive claim the record contradicts still goes to a person.</p></div>
     </div>
-    <p class="source">Design argument, enforced in code: an exhaustive sweep over every reason and all 128 combinations of the other conditions shows the classifier never causes a credit (<code>tests/test_policy_not_overridden.py</code>) · 1,121 automated tests · <code>docs/architecture-decisions.md</code> AD-3, AD-5, AD-13 to AD-15.</p>
+    <p class="source">Design argument, enforced in code: an exhaustive sweep over every reason and all 128 combinations of the other conditions shows the classifier never causes a credit (<code>tests/test_policy_not_overridden.py</code>) · 1,121 automated tests · <code>docs/architecture-decisions.md</code> dispute-agent AD-3, AD-5, AD-13 to AD-15.</p>
   </section>
 
   <section class="slide slide--paper" id="slide-4" aria-label="Slide 4: Data and ML">
@@ -305,8 +304,8 @@
       <section class="card">
         <h2 class="card__head">Why a subset</h2>
         <div class="card__body">
-          <div class="row"><p class="row__label">Transactions <span class="label label--measured">Measured</span></p><p class="row__value"><b>130,690 of 5M</b> rows: a 30-day window, May 18 to Jun 17, 2026</p></div>
-          <div class="row"><p class="row__label">Complaints <span class="label label--measured">Measured</span></p><p class="row__value"><b>67,095</b>, in full</p></div>
+          <div class="row"><p class="row__label">For analysis <span class="label label--measured">Measured</span></p><p class="row__value"><b>130,690 of 5M</b> transactions (May 18 to Jun 17, 2026); <b>67,095</b> complaints in full</p></div>
+          <div class="row"><p class="row__label">Live app</p><p class="row__value">1 customer, <b>16 charges</b> (6 real, 10 synthetic)</p></div>
           <div class="row"><p class="row__label">Why <span class="label label--design">Design argument</span></p><p class="row__value">No S3 at runtime (privacy), reproducible, free-plan deploy; a dispute only needs the recent ledger</p></div>
         </div>
       </section>
@@ -316,12 +315,12 @@
           <div class="row"><p class="row__label">Data <span class="label label--measured">Measured</span></p><p class="row__value"><b>2,951,642</b> transactions over 2 years, split by date</p></div>
           <div class="row">
             <p class="row__label">Test PR-AUC <span class="label label--measured">Measured</span></p>
-            <div class="bars bars--fraud">
+            <div class="bars">
               <span class="bars__name">Bank</span><div class="bars__track"><div class="bars__fill bars__fill--accent" style="--v: 0.720">0.720</div></div>
               <span class="bars__name">Ours</span><div class="bars__track"><div class="bars__fill bars__fill--muted" style="--v: 0.707">0.707</div></div>
             </div>
           </div>
-          <div class="row"><p class="row__label">Shipped instead</p><p class="row__value">A cost-justified gate, <b>fraud score &gt; 30</b>. The model only informs the advisor.</p></div>
+          <div class="row"><p class="row__label">Shipped instead <span class="label label--measured">Measured</span></p><p class="row__value">Gate <b>fraud score &gt; 30</b>, chosen by cost (some inputs assumed). The model only informs the advisor.</p></div>
         </div>
       </section>
     </div>
@@ -350,11 +349,11 @@
           </thead>
           <tbody>
             <tr class="ours"><td class="sys">Our hybrid<small>Claude Haiku 4.5, 3 runs</small></td><td class="num">43</td><td class="num">0</td><td class="num">0</td></tr>
-            <tr><td class="sys">Regex extractor<small>model swapped for rules, 1 run</small></td><td class="num">43</td><td class="num">0</td><td class="num">0</td></tr>
-            <tr><td class="sys">Always escalate<small>the safety anchor, scored from labels</small></td><td class="num muted">n/a</td><td class="num">0</td><td class="num bad">18</td></tr>
+            <tr><td class="sys">Regex extractor<small>extraction swapped for rules, 1 run</small></td><td class="num">43</td><td class="num">0</td><td class="num">0</td></tr>
+            <tr><td class="sys">Always escalate<small>safety anchor, from labels</small></td><td class="num muted">n/a</td><td class="num">0</td><td class="num bad">18</td></tr>
           </tbody>
         </table>
-        <p class="read">Escalating everything is safe but helps no one. The code, not the model, keeps it safe: the 5 misses moved no money. <span class="muted">Offline suite, mocked model: dropping the evidence check pays 6 unsafe credits.</span> <span class="label label--simulated">Simulated</span></p>
+        <p class="read">Escalating everything is safe but helps no one. The 5 misses moved no money. <span class="muted">Mocked-model suite: without the evidence check, 6 unsafe credits.</span> <span class="label label--simulated">Simulated</span></p>
       </div>
     </div>
     <p class="caveat"><b>Read with its limits:</b> one customer's account, messages written by a model that never saw the policy, labels fixed before the first run. 0 of 48 bounds the unsafe rate below about 7% (95%), not at zero.</p>

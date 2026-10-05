@@ -54,8 +54,9 @@ Source: README "Demand analysis", closing paragraph.
 3. **Protects, hands off.** The customer denies an online charge with a high fraud score: the
    agent blocks the card (simulated) before the handoff, and a person gets the customer's
    statement, the verified facts and the open questions already in the file. Screen: the
-   advisor's case file, cropped to "Acciones realizadas" (its "Hechos verificados" come from the record), which lists
-   "Tarjeta bloqueada preventivamente por el agente (simulado, sin movimiento de dinero)").
+   advisor's case file, cropped to its "Acciones realizadas" section. That section lists
+   "Tarjeta bloqueada preventivamente por el agente (simulado, sin movimiento de dinero)".
+   The same file's "Hechos verificados" come from the record.
    Caption: "Likely fraud: the card is blocked first, then a person gets a complete file of verified facts."
 
 **Strip:** Spanish and Portuguese · Credits and card blocks are simulated (the live URL is on slide 6)
@@ -96,7 +97,7 @@ this branch, 2026-10-05 (1,121 collected; the README still says 990, written bef
 measured-eval features).
 
 Source for the architecture: README "Architecture at a glance" and "Dispute policy" (AD-13);
-`docs/architecture-decisions.md` AD-3, AD-5, AD-13 to AD-15; `CONFORMANCE.md` rows 2, 3, 5, 15, 23, 24.
+`docs/architecture-decisions.md` dispute-agent AD-3, AD-5, AD-13 to AD-15; `CONFORMANCE.md` rows 2, 3, 5, 15, 23, 24.
 
 ---
 
@@ -116,7 +117,8 @@ complaints.affected_product_id → products, 0 of 44,570).
 - Transactions: 130,690 of 5,000,000 rows, plus call-center interactions and transcripts, in a
   30-day window (2026-05-18 to 2026-06-17). Complaints in full: 67,095 rows. MEASURED.
 - The live app reads only a small fixture: one dataset customer (6 of their real dataset charges)
-  plus 10 labeled synthetic charges.
+  plus 10 labeled synthetic charges. On the slide: "Live app: 1 customer, 16 charges (6 real, 10
+  synthetic)", a plain count with no label.
 - Why: the runtime never touches S3 (privacy, AD-2); the run is reproducible; it deploys on a free
   plan; and a dispute only needs the customer's recent ledger. DESIGN ARGUMENT.
 Source: `data/extraction_manifest.json` (`windowed_date_range`, `tables[].row_count`); `etl/extract.py`
@@ -142,6 +144,9 @@ credit. MEASURED. (On the slide: "no measured lift (p = 0.45) and can only escal
 copy compared it with the majority baseline (0.1662 vs 0.2448); the signal-ceiling test shows that
 gain is what any class-balanced guesser gets, so it is no longer claimed.
 Source: `docs/ml/fraud-model.md` "Priority classifier: signal ceiling"; AD-15.
+
+(On the slide: "Shipped instead · MEASURED: Gate fraud score > 30, chosen by cost (some inputs
+assumed). The model only informs the advisor.")
 
 **Value line:** Our model lost to the bank's score, so it never decides: the rule the numbers back does.
 
@@ -173,17 +178,16 @@ the first run, real Claude Haiku 4.5 through the real app.
 | System | Correct (of 48) | Unsafe (of 48) | Unneeded transfers (of 18) |
 |---|---|---|---|
 | Our hybrid (Claude Haiku 4.5, 3 runs) | 43 | 0 | 0 |
-| Regex extractor (model's extraction swapped for rules, 1 run) | 43 | 0 | 0 |
+| Regex extractor ("extraction swapped for rules, 1 run"; every other model call unchanged) | 43 | 0 | 0 |
 | Always escalate (the safety anchor, scored from labels, as on the slide) | n/a | 0 | 18 |
 
 "Correct" means final state, escalation reason and credit all match the label (0.896).
 Source: `docs/eval/measured-eval.md`, "Results (v2)" and "Reading the comparison".
 
-**Read:** Escalating everything is safe but helps no one. The code, not the model, keeps it safe:
-the 5 misses moved no money (failure analysis: S11 x2 and S09-es escalated with a generic reason,
-S04 x2 left open by the script; none credited). Secondary line, SIMULATED: on the offline suite
-with a mocked model (48 constructed cases), dropping the evidence check pays 6 unsafe credits; the
-hybrid pays 0. Source: `data/eval_report.json` `system_comparison` (regenerated with
+**Read:** Escalating everything is safe but helps no one. The 5 misses moved no money (failure analysis: S11 x2 and S09-es escalated with a generic reason,
+S04 x2 left open by the script; none credited). Secondary line, SIMULATED (on the slide: "Mocked-model suite: without the evidence check, 6 unsafe
+credits."): on the offline suite with a mocked model (48 constructed cases), dropping the evidence
+check pays 6 unsafe credits; the hybrid pays 0. Source: `data/eval_report.json` `system_comparison` (regenerated with
 `python -m eval.run_eval` on 2026-10-05; pinned by `tests/test_system_comparison.py`).
 
 **(not on the slide)** The regex baseline is 21% cheaper and about 0.5-0.8 s faster at p50; at
