@@ -139,7 +139,7 @@ code:
 
 | Customer's reason (from their explanation) | Automatic outcome |
 |---|---|
-| **Duplicate charge** | Reversed only if a verifiable twin exists: same merchant, exact amount, currency and type, at most `DUPLICATE_WINDOW_MINUTES` (10) apart by full timestamp (`docs/policy/duplicate-window.md`); an equal charge further apart is a separate purchase and goes to a person. A pair is reversed once, whichever of its two charges the customer picks (unique `credit_key` index). |
+| **Duplicate charge** | Reversed only if a verifiable twin exists: same merchant, exact amount, currency and type, at most 1 day apart. A pair is reversed once, whichever of its two charges the customer picks (unique `credit_key` index). |
 | **Unrecognized charge** | Provisional credit only for a card-not-present purchase (Web/App) at a merchant the customer has no other charge with, and at most 1 such credit per customer every 90 days. The card is blocked (simulated) and the credit is queued for back-office review, reversible if the charge turns out to be theirs. A chip/PIN purchase at a POS, an ATM withdrawal or a transfer goes to a fraud investigation. |
 | Not received, wrong amount, lost/stolen card, unclear | Never an automatic credit: a merchant chargeback, a partial amount or a multi-charge fraud review needs a person. |
 
