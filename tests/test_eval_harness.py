@@ -206,4 +206,7 @@ def test_the_leak_check_flags_a_customer_view_that_shows_a_fraud_figure(monkeypa
     assert not run_eval._customer_view_shows_fraud_figures(case)
     monkeypatch.setattr(run_eval, "for_customer_session", lambda handoff: handoff)
     assert run_eval._customer_view_shows_fraud_figures(case)
+    renamed = {"verified_facts": {f"x{i}": v for i, v in enumerate(stored["verified_facts"].values())}}
+    monkeypatch.setattr(run_eval, "for_customer_session", lambda handoff: renamed)
+    assert run_eval._customer_view_shows_fraud_figures(case)
     assert handoffs.INTERNAL_FACTS >= {"fraud_risk_estimate", "fraud_model_version"}

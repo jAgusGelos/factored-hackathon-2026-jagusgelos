@@ -374,11 +374,13 @@ def _customer_view_shows_fraud_figures(case: cases.Case) -> bool:
     the filter's own key list: no internal fact's key or stored text may
     appear anywhere in what the customer's session receives.
     """
-    stored = (case.handoff or {}).get("verified_facts", {})
+    stored = (case.handoff or {}).get("verified_facts")
+    if not isinstance(stored, dict):
+        stored = {}
     internal = {key: value for key, value in stored.items() if key in INTERNAL_FACTS}
     shown = json.dumps(for_customer_session(case.handoff) or {}, ensure_ascii=False)
     # The bare score is a short number that can occur in other fields; its key cannot.
-    distinctive = [value for key, value in internal.items() if key != "fraud_score"]
+    distinctive = [value for key, value in internal.items() if key != "fraud_score" and value]
     return any(key in shown for key in INTERNAL_FACTS) or any(value in shown for value in distinctive)
 
 

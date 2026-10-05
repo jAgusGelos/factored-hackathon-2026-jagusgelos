@@ -291,7 +291,7 @@ def _history_rows(
             return hcon.execute(query, [customer_id]).df()
         finally:
             hcon.close()
-    logger.warning("Scoring history: the main warehouse (%s not found)", history_warehouse)
+    logger.warning("Scoring history: the main warehouse (no fraud warehouse at %s)", history_warehouse)
     return con.execute(query, [customer_id]).df()
 
 
