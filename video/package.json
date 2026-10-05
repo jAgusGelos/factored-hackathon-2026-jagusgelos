@@ -11,10 +11,10 @@
     "master": "bash scripts/master.sh"
   },
   "dependencies": {
+    "@remotion/bundler": "4.0.532",
     "@remotion/cli": "4.0.532",
-    "@remotion/media-utils": "4.0.532",
     "@remotion/paths": "4.0.532",
-    "@remotion/transitions": "4.0.532",
+    "@remotion/renderer": "4.0.532",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "remotion": "4.0.532"
