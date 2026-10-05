@@ -1,7 +1,7 @@
 import vo from './meta/vo.json';
 import { FPS } from './theme';
 
-export type Placement = 'presenter' | 'bubble' | 'voice' | 'diagram';
+type Placement = 'presenter' | 'bubble' | 'voice' | 'diagram';
 export type SceneId = 'cold' | 'reveal' | 'm1' | 'm2' | 'm3' | 'how' | 'close';
 
 export interface Word {
@@ -24,7 +24,7 @@ export interface VoLine {
 }
 
 /** Silence before each line (s). Cuts sit in these pauses; longer ones are the story's beats. */
-const LEAD_S: Record<string, number> = {
+const LEAD_S = {
   cold1: 0.6, cold2: 1.0, cold3: 1.4,
   reveal1: 1.6, reveal2: 1.2,
   m1a: 1.0, m1b: 0.9,
@@ -32,12 +32,12 @@ const LEAD_S: Record<string, number> = {
   m3a: 1.0, m3b: 0.7, m3c: 0.9,
   how1: 1.2, how2: 1.0, how3: 1.0,
   close1: 1.2, close2: 1.0,
-};
+} as const;
 
 /** Silence after a scene's last line before the next scene starts (s). */
 const TAIL_S: Record<SceneId, number> = { cold: 1.6, reveal: 2.2, m1: 1.4, m2: 1.2, m3: 2.4, how: 1.4, close: 4.5 };
 
-export const SCENES: SceneId[] = ['cold', 'reveal', 'm1', 'm2', 'm3', 'how', 'close'];
+const SCENES = Object.keys(TAIL_S) as SceneId[];
 
 export interface TimedLine extends VoLine {
   from: number;
@@ -53,20 +53,33 @@ export interface TimedScene {
 
 const toFrames = (s: number) => Math.round(s * FPS);
 
-function buildTimeline(): TimedScene[] {
-  const lines = vo.lines as VoLine[];
-  let cursor = 0;
-  return SCENES.map((id) => {
-    const sceneFrom = cursor;
-    const timed = lines.filter((line) => line.scene === id).map((line) => {
-      cursor += toFrames(LEAD_S[line.id] ?? 1);
-      const entry = { ...line, from: cursor - sceneFrom, frames: toFrames(line.duration) };
-      cursor += entry.frames;
-      return entry;
-    });
-    cursor += toFrames(TAIL_S[id]);
-    return { id, from: sceneFrom, frames: cursor - sceneFrom, lines: timed };
+function validLines(raw: unknown[]): VoLine[] {
+  return raw.map((entry) => {
+    const line = entry as VoLine;
+    if (!(line.scene in TAIL_S)) throw new Error(`vo.json line ${line.id}: unknown scene "${line.scene}"`);
+    if (!(line.id in LEAD_S)) throw new Error(`vo.json line ${line.id}: no lead in timeline.ts`);
+    if (!line.words?.length) throw new Error(`vo.json line ${line.id}: no word timings`);
+    return line;
   });
+}
+
+function buildTimeline(): TimedScene[] {
+  const lines = validLines(vo.lines);
+  const scenes: TimedScene[] = [];
+  let cursor = 0;
+  for (const id of SCENES) {
+    const sceneFrom = cursor;
+    const timed: TimedLine[] = [];
+    for (const line of lines.filter((l) => l.scene === id)) {
+      cursor += toFrames(LEAD_S[line.id as keyof typeof LEAD_S]);
+      timed.push({ ...line, from: cursor - sceneFrom, frames: toFrames(line.duration) });
+      cursor += toFrames(line.duration);
+    }
+    if (!timed.length) throw new Error(`scene ${id} has no lines`);
+    cursor += toFrames(TAIL_S[id]);
+    scenes.push({ id, from: sceneFrom, frames: cursor - sceneFrom, lines: timed });
+  }
+  return scenes;
 }
 
 export const TIMELINE = buildTimeline();

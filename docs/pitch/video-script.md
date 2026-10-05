@@ -28,11 +28,11 @@ English caption.
 
 ## 1. Cold open (0:00-0:21): the wait
 
-No UI. Black, then a phone in the dark.
+No app UI yet: the Motion as Code look (graph paper, plotter pen, karaoke words) in the app's colours.
 
 | Time | Narration | Picture |
 |---|---|---|
-| 0:01 | **T01** (presenter) "It's late. You open your bank app, and there it is. A charge you don't recognize." [5.2 s] | Stock b-roll (Pexels via MoneyPrinterTurbo), dark and slow: a person at night with a phone. Over it, a phone mockup lights up with a push notification: "Nueva compra · Tienda Online Global" (caption: "New purchase"). Kinetic word: **"Unrecognized."** |
+| 0:01 | **T01** (presenter) "It's late. You open your bank app, and there it is. A charge you don't recognize." [5.2 s] | Graph-paper stage, the builder on camera at the right. The plotter pen draws a phone outline and it lights up with a push notification (labelled illustrative): "Nueva compra · Tienda Online Global" (caption: "New purchase"). Kinetic word: **"Unrecognized."** |
 | 0:07 | **T02** (presenter) "You report it. And then, you wait." [2.7 s] | The phone dims. A single line of type: "Report sent." Then silence. |
 | 0:11 | (beat) | The **37 h clock**: a thin ring sweeps while an hour counter races 0 → 37. |
 | 0:12 | **T03** (presenter) "At this bank, the median wait for a first answer is thirty-seven hours." [4.6 s] | The counter lands on **37 h**. Label: "MEASURED · median first response to 'Cargo no reconocido' complaints · n = 7,567 of 12,297". |
@@ -101,5 +101,6 @@ Animated diagram on the dark stage, no footage. Three lanes build left to right.
 | `pt` | Toggle PT → "Não reconheço uma compra na Tienda Online Global" | 03 |
 
 What is real and what is illustrative: the app footage is real (local app, real model). The cold
-open's phone notification, the 37 h clock and the trust diagram are motion graphics; the stock
-b-roll is illustrative and labeled as such in `docs/pitch/VIDEO.md`.
+open's phone notification, the 37 h clock and the trust diagram are motion graphics; see
+`docs/pitch/VIDEO.md`. The edit itself is `video/src/` (scenes per section, every number in
+`video/src/facts.ts`).

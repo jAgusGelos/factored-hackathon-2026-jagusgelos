@@ -2,12 +2,12 @@ import React from 'react';
 import { AbsoluteFill, Easing, interpolate, useCurrentFrame } from 'remotion';
 import { Glow } from '../components/Stage';
 import { PenPath, Spark, boxPath } from '../components/Pen';
-import { PresenterTrack } from '../components/Presenter';
-import { Appear, SfxTrack, VoiceTrack, WhileLine } from '../components/Scene';
-import { Caption, HonestyChip, Karaoke, MonoLabel } from '../components/Type';
+import { PRESENTER_RIGHT, PresenterTrack } from '../components/Presenter';
+import { Appear, SfxTrack, VoiceTrack } from '../components/Scene';
+import { Caption, FactChip, LineKaraoke, MonoLabel } from '../components/Type';
 import { FACTS } from '../facts';
 import { lineOf, sceneOf, wordFrame } from '../timeline';
-import { COLOR, FONT, HEIGHT, WIDTH } from '../theme';
+import { COLOR, FONT, HEIGHT, WIDTH, alpha } from '../theme';
 
 const scene = sceneOf('cold');
 const cold1 = lineOf(scene, 'cold1');
@@ -16,6 +16,8 @@ const cold3 = lineOf(scene, 'cold3');
 
 const PHONE = { x: 170, y: 470, w: 330, h: 560 };
 const CLOCK = { x: 760, y: 640, r: 230 };
+const CLOCK_HOURS = 48;
+const TEXT_AT = { x: 120, y: 120 };
 const notificationAt = cold1.from + 4;
 const stampAt = wordFrame(cold1, 'recognize');
 const reportAt = wordFrame(cold2, 'report');
@@ -28,21 +30,9 @@ export const Cold: React.FC = () => {
   const phoneOut = interpolate(frame, [cold3.from - 12, cold3.from + 6], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   return (
     <AbsoluteFill>
-      <WhileLine line={cold1} until={cold2.from - 4}>
-        <div style={{ position: 'absolute', left: 120, top: 120 }}>
-          <Karaoke line={cold1} size={62} width={1100} emphasis={['recognize']} />
-        </div>
-      </WhileLine>
-      <WhileLine line={cold2} until={cold3.from - 4}>
-        <div style={{ position: 'absolute', left: 120, top: 120 }}>
-          <Karaoke line={cold2} size={62} width={1100} emphasis={['wait']} />
-        </div>
-      </WhileLine>
-      <WhileLine line={cold3} until={scene.frames}>
-        <div style={{ position: 'absolute', left: 120, top: 120 }}>
-          <Karaoke line={cold3} size={62} width={1040} emphasis={['thirty-seven', 'hours']} />
-        </div>
-      </WhileLine>
+      <LineKaraoke line={cold1} until={cold2.from - 4} at={TEXT_AT} size={62} width={1100} emphasis={['recognize']} />
+      <LineKaraoke line={cold2} until={cold3.from - 4} at={TEXT_AT} size={62} width={1100} emphasis={['wait']} />
+      <LineKaraoke line={cold3} until={scene.frames} at={TEXT_AT} size={62} width={1040} emphasis={['thirty-seven', 'hours']} />
 
       <AbsoluteFill style={{ opacity: phoneOut }}>
         <svg width={WIDTH} height={HEIGHT} style={{ position: 'absolute' }}>
@@ -64,7 +54,7 @@ export const Cold: React.FC = () => {
           />
         </svg>
         <Appear at={notificationAt} style={{ left: PHONE.x + 18, top: PHONE.y + 90, width: PHONE.w - 36 }}>
-          <div style={{ background: 'rgba(246,247,249,0.96)', borderRadius: 16, padding: '16px 18px', color: '#1a2130', fontFamily: FONT.display }}>
+          <div style={{ background: alpha(COLOR.bone, 0.96), borderRadius: 16, padding: '16px 18px', color: '#1a2130', fontFamily: FONT.display }}>
             <div style={{ fontSize: 15, color: '#5b6472', fontWeight: 600, letterSpacing: '0.06em' }}>LATAM BANK · AHORA</div>
             <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>Nueva compra</div>
             <div style={{ fontSize: 20 }}>Tienda Online Global</div>
@@ -92,7 +82,7 @@ export const Cold: React.FC = () => {
 
       <WaitClock />
 
-      <PresenterTrack lines={scene.lines} mode="full" box={{ x: 1260, y: 150, w: 600, h: 930 }} until={scene.frames} />
+      <PresenterTrack lines={scene.lines} mode="full" box={PRESENTER_RIGHT} until={scene.frames} />
       <VoiceTrack scene={scene} />
       <SfxTrack
         cues={[
@@ -105,7 +95,7 @@ export const Cold: React.FC = () => {
   );
 };
 
-/** The 37 h clock: a ring sweeps while the hour counter races to the measured median. */
+/** A ring sweeps while the hour counter races to the measured median. */
 const WaitClock: React.FC = () => {
   const frame = useCurrentFrame();
   if (frame < cold3.from - 10) return null;
@@ -116,17 +106,17 @@ const WaitClock: React.FC = () => {
   });
   const appear = interpolate(frame, [cold3.from - 10, cold3.from + 6], [0, 1], { extrapolateRight: 'clamp' });
   const hours = Math.round(p * FACTS.firstResponse.hours);
-  const angle = -Math.PI / 2 + p * Math.PI * 2 * (FACTS.firstResponse.hours / 48);
+  const angle = -Math.PI / 2 + p * Math.PI * 2 * (FACTS.firstResponse.hours / CLOCK_HOURS);
   const circumference = 2 * Math.PI * CLOCK.r;
-  const arc = circumference * p * (FACTS.firstResponse.hours / 48);
+  const arc = circumference * p * (FACTS.firstResponse.hours / CLOCK_HOURS);
   const head = { x: CLOCK.x + CLOCK.r * Math.cos(angle), y: CLOCK.y + CLOCK.r * Math.sin(angle) };
   const landed = frame >= countTo;
   return (
     <AbsoluteFill style={{ opacity: appear }}>
       <svg width={WIDTH} height={HEIGHT} style={{ position: 'absolute' }}>
         <circle cx={CLOCK.x} cy={CLOCK.y} r={CLOCK.r} fill="none" stroke={COLOR.boneDim} strokeOpacity={0.35} strokeWidth={2} />
-        {Array.from({ length: 48 }, (_, i) => {
-          const a = -Math.PI / 2 + (i / 48) * Math.PI * 2;
+        {Array.from({ length: CLOCK_HOURS }, (_, i) => {
+          const a = -Math.PI / 2 + (i / CLOCK_HOURS) * Math.PI * 2;
           const inner = i % 6 === 0 ? CLOCK.r - 26 : CLOCK.r - 12;
           return (
             <line
@@ -163,7 +153,7 @@ const WaitClock: React.FC = () => {
         <MonoLabel style={{ marginTop: 10 }}>median wait for a first response</MonoLabel>
       </div>
       <Appear at={countTo + 4} style={{ left: CLOCK.x - CLOCK.r - 200, top: CLOCK.y + CLOCK.r + 40, width: 860 }}>
-        <HonestyChip kind={FACTS.firstResponse.label}>{FACTS.firstResponse.source}</HonestyChip>
+        <FactChip fact={FACTS.firstResponse} long />
       </Appear>
     </AbsoluteFill>
   );

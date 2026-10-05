@@ -1,4 +1,4 @@
-import { continueRender, delayRender, staticFile } from 'remotion';
+import { cancelRender, continueRender, delayRender, staticFile } from 'remotion';
 
 const FACES: { family: string; file: string; descriptors: FontFaceDescriptors }[] = [
   { family: 'Archivo', file: 'fonts/Archivo-Variable.ttf', descriptors: { weight: '100 900', stretch: '62% 125%' } },
@@ -17,5 +17,7 @@ export function loadFonts(): void {
       const face = new FontFace(family, `url(${staticFile(file)})`, descriptors);
       document.fonts.add(await face.load());
     }),
-  ).then(() => continueRender(handle));
+  )
+    .then(() => continueRender(handle))
+    .catch((error) => cancelRender(error));
 }

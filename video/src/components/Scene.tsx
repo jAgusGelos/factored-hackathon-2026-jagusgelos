@@ -3,18 +3,16 @@ import { AbsoluteFill, Audio, Sequence, interpolate, staticFile, useCurrentFrame
 import type { TimedLine, TimedScene } from '../timeline';
 
 const DIP_FRAMES = 9;
+const fadeClamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 
 /** Scene content dips through the background at both ends: old out, then new in, never a muddy mix. */
 export const SceneFade: React.FC<{ frames: number; children: React.ReactNode }> = ({ frames, children }) => {
   const frame = useCurrentFrame();
-  const opacity = interpolate(frame, [0, DIP_FRAMES, frames - DIP_FRAMES, frames], [0, 1, 1, 0], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
+  const opacity = interpolate(frame, [0, DIP_FRAMES, frames - DIP_FRAMES, frames], [0, 1, 1, 0], fadeClamp);
   return <AbsoluteFill style={{ opacity }}>{children}</AbsoluteFill>;
 };
 
-/** The narration of a scene: each line's audio (TTS placeholder or the presenter's take) at its slot. */
+/** Each line's audio (the TTS placeholder or the presenter's take) at its slot. */
 export const VoiceTrack: React.FC<{ scene: TimedScene }> = ({ scene }) => (
   <>
     {scene.lines.map((line) => (
@@ -31,7 +29,6 @@ export interface Cue {
   volume?: number;
 }
 
-/** Sound effects, soft and under the voice. */
 export const SfxTrack: React.FC<{ cues: Cue[] }> = ({ cues }) => (
   <>
     {cues.map((cue) => (
@@ -42,7 +39,6 @@ export const SfxTrack: React.FC<{ cues: Cue[] }> = ({ cues }) => (
   </>
 );
 
-/** Shows `children` while `line` is current: from just before it starts until `until`. */
 export const WhileLine: React.FC<{ line: TimedLine; until: number; lead?: number; children: React.ReactNode }> = ({
   line,
   until,
@@ -50,15 +46,11 @@ export const WhileLine: React.FC<{ line: TimedLine; until: number; lead?: number
   children,
 }) => {
   const frame = useCurrentFrame();
-  const opacity = interpolate(frame, [line.from - lead, line.from, until - 6, until], [0, 1, 1, 0], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
+  const opacity = interpolate(frame, [line.from - lead, line.from, until - 6, until], [0, 1, 1, 0], fadeClamp);
   if (opacity <= 0) return null;
   return <AbsoluteFill style={{ opacity }}>{children}</AbsoluteFill>;
 };
 
-/** Fades `children` in over `frames` from `at`. */
 export const Appear: React.FC<{ at: number; frames?: number; rise?: number; style?: React.CSSProperties; children: React.ReactNode }> = ({
   at,
   frames = 10,
@@ -67,7 +59,7 @@ export const Appear: React.FC<{ at: number; frames?: number; rise?: number; styl
   children,
 }) => {
   const frame = useCurrentFrame();
-  const p = interpolate(frame, [at, at + frames], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const p = interpolate(frame, [at, at + frames], [0, 1], fadeClamp);
   if (p <= 0) return null;
   return <div style={{ position: 'absolute', opacity: p, transform: `translateY(${(1 - p) * rise}px)`, ...style }}>{children}</div>;
 };

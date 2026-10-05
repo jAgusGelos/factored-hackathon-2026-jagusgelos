@@ -24,7 +24,7 @@ const SCENE_COMPONENTS: Record<SceneId, React.FC> = {
 
 export const Launch: React.FC = () => (
   <AbsoluteFill>
-    <GridPaper glow={{ x: 960, y: 540, strength: 1 }} />
+    <GridPaper glow={{ x: 960, y: 540 }} />
     {TIMELINE.map((scene) => {
       const Scene = SCENE_COMPONENTS[scene.id];
       return (

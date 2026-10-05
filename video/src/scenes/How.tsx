@@ -1,10 +1,10 @@
 import React from 'react';
 import { AbsoluteFill, interpolate, useCurrentFrame } from 'remotion';
 import { PenPath, boxPath } from '../components/Pen';
-import { PresenterTrack } from '../components/Presenter';
+import { PRESENTER_LEFT, PresenterTrack } from '../components/Presenter';
 import { Appear, SfxTrack, VoiceTrack, WhileLine } from '../components/Scene';
-import { Glow } from '../components/Stage';
-import { HonestyChip, Karaoke, MonoLabel } from '../components/Type';
+import { Glow, useSvgId } from '../components/Stage';
+import { FactChip, LineKaraoke, MonoLabel } from '../components/Type';
 import { FACTS } from '../facts';
 import { lineOf, sceneOf, wordFrame } from '../timeline';
 import { COLOR, FONT, HEIGHT, WIDTH } from '../theme';
@@ -18,7 +18,7 @@ const NODE_Y = 420;
 const NODE_H = 150;
 const PEN_FRAMES = 14;
 
-interface Node {
+interface DiagramNodeSpec {
   x: number;
   w: number;
   title: string;
@@ -27,7 +27,7 @@ interface Node {
   color: string;
 }
 
-const NODES: Node[] = [
+const NODES: DiagramNodeSpec[] = [
   { x: 660, w: 230, title: 'Customer', note: 'writes or taps', at: how1.from, color: COLOR.boneDim },
   { x: 950, w: 250, title: 'Model', note: 'reads: extracts, summarizes', at: wordFrame(how1, 'model'), color: COLOR.signal },
   { x: 1260, w: 250, title: 'Code', note: 'decides: policy, permissions', at: wordFrame(how1, 'rules'), color: COLOR.success },
@@ -35,9 +35,14 @@ const NODES: Node[] = [
 ];
 const CREDIT = { x: 1260, y: 720, w: 250, h: 110 };
 const strikeAt = wordFrame(how1, 'reads');
+const monthAt = wordFrame(how2, 'month');
+const recentAt = wordFrame(how2, 'recent');
+const liveAt = wordFrame(how2, 'live');
+const zeroAt = wordFrame(how3, 'zero');
+const TEXT_AT = { x: 660, y: 110 };
 const decideAt = wordFrame(how1, 'code');
 
-const DiagramNode: React.FC<{ node: Node }> = ({ node }) => (
+const DiagramNode: React.FC<{ node: DiagramNodeSpec }> = ({ node }) => (
   <Appear at={node.at + PEN_FRAMES - 4} rise={6} style={{ left: node.x + 18, top: NODE_Y + 22, width: node.w - 36 }}>
     <div style={{ fontFamily: FONT.display, fontWeight: 800, fontSize: 40, color: COLOR.bone }}>{node.title}</div>
     <MonoLabel size={16} color={node.color} style={{ marginTop: 10, letterSpacing: '0.1em' }}>
@@ -93,10 +98,11 @@ const SLICE_MIN_W = 36;
 
 const DataSlice: React.FC = () => {
   const frame = useCurrentFrame();
-  const monthAt = wordFrame(how2, 'month');
   const sliceW = Math.max(SLICE_MIN_W, (BAND.w * FACTS.subset.rowCount) / FACTS.subset.totalRows);
   const shrink = interpolate(frame, [monthAt - 6, monthAt + 14], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   const fullOpacity = interpolate(shrink, [0, 1], [0.55, 0.18]);
+  const bandIn = interpolate(frame, [how2.from, how2.from + 12], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const rowsId = useSvgId();
   return (
     <AbsoluteFill>
       <Appear at={how2.from} style={{ left: BAND.x, top: BAND.y - 60 }}>
@@ -104,12 +110,12 @@ const DataSlice: React.FC = () => {
       </Appear>
       <svg width={WIDTH} height={HEIGHT} style={{ position: 'absolute' }}>
         <defs>
-          <pattern id="rows" width={6} height={BAND.h} patternUnits="userSpaceOnUse">
+          <pattern id={rowsId} width={6} height={BAND.h} patternUnits="userSpaceOnUse">
             <rect width={3} height={BAND.h} fill={COLOR.grid} />
           </pattern>
         </defs>
         <PenPath d={boxPath(BAND.x, BAND.y, BAND.w, BAND.h)} from={how2.from - 4} to={how2.from + 16} color={COLOR.boneDim} />
-        <rect x={BAND.x} y={BAND.y} width={BAND.w} height={BAND.h} fill="url(#rows)" opacity={fullOpacity * Math.min(1, (frame - how2.from) / 12)} />
+        <rect x={BAND.x} y={BAND.y} width={BAND.w} height={BAND.h} fill={`url(#${rowsId})`} opacity={fullOpacity * bandIn} />
         {shrink > 0 ? (
           <rect
             x={BAND.x + BAND.w - sliceW}
@@ -126,17 +132,13 @@ const DataSlice: React.FC = () => {
         <div style={{ fontFamily: FONT.display, fontWeight: 900, fontSize: 64, color: COLOR.signal }}>{FACTS.subset.rows}</div>
         <MonoLabel style={{ margin: '6px 0 14px' }}>{`rows · ${FACTS.subset.window}`}</MonoLabel>
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <HonestyChip kind={FACTS.subset.label} size={14}>
-            extraction manifest
-          </HonestyChip>
+          <FactChip fact={FACTS.subset} size={14} />
         </div>
       </Appear>
-      <Appear at={wordFrame(how2, 'recent')} style={{ left: BAND.x, top: 800, width: 1160 }}>
-        <HonestyChip kind="DESIGN ARGUMENT" size={16}>
-          A dispute needs only the customer’s recent ledger
-        </HonestyChip>
+      <Appear at={recentAt} style={{ left: BAND.x, top: 800, width: 1160 }}>
+        <FactChip fact={FACTS.recentLedger} long />
       </Appear>
-      <Appear at={wordFrame(how2, 'live')} style={{ left: BAND.x, top: 860, width: 1160 }}>
+      <Appear at={liveAt} style={{ left: BAND.x, top: 860, width: 1160 }}>
         <MonoLabel size={16} color={COLOR.bone}>
           The live app reads one small fixture · no cloud credentials at runtime (AD-2)
         </MonoLabel>
@@ -145,9 +147,7 @@ const DataSlice: React.FC = () => {
   );
 };
 
-const EvalResult: React.FC = () => {
-  const zeroAt = wordFrame(how3, 'zero');
-  return (
+const EvalResult: React.FC = () => (
     <AbsoluteFill>
       <Appear at={zeroAt - 2} rise={24} style={{ left: 660, top: 330 }}>
         <Glow radius={24} strength={0.7}>
@@ -161,48 +161,32 @@ const EvalResult: React.FC = () => {
         </MonoLabel>
       </Appear>
       <Appear at={zeroAt + 10} style={{ left: 660, top: 720, width: 1160 }}>
-        <HonestyChip kind={FACTS.eval.label} size={16}>
-          {FACTS.eval.source}
-        </HonestyChip>
-        {FACTS.eval.pending ? (
-          <div style={{ marginTop: 14 }}>
-            <HonestyChip kind="PLACEHOLDER" size={14}>
-              re-measured before release
-            </HonestyChip>
-          </div>
-        ) : null}
+        <FactChip fact={FACTS.eval} long />
       </Appear>
     </AbsoluteFill>
-  );
-};
+);
 
 export const How: React.FC = () => (
   <AbsoluteFill>
+    <LineKaraoke line={how1} until={how2.from - 4} at={TEXT_AT} size={44} width={1180} emphasis={['reads', 'code', 'ledger']} />
     <WhileLine line={how1} until={how2.from - 4}>
-      <div style={{ position: 'absolute', left: 660, top: 110 }}>
-        <Karaoke line={how1} size={44} width={1180} emphasis={['reads', 'code', 'ledger']} />
-      </div>
       <Diagram />
     </WhileLine>
+    <LineKaraoke line={how2} until={how3.from - 4} at={TEXT_AT} size={44} width={1180} emphasis={['month']} />
     <WhileLine line={how2} until={how3.from - 4}>
-      <div style={{ position: 'absolute', left: 660, top: 110 }}>
-        <Karaoke line={how2} size={44} width={1180} emphasis={['month']} />
-      </div>
       <DataSlice />
     </WhileLine>
+    <LineKaraoke line={how3} until={scene.frames} at={TEXT_AT} size={44} width={1180} />
     <WhileLine line={how3} until={scene.frames}>
-      <div style={{ position: 'absolute', left: 660, top: 110 }}>
-        <Karaoke line={how3} size={44} width={1180} />
-      </div>
       <EvalResult />
     </WhileLine>
-    <PresenterTrack lines={scene.lines} mode="full" box={{ x: 60, y: 180, w: 540, h: 900 }} until={scene.frames} />
+    <PresenterTrack lines={scene.lines} mode="full" box={PRESENTER_LEFT} until={scene.frames} />
     <VoiceTrack scene={scene} />
     <SfxTrack
       cues={[
         ...NODES.slice(1).map((node) => ({ at: node.at, sfx: 'impactSoft_medium_001', volume: 0.18 })),
         { at: strikeAt + 14, sfx: 'switch_007', volume: 0.25 },
-        { at: wordFrame(how3, 'zero'), sfx: 'impactSoft_heavy_003', volume: 0.35 },
+        { at: zeroAt, sfx: 'impactSoft_heavy_003', volume: 0.35 },
       ]}
     />
   </AbsoluteFill>
