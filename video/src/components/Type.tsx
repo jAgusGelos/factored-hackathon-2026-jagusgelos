@@ -144,7 +144,12 @@ export const FactChip: React.FC<{ fact: Fact; long?: boolean; size?: number }> =
   <Chip kind={fact.label} text={long ? fact.source : fact.short} size={size} />
 );
 
-export const Caption: React.FC<{ original?: string; english: string; style?: React.CSSProperties }> = ({ original, english, style }) => (
+export const Caption: React.FC<{ original?: string; english: string; size?: number; style?: React.CSSProperties }> = ({
+  original,
+  english,
+  size = 30,
+  style,
+}) => (
   <div
     style={{
       background: alpha('#060E1C', 0.88),
@@ -156,6 +161,6 @@ export const Caption: React.FC<{ original?: string; english: string; style?: Rea
     }}
   >
     {original ? <div style={{ fontFamily: FONT.mono, fontSize: 18, color: COLOR.boneDim, marginBottom: 6 }}>{original}</div> : null}
-    <div style={{ fontFamily: FONT.display, fontWeight: 600, fontSize: 30, color: COLOR.bone, lineHeight: 1.25 }}>{english}</div>
+    <div style={{ fontFamily: FONT.display, fontWeight: 600, fontSize: size, color: COLOR.bone, lineHeight: 1.25 }}>{english}</div>
   </div>
 );

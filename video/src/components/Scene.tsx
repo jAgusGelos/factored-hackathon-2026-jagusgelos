@@ -1,17 +1,20 @@
 import React from 'react';
 import { AbsoluteFill, Audio, Sequence, interpolate, staticFile, useCurrentFrame } from 'remotion';
-import type { TimedLine, TimedScene } from '../timeline';
+import type { TimedLine } from '../timeline';
 import { CLAMP } from '../theme';
 
 const DIP_FRAMES = 9;
-/** Scene content dips through the background at both ends: old out, then new in, never a muddy mix. */
-export const SceneFade: React.FC<{ frames: number; children: React.ReactNode }> = ({ frames, children }) => {
+/**
+ * Scene content dips through the background at both ends: old out, then new in, never a muddy mix.
+ * `fadeIn={false}` opens on the content itself (a video's first scene, where frame 0 is the hook).
+ */
+export const SceneFade: React.FC<{ frames: number; fadeIn?: boolean; children: React.ReactNode }> = ({ frames, fadeIn = true, children }) => {
   const frame = useCurrentFrame();
-  const opacity = interpolate(frame, [0, DIP_FRAMES, frames - DIP_FRAMES, frames], [0, 1, 1, 0], CLAMP);
+  const opacity = interpolate(frame, [0, DIP_FRAMES, frames - DIP_FRAMES, frames], [fadeIn ? 0 : 1, 1, 1, 0], CLAMP);
   return <AbsoluteFill style={{ opacity }}>{children}</AbsoluteFill>;
 };
 
-export const VoiceTrack: React.FC<{ scene: TimedScene }> = ({ scene }) => (
+export const VoiceTrack: React.FC<{ scene: { lines: TimedLine[] } }> = ({ scene }) => (
   <>
     {scene.lines.map((line) => (
       <Sequence key={line.id} from={line.from} durationInFrames={line.frames + 2} layout="none">

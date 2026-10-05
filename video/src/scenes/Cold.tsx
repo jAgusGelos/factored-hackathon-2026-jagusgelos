@@ -1,5 +1,5 @@
 import React from 'react';
-import { AbsoluteFill, Easing, interpolate, useCurrentFrame } from 'remotion';
+import { AbsoluteFill, Easing, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import { Glow } from '../components/Stage';
 import { PenPath, Spark, boxPath } from '../components/Pen';
 import { PRESENTER_RIGHT, PresenterTrack } from '../components/Presenter';
@@ -15,7 +15,7 @@ const cold2 = lineOf(scene, 'cold2');
 const cold3 = lineOf(scene, 'cold3');
 
 const PHONE = { x: 170, y: 470, w: 330, h: 560 };
-const CLOCK = { x: 760, y: 640, r: 230 };
+const CLOCK: ClockLayout = { x: 760, y: 640, r: 230 };
 const CLOCK_HOURS = 48;
 const TEXT_AT = { x: 120, y: 120 };
 const notificationAt = cold1.from + 4;
@@ -80,7 +80,11 @@ export const Cold: React.FC = () => {
         </Appear>
       </AbsoluteFill>
 
-      <WaitClock />
+      <WaitClock clock={CLOCK} appearAt={cold3.from - 10} countFrom={countFrom} countTo={countTo}>
+        <Appear at={countTo + 4} style={{ left: CLOCK.x - CLOCK.r - 200, top: CLOCK.y + CLOCK.r + 40, width: 860 }}>
+          <FactChip fact={FACTS.firstResponse} long />
+        </Appear>
+      </WaitClock>
 
       <PresenterTrack lines={scene.lines} mode="full" box={PRESENTER_RIGHT} until={scene.frames} />
       <VoiceTrack scene={scene} />
@@ -95,68 +99,86 @@ export const Cold: React.FC = () => {
   );
 };
 
-const ClockTick: React.FC<{ hour: number }> = ({ hour }) => {
+export interface ClockLayout {
+  x: number;
+  y: number;
+  r: number;
+}
+
+/** The radius the clock's type sizes were drawn for; other radii scale them. */
+const DESIGN_R = 230;
+
+const ClockTick: React.FC<{ clock: ClockLayout; hour: number }> = ({ clock, hour }) => {
   const a = -Math.PI / 2 + (hour / CLOCK_HOURS) * Math.PI * 2;
   const major = hour % 6 === 0;
-  const inner = major ? CLOCK.r - 26 : CLOCK.r - 12;
+  const inner = major ? clock.r - 26 : clock.r - 12;
   return (
     <line
-      x1={CLOCK.x + inner * Math.cos(a)}
-      y1={CLOCK.y + inner * Math.sin(a)}
-      x2={CLOCK.x + CLOCK.r * Math.cos(a)}
-      y2={CLOCK.y + CLOCK.r * Math.sin(a)}
+      x1={clock.x + inner * Math.cos(a)}
+      y1={clock.y + inner * Math.sin(a)}
+      x2={clock.x + clock.r * Math.cos(a)}
+      y2={clock.y + clock.r * Math.sin(a)}
       stroke={COLOR.boneDim}
       strokeWidth={major ? 2 : 1}
     />
   );
 };
 
-const WaitClock: React.FC = () => {
+/** The 37 h wait drawn as a 48 h dial: the arc and the number count up together and land on `countTo`. */
+export const WaitClock: React.FC<{ clock: ClockLayout; appearAt: number; countFrom: number; countTo: number; children?: React.ReactNode }> = ({
+  clock,
+  appearAt,
+  countFrom,
+  countTo,
+  children,
+}) => {
   const frame = useCurrentFrame();
-  if (frame < cold3.from - 10) return null;
+  const { width, height } = useVideoConfig();
+  if (frame < appearAt) return null;
   const p = interpolate(frame, [countFrom, countTo + 6], [0, 1], {
     ...CLAMP,
     easing: Easing.inOut(Easing.cubic),
   });
-  const appear = interpolate(frame, [cold3.from - 10, cold3.from + 6], [0, 1], { extrapolateRight: 'clamp' });
+  const appear = interpolate(frame, [appearAt, appearAt + 16], [0, 1], { extrapolateRight: 'clamp' });
+  const k = clock.r / DESIGN_R;
   const hours = Math.round(p * FACTS.firstResponse.hours);
   const angle = -Math.PI / 2 + p * Math.PI * 2 * (FACTS.firstResponse.hours / CLOCK_HOURS);
-  const circumference = 2 * Math.PI * CLOCK.r;
+  const circumference = 2 * Math.PI * clock.r;
   const arc = circumference * p * (FACTS.firstResponse.hours / CLOCK_HOURS);
-  const head = { x: CLOCK.x + CLOCK.r * Math.cos(angle), y: CLOCK.y + CLOCK.r * Math.sin(angle) };
+  const head = { x: clock.x + clock.r * Math.cos(angle), y: clock.y + clock.r * Math.sin(angle) };
   const landed = frame >= countTo;
   return (
     <AbsoluteFill style={{ opacity: appear }}>
-      <svg width={WIDTH} height={HEIGHT} style={{ position: 'absolute' }}>
-        <circle cx={CLOCK.x} cy={CLOCK.y} r={CLOCK.r} fill="none" stroke={COLOR.boneDim} strokeOpacity={0.35} strokeWidth={2} />
+      <svg width={width} height={height} style={{ position: 'absolute' }}>
+        <circle cx={clock.x} cy={clock.y} r={clock.r} fill="none" stroke={COLOR.boneDim} strokeOpacity={0.35} strokeWidth={2} />
         {Array.from({ length: CLOCK_HOURS }, (_, hour) => (
-          <ClockTick key={hour} hour={hour} />
+          <ClockTick key={hour} clock={clock} hour={hour} />
         ))}
         <circle
-          cx={CLOCK.x}
-          cy={CLOCK.y}
-          r={CLOCK.r}
+          cx={clock.x}
+          cy={clock.y}
+          r={clock.r}
           fill="none"
           stroke={COLOR.signal}
           strokeWidth={6}
           strokeDasharray={`${arc} ${circumference}`}
-          transform={`rotate(-90 ${CLOCK.x} ${CLOCK.y})`}
+          transform={`rotate(-90 ${clock.x} ${clock.y})`}
           style={{ filter: `drop-shadow(0 0 10px ${COLOR.signal})` }}
         />
         {p > 0 && !landed ? <Spark x={head.x} y={head.y} /> : null}
       </svg>
-      <div style={{ position: 'absolute', left: CLOCK.x - 260, top: CLOCK.y - 110, width: 520, textAlign: 'center' }}>
+      <div style={{ position: 'absolute', left: clock.x - 260 * k, top: clock.y - 110 * k, width: 520 * k, textAlign: 'center' }}>
         <Glow radius={landed ? 22 : 8} strength={landed ? 0.9 : 0.4}>
-          <div style={{ fontFamily: FONT.display, fontWeight: 900, fontStretch: '115%', fontSize: 180, lineHeight: 1, color: landed ? COLOR.signal : COLOR.bone }}>
+          <div style={{ fontFamily: FONT.display, fontWeight: 900, fontStretch: '115%', fontSize: 180 * k, lineHeight: 1, color: landed ? COLOR.signal : COLOR.bone }}>
             {hours}
-            <span style={{ fontSize: 90 }}> h</span>
+            <span style={{ fontSize: 90 * k }}> h</span>
           </div>
         </Glow>
-        <MonoLabel style={{ marginTop: 10 }}>median wait for a first response</MonoLabel>
+        <MonoLabel size={18 * k} style={{ marginTop: 10 }}>
+          median wait for a first response
+        </MonoLabel>
       </div>
-      <Appear at={countTo + 4} style={{ left: CLOCK.x - CLOCK.r - 200, top: CLOCK.y + CLOCK.r + 40, width: 860 }}>
-        <FactChip fact={FACTS.firstResponse} long />
-      </Appear>
+      {children}
     </AbsoluteFill>
   );
 };

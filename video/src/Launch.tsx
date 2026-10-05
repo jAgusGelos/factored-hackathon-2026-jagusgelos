@@ -1,7 +1,5 @@
 import React from 'react';
-import { AbsoluteFill, Sequence } from 'remotion';
-import { SceneFade } from './components/Scene';
-import { GridPaper, Post } from './components/Stage';
+import { Reel } from './components/Reel';
 import { loadFonts } from './fonts';
 import { Close } from './scenes/Close';
 import { Cold } from './scenes/Cold';
@@ -22,19 +20,4 @@ const SCENE_COMPONENTS: Record<SceneId, React.FC> = {
   close: Close,
 };
 
-export const Launch: React.FC = () => (
-  <AbsoluteFill>
-    <GridPaper glow={{ x: 960, y: 540 }} />
-    {TIMELINE.map((scene) => {
-      const Scene = SCENE_COMPONENTS[scene.id];
-      return (
-        <Sequence key={scene.id} from={scene.from} durationInFrames={scene.frames} name={scene.id}>
-          <SceneFade frames={scene.frames}>
-            <Scene />
-          </SceneFade>
-        </Sequence>
-      );
-    })}
-    <Post />
-  </AbsoluteFill>
-);
+export const Launch: React.FC = () => <Reel timeline={TIMELINE} scenes={SCENE_COMPONENTS} glow={{ x: 960, y: 540 }} />;

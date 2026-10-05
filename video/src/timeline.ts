@@ -42,14 +42,21 @@ export interface TimedLine extends VoLine {
   frames: number;
 }
 
-export interface TimedScene {
-  id: SceneId;
+export interface TimedScene<Id extends string = SceneId> {
+  id: Id;
   from: number;
   frames: number;
   lines: TimedLine[];
 }
 
-const toFrames = (s: number) => Math.round(s * FPS);
+/** One scene to lay out: its lines in order, each after `lead` seconds, then `tail` seconds of hold. */
+export interface ScenePlan<Id extends string> {
+  id: Id;
+  lines: { line: VoLine; lead: number }[];
+  tail: number;
+}
+
+export const toFrames = (s: number) => Math.round(s * FPS);
 
 function validLines(raw: unknown[]): VoLine[] {
   return raw.map((entry) => {
@@ -61,26 +68,40 @@ function validLines(raw: unknown[]): VoLine[] {
   });
 }
 
-function buildTimeline(): TimedScene[] {
-  const lines = validLines(vo.lines);
-  const scenes: TimedScene[] = [];
+const VO_LINES = validLines(vo.lines);
+
+export function voLine(id: string): VoLine {
+  const line = VO_LINES.find((l) => l.id === id);
+  if (!line) throw new Error(`no line ${id} in vo.json`);
+  return line;
+}
+
+/** Places scenes back to back, each line's start and length in frames (line starts are scene-relative). */
+export function layoutScenes<Id extends string>(plan: ScenePlan<Id>[]): TimedScene<Id>[] {
+  const scenes: TimedScene<Id>[] = [];
   let cursor = 0;
-  for (const id of SCENES) {
+  for (const { id, lines, tail } of plan) {
     const sceneFrom = cursor;
     const timed: TimedLine[] = [];
-    for (const line of lines.filter((l) => l.scene === id)) {
-      cursor += toFrames(LEAD_SECONDS_BY_LINE[line.id as keyof typeof LEAD_SECONDS_BY_LINE]);
+    for (const { line, lead } of lines) {
+      cursor += toFrames(lead);
       timed.push({ ...line, from: cursor - sceneFrom, frames: toFrames(line.duration) });
       cursor += toFrames(line.duration);
     }
     if (!timed.length) throw new Error(`scene ${id} has no lines`);
-    cursor += toFrames(TAIL_SECONDS_BY_SCENE[id]);
+    cursor += toFrames(tail);
     scenes.push({ id, from: sceneFrom, frames: cursor - sceneFrom, lines: timed });
   }
   return scenes;
 }
 
-export const TIMELINE = buildTimeline();
+const LAUNCH_PLAN: ScenePlan<SceneId>[] = SCENES.map((id) => ({
+  id,
+  lines: VO_LINES.filter((l) => l.scene === id).map((line) => ({ line, lead: LEAD_SECONDS_BY_LINE[line.id as keyof typeof LEAD_SECONDS_BY_LINE] })),
+  tail: TAIL_SECONDS_BY_SCENE[id],
+}));
+
+export const TIMELINE = layoutScenes(LAUNCH_PLAN);
 export const TOTAL_FRAMES = TIMELINE.reduce((sum, scene) => sum + scene.frames, 0);
 
 export function sceneOf(id: SceneId): TimedScene {
@@ -89,7 +110,7 @@ export function sceneOf(id: SceneId): TimedScene {
   return scene;
 }
 
-export function lineOf(scene: TimedScene, id: string): TimedLine {
+export function lineOf(scene: TimedScene<string>, id: string): TimedLine {
   const line = scene.lines.find((l) => l.id === id);
   if (!line) throw new Error(`no line ${id} in ${scene.id}`);
   return line;
