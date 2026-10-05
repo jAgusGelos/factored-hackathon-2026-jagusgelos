@@ -244,7 +244,9 @@ def rvm_session() -> ort.InferenceSession:
     if not RVM_MODEL.exists():
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
         print(f"downloading {RVM_URL}")
-        urllib.request.urlretrieve(RVM_URL, RVM_MODEL)
+        partial = RVM_MODEL.with_suffix(".part")
+        urllib.request.urlretrieve(RVM_URL, partial)
+        os.replace(partial, RVM_MODEL)
     return ort.InferenceSession(str(RVM_MODEL), providers=["CPUExecutionProvider"])
 
 
@@ -262,6 +264,7 @@ def matte(session: ort.InferenceSession, plain: Path, out: Path) -> None:
     )
     state = [np.zeros((1, 1, 1, 1), np.float32)] * 4
     frame_bytes = width * height * 3
+    decoded_to_end = False
     try:
         while (chunk := reader.stdout.read(frame_bytes)) and len(chunk) == frame_bytes:
             rgb = np.frombuffer(chunk, np.uint8).reshape(height, width, 3)
@@ -271,12 +274,16 @@ def matte(session: ort.InferenceSession, plain: Path, out: Path) -> None:
             rgba = np.concatenate([fgr[0], pha[0]], axis=0).transpose(1, 2, 0)
             writer.stdin.write((np.clip(rgba, 0, 1) * 255).astype(np.uint8).tobytes())
         writer.stdin.close()
+        decoded_to_end = True
     except BrokenPipeError:
         pass
     finally:
-        reader.kill()
+        if not decoded_to_end:
+            reader.kill()
     if writer.wait() != 0:
         sys.exit(f"matting failed for {plain}: the VP9 encoder stopped")
+    if reader.wait() != 0:
+        sys.exit(f"matting failed for {plain}: ffmpeg stopped decoding it, so the cut-out would be cut short")
 
 
 def ingest(line: dict, take_path: Path, models: dict, noise_floor: float) -> dict:
