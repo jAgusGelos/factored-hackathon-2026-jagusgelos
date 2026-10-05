@@ -1,12 +1,12 @@
 1
-00:00:00,105 --> 00:00:02,395
-Across forty simulated scenarios
+00:00:00,105 --> 00:00:02,197
+In forty simulated test cases
 
 2
-00:00:02,592 --> 00:00:04,250
+00:00:02,395 --> 00:00:04,079
 prompt injection included
 
 3
-00:00:04,697 --> 00:00:06,289
+00:00:04,526 --> 00:00:06,105
 zero unsafe outcomes
 

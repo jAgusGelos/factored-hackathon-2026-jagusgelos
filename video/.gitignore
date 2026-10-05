@@ -5,3 +5,6 @@ out/
 public/broll/
 recordings/
 # Root .gitignore ignores every data/ dir; nothing under video/ is named data/ on purpose (src/meta/).
+# Presenter takes from the camera (raw) and the processed presenter cut-outs
+takes/
+public/presenter/

@@ -1,16 +1,16 @@
 1
-00:00:00,118 --> 00:00:02,053
-The customer says it in their own words
+00:00:00,118 --> 00:00:02,197
+The customer writes it in their own words
 
 2
-00:00:02,487 --> 00:00:05,605
-The agent finds the exact charge in their own history
+00:00:02,632 --> 00:00:05,460
+The agent finds the exact charge in their history
 
 3
-00:00:05,842 --> 00:00:06,605
+00:00:05,684 --> 00:00:06,434
 and asks
 
 4
-00:00:06,934 --> 00:00:07,645
+00:00:06,763 --> 00:00:07,474
 is this the one
 

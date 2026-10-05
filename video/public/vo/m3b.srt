@@ -1,20 +1,20 @@
 1
-00:00:00,105 --> 00:00:02,803
+00:00:00,105 --> 00:00:02,868
 It asks the questions an advisor would call back for
 
 2
-00:00:03,224 --> 00:00:05,237
-then hands a person the full case file
+00:00:03,316 --> 00:00:05,382
+Then a person gets the full case file
 
 3
-00:00:05,671 --> 00:00:06,789
-Verified facts
+00:00:05,816 --> 00:00:06,934
+verified facts
 
 4
-00:00:06,974 --> 00:00:08,066
-the customer's account
+00:00:07,145 --> 00:00:08,224
+the customer's story
 
 5
-00:00:08,395 --> 00:00:09,421
+00:00:08,513 --> 00:00:09,526
 and what is still open
 

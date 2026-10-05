@@ -1,16 +1,8 @@
 1
-00:00:00,105 --> 00:00:01,303
-Answers in seconds
+00:00:00,105 --> 00:00:02,855
+Answers in seconds for the cases it should resolve
 
 2
-00:00:01,553 --> 00:00:03,237
-for the cases it should resolve
-
-3
-00:00:03,671 --> 00:00:04,250
-A person
-
-4
-00:00:04,500 --> 00:00:05,487
-for the ones it shouldn't
+00:00:03,289 --> 00:00:04,855
+A person for the ones it shouldn't
 

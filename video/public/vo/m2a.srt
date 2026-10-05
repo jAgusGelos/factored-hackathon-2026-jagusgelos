@@ -7,10 +7,10 @@ Charged twice for one taxi
 It doesn't guess
 
 3
-00:00:03,329 --> 00:00:05,263
+00:00:03,329 --> 00:00:05,250
 It shows the customer their own charges
 
 4
-00:00:05,474 --> 00:00:06,500
-and lets them choose
+00:00:05,474 --> 00:00:06,329
+and lets them pick
 

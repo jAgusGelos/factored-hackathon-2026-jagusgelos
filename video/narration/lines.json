@@ -1,94 +1,138 @@
 {
  "voice": "en-US-AndrewNeural-Male",
  "rate": 0.95,
+ "say": {
+  "LATAM": "Lattam"
+ },
+ "placements": {
+  "presenter": "Full presenter: cut out, waist-up, one third of the frame, kinetic type beside you",
+  "bubble": "Picture-in-picture bubble over the app footage: head and shoulders",
+  "voice": "Voice only: the app takes the whole frame (still record on camera, it may be used)",
+  "diagram": "Beside the animated diagram: waist-up, you may point to your side"
+ },
  "lines": [
   {
    "id": "cold1",
+   "take": "T01",
    "scene": "cold",
-   "text": "It's late. You open your bank app. And there it is. A charge you don't recognize."
+   "placement": "presenter",
+   "text": "It's late. You open your bank app, and there it is. A charge you don't recognize."
   },
   {
    "id": "cold2",
+   "take": "T02",
    "scene": "cold",
+   "placement": "presenter",
    "text": "You report it. And then, you wait."
   },
   {
    "id": "cold3",
+   "take": "T03",
    "scene": "cold",
-   "text": "At this bank, the median wait for a first response is thirty-seven hours."
+   "placement": "presenter",
+   "text": "At this bank, the median wait for a first answer is thirty-seven hours."
   },
   {
    "id": "reveal1",
+   "take": "T04",
    "scene": "reveal",
-   "text": "What if the answer took seconds? And what if it was right?"
+   "placement": "presenter",
+   "text": "I wanted that answer in seconds. And I wanted it to be right."
   },
   {
    "id": "reveal2",
+   "take": "T05",
    "scene": "reveal",
-   "text": "Meet the LATAM Bank Dispute Agent."
+   "placement": "presenter",
+   "text": "So I built the LATAM Bank Dispute Agent."
   },
   {
    "id": "m1a",
+   "take": "T06",
    "scene": "m1",
-   "text": "The customer says it in their own words. The agent finds the exact charge in their own history, and asks: is this the one?"
+   "placement": "bubble",
+   "text": "The customer writes it in their own words. The agent finds the exact charge in their history, and asks: is this the one?"
   },
   {
    "id": "m1b",
+   "take": "T07",
    "scene": "m1",
-   "text": "One explanation later, it's done. A provisional credit, the card blocked, a reference number. Every fact, verified against the record."
+   "placement": "bubble",
+   "text": "One short explanation, and it's done. A provisional credit, the card blocked, a reference number. Every fact is checked against the record."
   },
   {
    "id": "m2a",
+   "take": "T08",
    "scene": "m2",
-   "text": "Charged twice for one taxi? It doesn't guess. It shows the customer their own charges, and lets them choose."
+   "placement": "bubble",
+   "text": "Charged twice for one taxi? It doesn't guess. It shows the customer their own charges, and lets them pick."
   },
   {
    "id": "m2b",
+   "take": "T09",
    "scene": "m2",
-   "text": "Then it finds the twin in the data, and reverses one. Only one."
+   "placement": "bubble",
+   "text": "Then it finds the twin in the data, and refunds one. Only one."
   },
   {
    "id": "m3a",
+   "take": "T10",
    "scene": "m3",
+   "placement": "bubble",
    "text": "And when a charge should not be paid automatically, it knows not to act."
   },
   {
    "id": "m3b",
+   "take": "T11",
    "scene": "m3",
-   "text": "It asks the questions an advisor would call back for, then hands a person the full case file. Verified facts, the customer's account, and what is still open."
+   "placement": "voice",
+   "text": "It asks the questions an advisor would call back for. Then a person gets the full case file: verified facts, the customer's story, and what is still open."
   },
   {
    "id": "m3c",
+   "take": "T12",
    "scene": "m3",
+   "placement": "voice",
    "text": "In Spanish, or in Portuguese."
   },
   {
    "id": "how1",
+   "take": "T13",
    "scene": "how",
-   "text": "So why would a bank trust it? Because the model only reads. Policy and permissions live in code, and every fact is checked against the customer's own ledger."
+   "placement": "diagram",
+   "text": "Why would a bank trust it? Because the model only reads. The rules and permissions live in code. And every fact is checked against the customer's own ledger."
   },
   {
    "id": "how2",
+   "take": "T14",
    "scene": "how",
-   "text": "We built it on a focused slice: one month of transactions. A dispute only needs recent history, and the live app never touches the raw data."
+   "placement": "diagram",
+   "text": "I built it on a focused slice of the data: one month of transactions. A dispute only needs recent history, and the live app never touches the raw data.",
+   "status": "may-change",
+   "note": "Subset size may change (fraud-model session extracts more transactions). Re-record only if the window is no longer one month."
   },
   {
    "id": "how3",
+   "take": "T15",
    "scene": "how",
-   "text": "Across forty simulated scenarios, prompt injection included: zero unsafe outcomes."
+   "placement": "diagram",
+   "text": "In forty simulated test cases, prompt injection included: zero unsafe outcomes.",
+   "status": "placeholder",
+   "note": "PLACEHOLDER: the measured-eval session will replace this result. Re-record this one take with the final number when it lands."
   },
   {
    "id": "close1",
+   "take": "T16",
    "scene": "close",
-   "text": "Answers in seconds, for the cases it should resolve. A person, for the ones it shouldn't."
+   "placement": "presenter",
+   "text": "Answers in seconds for the cases it should resolve. A person for the ones it shouldn't."
   },
   {
    "id": "close2",
+   "take": "T17",
    "scene": "close",
-   "text": "The LATAM Bank Dispute Agent. Try it live."
+   "placement": "presenter",
+   "text": "The LATAM Bank Dispute Agent. Try it live. The link is below."
   }
- ],
- "say": {
-  "LATAM": "Lattam"
- }
+ ]
 }

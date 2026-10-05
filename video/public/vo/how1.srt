@@ -1,16 +1,16 @@
 1
-00:00:00,105 --> 00:00:01,382
-So why would a bank trust it
+00:00:00,105 --> 00:00:01,145
+Why would a bank trust it
 
 2
-00:00:01,816 --> 00:00:03,618
+00:00:01,579 --> 00:00:03,382
 Because the model only reads
 
 3
-00:00:04,066 --> 00:00:06,303
-Policy and permissions live in code
+00:00:03,829 --> 00:00:05,724
+The rules and permissions live in code
 
 4
-00:00:06,605 --> 00:00:09,711
-and every fact is checked against the customer's own ledger
+00:00:06,158 --> 00:00:09,211
+And every fact is checked against the customer's own ledger
 
