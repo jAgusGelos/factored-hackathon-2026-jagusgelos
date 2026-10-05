@@ -108,7 +108,7 @@ const escalatedAt = clipEventFrame(m3Clip, 'escalated');
 const ptClip: CaptionedClip = {
   meta: asFootage(ptMeta),
   from: m3c.from - 6,
-  rate: 1.2,
+  rate: 1.7,
   startAt: 0.4,
   until: m3Scene.frames - 6,
   captions: [

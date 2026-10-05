@@ -25,17 +25,17 @@ export interface VoLine {
 
 /** Silence before each line (s). Cuts sit in these pauses; longer ones are the story's beats. */
 const LEAD_S = {
-  cold1: 0.6, cold2: 1.0, cold3: 1.4,
-  reveal1: 1.6, reveal2: 1.2,
-  m1a: 1.0, m1b: 0.9,
-  m2a: 1.0, m2b: 0.8,
-  m3a: 1.0, m3b: 0.7, m3c: 0.9,
-  how1: 1.2, how2: 1.0, how3: 1.0,
-  close1: 1.2, close2: 1.0,
+  cold1: 0.5, cold2: 0.5, cold3: 0.9,
+  reveal1: 1.1, reveal2: 0.6,
+  m1a: 0.6, m1b: 0.4,
+  m2a: 0.6, m2b: 0.35,
+  m3a: 0.6, m3b: 0.35, m3c: 0.45,
+  how1: 0.8, how2: 0.5, how3: 0.5,
+  close1: 0.8, close2: 0.5,
 } as const;
 
 /** Silence after a scene's last line before the next scene starts (s). */
-const TAIL_S: Record<SceneId, number> = { cold: 1.6, reveal: 2.2, m1: 1.4, m2: 1.2, m3: 2.4, how: 1.4, close: 4.5 };
+const TAIL_S: Record<SceneId, number> = { cold: 1.2, reveal: 1.8, m1: 1.0, m2: 0.9, m3: 1.9, how: 1.0, close: 4.5 };
 
 const SCENES = Object.keys(TAIL_S) as SceneId[];
 
