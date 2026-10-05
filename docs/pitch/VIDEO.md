@@ -84,8 +84,7 @@ label. The amounts and dates in the chat captions and the cold-open notification
 
 - **Remotion** 4.0.532 (React video): the whole edit.
 - **MoneyPrinterTurbo**: the placeholder voiceover used to time the edit before the takes existed
-  (its edge-tts voice `en-US-AndrewNeural`), plus the Pexels search used to explore stock b-roll.
-  Neither is in the final cut: the voice is the builder's.
+  (its edge-tts voice `en-US-AndrewNeural`); it is not in the final cut: the voice is the builder's.
 - **Playwright** + Chromium screencast: the app footage.
 - **Visual language**: ported from **pdoom-video by mexicat** (MIT, see `video/LICENSE.pdoom-engine`)
   as used in the "Motion as Code" kit: graph paper, plotter pen and spark, karaoke words, glow and
