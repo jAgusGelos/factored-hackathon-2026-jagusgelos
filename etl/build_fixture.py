@@ -66,6 +66,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
+from etl.evaluate_fraud_model import DEFAULT_REPORT_PATH as DEFAULT_FRAUD_REPORT_PATH
 from etl.extract import DATA_DIR, DEFAULT_WAREHOUSE_PATH
 from etl.fraud_features import DEFAULT_FRAUD_WAREHOUSE_PATH, RAW_COLUMNS
 from etl.train_fraud_model import DEFAULT_MODEL_PATH, load_model_bundle, score_transactions
@@ -83,7 +84,6 @@ DISPUTE_CATEGORY = "Transactions"
 
 SYNTHETIC_SOURCE = "synthetic"
 
-DEFAULT_FRAUD_REPORT_PATH = DATA_DIR / "fraud_eval_report.json"
 FRAUD_RISK_COLUMNS = ("fraud_risk", "fraud_risk_threshold", "fraud_model_version")
 # What scoring reads: the label and the authorization outcome are never inputs.
 _SCORING_COLUMNS = tuple(c for c in RAW_COLUMNS if c not in ("is_fraud", "transaction_status"))
@@ -313,8 +313,7 @@ def score_fixture_charges(
     for column in FRAUD_RISK_COLUMNS:
         fcon.execute(f"ALTER TABLE transactions ADD COLUMN {column} VARCHAR")
     fcon.executemany(
-        "UPDATE transactions SET fraud_risk = ?, fraud_risk_threshold = ?, fraud_model_version = ? "
-        "WHERE transaction_id = ?",
+        f"UPDATE transactions SET {', '.join(f'{c} = ?' for c in FRAUD_RISK_COLUMNS)} WHERE transaction_id = ?",
         [[str(round(score, 6)), str(model.threshold), model.version, tid] for tid, score in scores.items()],
     )
     logger.info("Scored %d fixture charge(s) with %s", len(scores), model.version)
