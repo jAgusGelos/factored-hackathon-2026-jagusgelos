@@ -51,7 +51,9 @@ scores exactly 30 on the fraud gate. v2 adds one field from the new rule (AD-14,
 `policy.protective_action`): whether each escalation should block the card (a denial or a card out of
 the customer's hands, together with a fraud signal). 14 of the 28 escalated cases expect a block
 (S08, S09, S12, S13, S14, S15, S19 in both languages). No label was changed from observed outputs;
-`labels_v2.json` lists the changes and their reasons.
+`labels_v2.json` lists the changes and their reasons. Its per-case `rationale` strings are kept
+verbatim from v1 (they cite the earlier 1-day duplicate window and the `>= 30` gate); the merged
+rules each verdict was recomputed with are in `changes_from_v1`.
 
 **Second labeling.** Codex CLI labeled the same 48 cases from the same written rules without
 seeing the first labels (`labels_codex.json`).

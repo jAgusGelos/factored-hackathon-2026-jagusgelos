@@ -351,7 +351,9 @@ def _card_blocked(case) -> bool:
 
 def _protective_block_accuracy(scored: list[tuple[dict, dict, dict]]) -> dict:
     """Card blocks on the cases labeled with one (labels v2+), counted only
-    when the case did escalate: the block is part of the escalation.
+    when the case did escalate: the block is part of the escalation. A case
+    labeled to resolve (null) that escalates is already an unnecessary
+    transfer, so a block on it is not counted here again.
     """
     counts = Counter()
     for r, _, lab in scored:
