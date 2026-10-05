@@ -13,7 +13,7 @@ import json
 from dataclasses import dataclass, replace
 from unittest.mock import patch
 
-from app import cases, db
+from app import cases, db, handoffs, llm
 from app.case_model import EscalationReason
 from app.case_turn import Turn
 from app.policy import MAX_CASE_TURNS, DisputeReason
@@ -27,6 +27,7 @@ from tests.support import (
     DUPLICATE_CHARGES,
     EXPLANATION,
     FRAUD_SCORE_CHARGE,
+    GIVEN_STATEMENT,
     HANDOFF_KEYS,
     NOT_RECEIVED_ASSESSMENT,
     OPENING,
@@ -44,6 +45,7 @@ from tests.support import (
     mock_anthropic_client,
     requires_real_fixture,
     session_for,
+    statement_down_client,
 )
 
 pytestmark = requires_real_fixture
@@ -861,6 +863,103 @@ def test_a_high_fraud_score_escalates_before_asking_for_an_explanation(real_fixt
     assert reply["state"] == CaseState.ESCALATED
     assert logged_events(real_fixture_app_db, "explanation_requested") == []
 
+
+
+
+# -- AD-14: a fraud escalation blocks the card before the handoff --------------
+
+
+def _card_block(app_db, case_id):
+    return [e for e in logged_events(app_db, "simulated_card_block") if e.get("trigger") == "escalation"]
+
+
+def test_a_denied_charge_with_a_high_fraud_score_blocks_the_card_on_escalation(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    reply = finish_statement(session, real_fixture_app_db, _pick(session, real_fixture_app_db, FRAUD_SCORE_CHARGE))
+
+    assert reply["state"] == CaseState.ESCALATED
+    assert "bloqueamos su tarjeta" in reply["reply"]
+    block = _card_block(real_fixture_app_db, reply["case_id"])
+    assert len(block) == 1 and block[0]["signals"] == ["high_fraud_score"] and block[0]["simulated"] is True
+    handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
+    assert any(a.startswith("Tarjeta bloqueada preventivamente") for a in handoff["actions_taken"])
+    assert handoffs.CARD_BLOCKED_TASK in handoff["open_questions"]
+    assert logged_events(real_fixture_app_db, "simulated_credit") == []
+
+
+def test_the_block_is_announced_in_portuguese_too(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    listed = _say(session, real_fixture_app_db, charge_extraction(), "não sei o valor", language="pt")
+    picked = _say(session, real_fixture_app_db, charge_extraction(), "cobrança", case_id=listed["case_id"],
+                  selected_transaction_id=FRAUD_SCORE_CHARGE, language="pt")
+    reply = finish_statement(session, real_fixture_app_db, picked, language="pt")
+
+    assert "bloqueamos seu cartão" in reply["reply"]
+
+
+def test_a_lost_card_replaces_the_advisor_block_question_with_the_reissue_task(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    lost = {**GIVEN_STATEMENT, "card_possession": "no", "card_loss": "lost"}
+    picked = _pick(session, real_fixture_app_db, OVER_LIMIT_CHARGE)
+    reply = finish_statement(session, real_fixture_app_db, picked, mock={"statement": lost})
+
+    handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
+    assert handoffs.CARD_LOST_QUESTION not in handoff["open_questions"]
+    assert handoffs.CARD_BLOCKED_TASK in handoff["open_questions"]
+    assert "card_out_of_hands" in _card_block(real_fixture_app_db, reply["case_id"])[0]["signals"]
+
+
+def test_a_card_present_charge_the_customer_denies_blocks_the_card(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    reply = _pick_and_explain(session, real_fixture_app_db, CARD_PRESENT_CHARGE)
+
+    assert reply["state"] == CaseState.ESCALATED
+    assert _card_block(real_fixture_app_db, reply["case_id"])[0]["signals"] == ["card_present_denied"]
+    assert "bloqueamos su tarjeta" in reply["reply"]
+
+
+def test_an_amount_cap_escalation_the_customer_does_not_deny_never_blocks(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    recognized = {**GIVEN_STATEMENT, "denies_purchase": "no", "summary": "El cliente hizo la compra."}
+    picked = _pick(session, real_fixture_app_db, OVER_LIMIT_CHARGE)
+    reply = finish_statement(session, real_fixture_app_db, picked, mock={"statement": recognized})
+
+    assert reply["state"] == CaseState.ESCALATED
+    assert _card_block(real_fixture_app_db, reply["case_id"]) == []
+    assert "bloque" not in reply["reply"]
+    handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
+    assert handoffs.CARD_BLOCKED_TASK not in handoff["open_questions"]
+
+
+def test_a_merchant_dispute_never_blocks_the_card(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    reply = _pick_and_explain(session, real_fixture_app_db, CARD_PRESENT_CHARGE, NOT_RECEIVED_ASSESSMENT)
+
+    assert reply["state"] == CaseState.ESCALATED
+    assert _card_block(real_fixture_app_db, reply["case_id"]) == []
+
+
+def test_an_unreadable_statement_never_blocks_the_card(real_fixture_app_db):
+    """No denial on record (the statement could not be read), so no block,
+    even on the charge with the high fraud score.
+    """
+    session = demo_session(real_fixture_app_db)
+    picked = _pick(session, real_fixture_app_db, FRAUD_SCORE_CHARGE)
+    reply = finish_statement(session, real_fixture_app_db, picked, client=statement_down_client(charge_extraction()))
+
+    assert reply["state"] == CaseState.ESCALATED
+    assert _card_block(real_fixture_app_db, reply["case_id"]) == []
+
+
+def test_a_service_failure_never_blocks_the_card(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    picked = _pick(session, real_fixture_app_db, CARD_PRESENT_CHARGE)
+    with patch("app.explanation.llm.assess_explanation", side_effect=llm.LLMUnavailable("down")):
+        reply = _explain(session, real_fixture_app_db, picked["case_id"])
+
+    assert reply["state"] == CaseState.ESCALATED
+    assert cases.get_case(reply["case_id"], db_path=real_fixture_app_db).escalation_reason == "service_issue"
+    assert _card_block(real_fixture_app_db, reply["case_id"]) == []
 
 
 # -- Review fixes (Milestone 9 review) -------------------------------------------

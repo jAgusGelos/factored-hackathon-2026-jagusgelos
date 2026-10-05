@@ -27,6 +27,8 @@ from app.policy import (
     MATCH_DATE_TOLERANCE_DAYS,
     MAX_CASE_TURNS,
     ExplanationAssessment,
+    FraudSignal,
+    ProtectiveDecision,
     StatementField,
     Tristate,
     known_fact,
@@ -367,6 +369,13 @@ _STATEMENT_OPEN_QUESTIONS = {
     ),
 }
 CARD_LOST_QUESTION = "Evaluar si corresponde bloquear la tarjeta: el cliente no la tiene consigo."
+CARD_BLOCKED_TASK = "Tarjeta bloqueada por el agente (simulado): confirmar con el cliente la reposición."
+
+_FRAUD_SIGNALS = {
+    FraudSignal.HIGH_FRAUD_SCORE: "puntaje de fraude en o sobre el umbral",
+    FraudSignal.CARD_PRESENT_DENIED: "el cliente niega una compra hecha con la tarjeta presente",
+    FraudSignal.CARD_OUT_OF_HANDS: "la tarjeta está perdida, robada o fuera del poder del cliente",
+}
 
 
 def _statement_open_questions(facts: dict[str, str | None]) -> tuple[str, ...]:
@@ -392,6 +401,23 @@ def with_statement(
         **handoff,
         "customer_reported": {**handoff["customer_reported"], **reported},
         "open_questions": [*handoff["open_questions"], *_statement_open_questions(facts)],
+    }
+
+
+def with_card_block(handoff: dict, protection: ProtectiveDecision) -> dict:
+    """A handoff whose escalation blocked the card (`policy.protective_action`):
+    the block is an action taken, and the advisor's task is the reissue, not
+    whether to block (the lost-card question gives way to it).
+    """
+    why = "; ".join(_FRAUD_SIGNALS[signal] for signal in protection.signals)
+    questions = [q for q in handoff["open_questions"] if q != CARD_LOST_QUESTION]
+    return {
+        **handoff,
+        "actions_taken": [
+            *handoff["actions_taken"],
+            f"Tarjeta bloqueada preventivamente por el agente (simulado, sin movimiento de dinero): {why}.",
+        ],
+        "open_questions": [*questions, CARD_BLOCKED_TASK],
     }
 
 

@@ -15,6 +15,7 @@ from app import handoffs
 from app.case_model import EscalationReason, ReportedCharge
 from app.cases import Case
 from app.llm import ConfirmationAnswer
+from app.policy import FraudSignal, ProtectiveAction, ProtectiveDecision
 from tests.support import HANDOFF_KEYS, clean_assessment, clean_txn
 
 CHARGE = clean_txn(transaction_id="TRX-9", merchant_name="Uber", amount=38500.0, currency="COP", channel="App")
@@ -251,3 +252,21 @@ def test_the_raw_statement_never_reaches_the_handoff():
 
     assert raw not in serialized and "12345678" not in serialized
     assert not set(_STATEMENT_KEYS) & set(handoff["verified_facts"])
+
+
+def test_a_card_block_is_an_action_taken_and_the_advisor_confirms_the_reissue():
+    """AD-14: the agent already blocked the card, so the advisor is not asked
+    whether to block it; the block's fraud signals are named in Spanish.
+    """
+    _, handoff = _with_statement("ineligible_match", facts={**STATEMENT_FACTS, "card_possession": "no"})
+    protection = ProtectiveDecision(ProtectiveAction.CARD_BLOCK, (FraudSignal.CARD_OUT_OF_HANDS,))
+
+    blocked = handoffs.with_card_block(handoff, protection)
+
+    assert handoffs.CARD_LOST_QUESTION not in blocked["open_questions"]
+    assert blocked["open_questions"][-1] == handoffs.CARD_BLOCKED_TASK
+    assert blocked["actions_taken"][:-1] == list(handoff["actions_taken"])
+    assert "simulado" in blocked["actions_taken"][-1] and "fuera del poder del cliente" in blocked["actions_taken"][-1]
+    assert {k: v for k, v in blocked.items() if k not in ("open_questions", "actions_taken")} == {
+        k: v for k, v in handoff.items() if k not in ("open_questions", "actions_taken")
+    }

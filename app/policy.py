@@ -51,6 +51,12 @@ AD-11's rows, in order:
      never a real transfer. An unrecognized charge also logs a simulated card
      block and queues the credit for back-office review (it is reversed if
      the investigation shows the customer made the charge).
+  7. Protective card block on escalation (AD-14, `protective_action`): when
+     the customer denies the charge or says the card is out of their hands,
+     and the case goes to a person for a fraud reason (fraud score at/above
+     the threshold, a card-present charge they deny, a lost or stolen card),
+     the card is blocked (SIMULATED) before the handoff. Never on an
+     escalation unrelated to fraud; no money moves.
 
 Simplification, disclosed: the "2 USD-equivalent" floor in Row 1 is applied
 as a flat 2-unit floor in the complaint's OWN currency, not currency-converted
@@ -165,8 +171,8 @@ REASONS_REQUIRING_A_PERSON = {
         "correcto (un reintegro parcial no se automatiza)."
     ),
     DisputeReason.CARD_LOST_STOLEN: (
-        "El cliente reporta tarjeta perdida o robada: posible fraude. Bloquear la tarjeta y "
-        "revisar otros cargos recientes."
+        "El cliente reporta tarjeta perdida o robada: posible fraude. Revisar otros cargos "
+        "recientes."
     ),
 }
 
@@ -547,3 +553,67 @@ def _fact_matters(fact: StatementField, facts: Mapping[str, object]) -> bool:
     if fact == StatementField.CARD_LOSS:
         return facts.get(StatementField.CARD_POSSESSION) == Tristate.NO
     return True
+
+
+# -- Protective card block on a fraud escalation (AD-14) ---------------------
+
+
+class ProtectiveAction(StrEnum):
+    NONE = "none"
+    CARD_BLOCK = "card_block"
+
+
+class FraudSignal(StrEnum):
+    """Why an escalation is about fraud: the only causes that block the card."""
+
+    HIGH_FRAUD_SCORE = "high_fraud_score"
+    CARD_PRESENT_DENIED = "card_present_denied"
+    CARD_OUT_OF_HANDS = "card_out_of_hands"
+
+
+@dataclass(frozen=True)
+class ProtectiveDecision:
+    action: ProtectiveAction
+    signals: tuple[FraudSignal, ...] = ()
+
+    @classmethod
+    def none(cls) -> ProtectiveDecision:
+        return cls(ProtectiveAction.NONE)
+
+
+def fraud_score_flagged(fraud_score: float | None) -> bool:
+    """A score the model flags as fraud. A missing score is no signal here
+    (screening already refuses it a credit).
+    """
+    return fraud_score is not None and fraud_score >= AUTO_RESOLVE_MAX_FRAUD_SCORE
+
+
+def protective_action(
+    *, reason: DisputeReason | None, facts: Mapping[str, object], high_fraud_score: bool, channel: str | None,
+) -> ProtectiveDecision:
+    """Whether an escalation blocks the card before it reaches a person.
+
+    `reason`: the dispute reason the customer's explanation named, if any.
+    `facts`: the key facts of their statement (`StatementField` keys), empty
+    when no statement was taken. A claim (the customer denies the charge, or
+    the card is lost, stolen or not with them) blocks the card only together
+    with a fraud signal; a card out of the customer's hands is one by itself.
+    Without a claim nothing blocks: an amount cap, a merchant dispute, a
+    request for a person or a failure of the service is not about fraud.
+    """
+    denies = reason == DisputeReason.UNRECOGNIZED or facts.get(StatementField.DENIES_PURCHASE) == Tristate.YES
+    out_of_hands = (
+        reason == DisputeReason.CARD_LOST_STOLEN
+        or facts.get(StatementField.CARD_LOSS) in (CardLoss.LOST, CardLoss.STOLEN)
+        or facts.get(StatementField.CARD_POSSESSION) == Tristate.NO
+    )
+    signals: list[FraudSignal] = []
+    if (denies or out_of_hands) and high_fraud_score:
+        signals.append(FraudSignal.HIGH_FRAUD_SCORE)
+    if denies and channel is not None and channel not in CARD_NOT_PRESENT_CHANNELS:
+        signals.append(FraudSignal.CARD_PRESENT_DENIED)
+    if out_of_hands:
+        signals.append(FraudSignal.CARD_OUT_OF_HANDS)
+    if not signals:
+        return ProtectiveDecision.none()
+    return ProtectiveDecision(ProtectiveAction.CARD_BLOCK, tuple(signals))

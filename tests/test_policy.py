@@ -350,3 +350,53 @@ def test_every_resolution_template_states_the_reference_and_the_required_disclos
     assert "ref-x" in template
     for stems in _REQUIRED_DISCLOSURES[language][reason]:
         assert any(stem in template for stem in stems), (reason, language, stems)
+
+
+# -- AD-14: protective card block on a fraud escalation ------------------------
+
+
+def _block(reason=None, facts=None, *, high_fraud_score=False, channel="App"):
+    return policy.protective_action(reason=reason, facts=facts or {}, high_fraud_score=high_fraud_score, channel=channel)
+
+
+@pytest.mark.parametrize(
+    ("reason", "facts", "high_fraud_score", "channel", "signal"),
+    [
+        (None, {"denies_purchase": "yes"}, True, "Web", policy.FraudSignal.HIGH_FRAUD_SCORE),
+        (DisputeReason.UNRECOGNIZED, {}, False, "POS", policy.FraudSignal.CARD_PRESENT_DENIED),
+        (None, {"denies_purchase": "yes"}, False, "ATM", policy.FraudSignal.CARD_PRESENT_DENIED),
+        (DisputeReason.CARD_LOST_STOLEN, {}, False, "App", policy.FraudSignal.CARD_OUT_OF_HANDS),
+        (None, {"card_loss": "stolen"}, False, "App", policy.FraudSignal.CARD_OUT_OF_HANDS),
+        (None, {"card_possession": "no"}, False, "App", policy.FraudSignal.CARD_OUT_OF_HANDS),
+    ],
+)
+def test_a_fraud_escalation_the_customer_denies_blocks_the_card(reason, facts, high_fraud_score, channel, signal):
+    decision = _block(reason, facts, high_fraud_score=high_fraud_score, channel=channel)
+    assert decision.action == policy.ProtectiveAction.CARD_BLOCK
+    assert signal in decision.signals
+
+
+@pytest.mark.parametrize(
+    ("reason", "facts", "high_fraud_score", "channel"),
+    [
+        # Amount cap, the customer does not deny it.
+        (None, {"denies_purchase": "no"}, False, "POS"),
+        # A merchant dispute or a wrong amount: they made the purchase.
+        (DisputeReason.NOT_RECEIVED, {}, True, "POS"),
+        (DisputeReason.WRONG_AMOUNT, {}, False, "POS"),
+        # A request for a person without any denial or loss.
+        (None, {}, True, "POS"),
+        # A denied online charge with a low fraud score: no fraud signal.
+        (DisputeReason.UNRECOGNIZED, {}, False, "App"),
+        (None, {"denies_purchase": "yes"}, False, None),
+    ],
+)
+def test_an_escalation_unrelated_to_fraud_never_blocks_the_card(reason, facts, high_fraud_score, channel):
+    decision = _block(reason, facts, high_fraud_score=high_fraud_score, channel=channel)
+    assert decision == policy.ProtectiveDecision.none()
+
+
+def test_a_missing_fraud_score_is_not_a_fraud_signal():
+    assert not policy.fraud_score_flagged(None)
+    assert not policy.fraud_score_flagged(policy.AUTO_RESOLVE_MAX_FRAUD_SCORE - 0.1)
+    assert policy.fraud_score_flagged(policy.AUTO_RESOLVE_MAX_FRAUD_SCORE)
