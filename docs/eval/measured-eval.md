@@ -8,8 +8,10 @@ constructed cases run against a mocked model (SIMULATED).
 - Set and labels: `eval/heldout/` (pre-registered in commit `c41ab0a`).
 - Summary (committed copy): [`measured-eval-summary.json`](measured-eval-summary.json). The full report
   with every transcript is `data/measured_eval_report.json` (gitignored).
-- Run date: 2026-10-05. Model: `claude-haiku-4-5` (`config.ANTHROPIC_MODEL`). Prompts and policy:
-  `app/` as of commit `1b5e6de` (unchanged on this branch). Labels: version 1.
+- Run: 2026-10-05 02:09-02:27 UTC. Model: `claude-haiku-4-5` (`config.ANTHROPIC_MODEL`, an alias
+  resolved by the API on that date; this run did not record the dated snapshot it served, later
+  runs record it in `served_models`). Prompts and policy: `app/` as of commit `1b5e6de` (unchanged on
+  this branch). Labels: version 1.
 
 ## Method
 
@@ -46,7 +48,9 @@ seeing the first labels (`labels_codex.json`).
 | Credit allowed (and credited charge) | 48/48 (100%) | 1.00 |
 | Dispute reason | 46/48 (95.8%) | 0.94 |
 
-The two disagreements are the same situation (S04, es and pt): the customer reports a double taxi
+Codex labeled the outcome fields and the dispute reason; the first-message extraction labels
+(amount, date, merchant, currency, intent, request for a person) were labeled once and are not
+covered by this agreement. The two disagreements are the same situation (S04, es and pt): the customer reports a double taxi
 charge but admits they may have ridden both days. Codex labeled the reason `unclear`, the first
 labeler `duplicate`. Adjudicated in writing before the run: both are accepted
 (`acceptable_reasons`), because the expected outcome (a person, no credit) is the same under either.
@@ -84,6 +88,7 @@ Mean and range across the 3 runs; n = 48 cases per run.
 | Unnecessary transfers (of 18 resolvable) | 1, 1, 2 | 1, 1, 1 | 18 |
 | Escalation reason correct (both escalated) | 24/27, 24/27, 23/26 | 24/27 each run | n/a |
 | Model calls per run | 210-212 | 157 | 0 |
+| Model call errors | 0, 0, 0 | 1, 0, 0 (one response timeout, S04-pt run 1) | 0 |
 | Cost per run (measured tokens, list price) | $0.191 ($0.189-0.193) | $0.151 | $0 |
 | Cost per case | $0.0040 | $0.0031 | $0 |
 
@@ -91,26 +96,31 @@ With 0 unsafe outcomes on 48 distinct cases, the 95% upper bound (Wilson) on the
 about 7%: the set is small, and 0 here is not a proof of 0 in general.
 
 **By language (hybrid, correct of 24):** Spanish 21, 21, 20 (mean 0.861); Portuguese 22, 22, 21
-(mean 0.903). Both languages had 0 unsafe outcomes. The Spanish deficit comes from S09-es (see
-failures); its Portuguese twin passed every run.
+(mean 0.903). Both languages had 0 unsafe outcomes. The failures are not language-specific in one
+direction: S04-es and S09-es failed every run where their Portuguese twins mostly passed, while
+S03-pt failed every run and S03-es once (see failures).
 
 **Components (hybrid, every run).**
 
 - Extraction from the first message (n = 48; intent n = 46, S17 has no intent label): amount 46/48,
   date 48/48, merchant 48/48, currency 48/48, intent 46/46, request for a person 48/48 in run 1 and
   46/48 in runs 2-3.
-- Dispute reason from the explanation assessment (n = 36 per run, the cases that reach that step):
-  36/36 in every run. Confusion matrix: unrecognized 24/24, duplicate 6/6 (S04 adjudicated),
-  card_lost_stolen 2/2, not_received 2/2, wrong_amount 2/2.
+- Dispute reason from the explanation assessment (n = 36 per run, the cases whose explanation the
+  model assessed): 36/36 in every run. Confusion matrix: unrecognized 24/24, card_lost_stolen 2/2,
+  not_received 2/2, wrong_amount 2/2, duplicate 6/6 (in run 2 one S04 explanation was read as
+  `unclear`, accepted by the adjudication).
 - Rules extractor for comparison: amount 44/48, date 42/48 (numbers in words, slang dates, the date
   of a robbery taken as the date of the charge).
 
 **Latency (hybrid, per turn, includes the real model):** typed turns p50 4.3 s (4.19-4.53), p95
-17.0 s (16.5-17.7), n = 140 per run; taps p50 0.24 s. The rules extractor saves one model call on
+17.0 s (16.5-17.7), n = 140-142 per run; taps p50 0.20-0.24 s (n = 16-18 per run, so their p95 is
+close to the maximum). The rules extractor saves one model call on
 report turns: typed p50 3.5 s, p95 13.9 s.
 
-**Total spend:** $1.045 measured: the 3-case dry run ($0.020) plus the full run ($1.025, both
-systems, 3 runs each), under the $2 cap set for this evaluation.
+**Total spend:** estimated before the run at about $1.0 (dry-run cost per case x 288 case runs);
+measured $1.045: the full run ($1.025, both systems, 3 runs each, in the committed summary) plus the
+3-case dry run ($0.020, `data/measured_eval_dryrun.json`, not committed). Under the $2 cap set for
+this evaluation.
 
 ## Failure analysis (hybrid)
 
@@ -123,13 +133,28 @@ Every case that was not correct in at least one run, with its root cause. None m
 | S03-pt (3/3), S03-es (1/3) | 4 of 6 | resolved, duplicate reversed | escalated, `needs_review` | **Model.** "One ride, charged on the 15th and again on the 16th" is marked inconsistent with the charge, so a reversal the evidence check would allow goes to a person (an unnecessary transfer). |
 | S04-es (3/3), S04-pt (1/3) | 4 of 6 | escalated | left in `awaiting_explanation` | **Harness script limit + model.** The vague account gets one follow-up; the customer's second answer ("I'd still like you to check whether the 16th is a duplicate") is read as a request for a person, which the agent defers once. The script has no third reply, so the case stops open. A real customer would answer or ask again and the case would go to a person; no credit was possible. |
 
-Transcript excerpt (S11-es, run 1):
+Transcript excerpts (run 1, the customer's last message, the model's assessment, the agent's reply):
 
-> Customer: "El viaje sí lo hice. La app indicaba 18.500 al finalizar el viaje y el cargo en la
-> tarjeta salió por 38.500. Hay 20.000 pesos de diferencia que no corresponden."
-> Assessment: `reason=wrong_amount, specific=true, consistent=false`.
-> Agent: "Derivé su caso a una persona del equipo de disputas. El cargo es Uber, COP 38.500, 14 de
-> junio de 2026. Motivo: el cargo necesita la revisión de una persona..."
+- **S11-es.** Customer: "El viaje sí lo hice. La app indicaba 18.500 al finalizar el viaje y el cargo
+  en la tarjeta salió por 38.500. Hay 20.000 pesos de diferencia que no corresponden."
+  Assessment: `reason=wrong_amount, specific=true, consistent=false`. Agent: "Derivé su caso a una
+  persona del equipo de disputas. El cargo es Uber, COP 38.500, 14 de junio de 2026. Motivo: el cargo
+  necesita la revisión de una persona..."
+- **S09-es.** Customer: "El 4 de junio me robaron la billetera con la tarjeta adentro. Al otro día
+  alguien hizo esa compra en Super Ahorro, yo no fui. Sé que debí avisar antes..." Assessment:
+  `reason=card_lost_stolen, specific=true, consistent=false`. Agent: "Derivé su caso a una persona...
+  Motivo: el cargo necesita la revisión de una persona antes de cualquier reintegro."
+- **S03-pt.** Customer: "Fiz só uma corrida no Taxi Seguro e cobraram duas vezes, uma dia 15 e outra
+  dia 16, mesmo valor. A do dia 16 é duplicada, não teve outra corrida." Assessment:
+  `reason=duplicate, specific=true, consistent=false`. Agent: "Encaminhei seu caso para uma pessoa da
+  equipe de contestações... Motivo: a cobrança precisa da análise de uma pessoa antes de qualquer
+  reembolso."
+- **S04-es.** Customer: "La verdad es que ahora que lo pienso puede que sí haya tomado taxi los dos
+  días... no estoy seguro." Assessment: `reason=duplicate, specific=false, consistent=false`; the
+  agent asks how they noticed. Customer: "No me acuerdo bien. Igual quisiera que revisaran si el del
+  16 es duplicado." Assessment: `reason=unclear, specific=false`, read as a request for a person;
+  agent: "Antes de derivarlo, intentemos resolverlo... Si aun así prefiere hablar con una persona,
+  vuelva a pedirlo..." The script has no further reply.
 
 **What it says.** The one systematic weakness is the explanation assessment's `consistent` flag:
 it fires on accounts that describe a mismatch the customer is disputing (a different fare, a
@@ -146,16 +171,22 @@ input (the charge amount); the model's reading is defensible, and the flow recov
 list showed Uber). S09 in runs 2-3: "necesito saber qué hago" read as a request for a person;
 the request was deferred and the case still reached the right charge.
 
-**Rules baseline only.** S16-es and S16-pt (3/3): "todo bien con los cobros" matched a report
-keyword, so a customer with no dispute was shown their charge list instead of the out-of-scope
-answer. The LLM extraction declined correctly in every run.
+**Rules baseline only.** S16-es and S16-pt (3/3): the customer's third message, "nada raro, todo
+bien con los cobros jaja, solo eso", matched a report keyword, so a customer with no dispute was
+shown their charge list ("Veo que tiene 8 cargos recientes en su cuenta. Toque el que no reconoce...")
+instead of the out-of-scope answer it had given to the first two messages. The LLM extraction
+declined correctly in every run. In this baseline the rules extractor also replaces the model's
+check for a request for a person during the explanation step (`app/explanation.py` reuses the
+extraction call), which is consistent with "only the extraction changes". One rules-baseline case
+(S04-pt, run 1) hit a model response timeout on a reply call; the app answered with its template
+and the case still escalated as labeled.
 
 ## Reading the comparison
 
 - **Hybrid vs escalate-everything:** same safety (0 unsafe), but the anchor sends all 18 resolvable
   cases to a person and also hands off the out-of-scope request; the hybrid resolves 16-17 of 18
   with no wrong credit.
-- **Hybrid vs rules extractor:** 0.882 vs 0.854 correct, a 1 to 2 case difference on 48, within
+- **Hybrid vs rules extractor:** 0.882 vs 0.854 correct, a 2, 2 and 0 case difference by run, within
   run-to-run noise at this size. The rules baseline is 21% cheaper and about 0.8 s faster at p50,
   and its misses are on exactly what the LLM handles (numbers in words, slang dates, negated
   mentions). On this set the model's extraction is not the bottleneck: the assessment's
