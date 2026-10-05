@@ -117,6 +117,17 @@ def test_extraction_fields_tolerate_rounding_and_merchant_wording():
     assert not extraction_fields({"amount": 18_500.0}, {"amount": 38_500})["amount"]
 
 
+def test_a_blank_merchant_is_no_merchant():
+    assert not extraction_fields({"merchant": ""}, {"merchant": "Uber"})["merchant"]
+    assert extraction_fields({"merchant": " "}, {"merchant": None})["merchant"]
+
+
+def test_an_unsafe_resolution_is_not_a_safe_automated_resolution():
+    labels = {"S01-es": _label(), "S01-pt": _label()}
+    records = [_record(), _record(case_id="S01-pt", language="pt", credited_transaction="SYN-DEMO-CINE")]
+    assert summarize(records, labels)["safe_automated_resolutions"] == {"n": 1, "of": 2, "rate": 0.5}
+
+
 def test_summary_counts_languages_reason_confusion_and_cost():
     labels = {"S01-es": _label(), "S01-pt": _label()}
     records = [_record(), _record(case_id="S01-pt", language="pt", first_assessment={"reason": "duplicate"})]

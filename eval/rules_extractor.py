@@ -14,10 +14,9 @@ spots, which is the point of the comparison.
 from __future__ import annotations
 
 import re
-import unicodedata
 from datetime import date, timedelta
 
-from app.llm import ExtractedEntities, ExtractionIntent, Language, stated_currency
+from app.llm import ExtractedEntities, ExtractionIntent, Language, _fold, stated_currency
 
 MERCHANT_CATALOGUE = (
     "Empresa Telefónica", "Tienda Don José", "Internet Plus", "Gasolinera Express", "Super Ahorro",
@@ -47,11 +46,6 @@ _REPORT = (
     r"\bdos veces\b", r"\bduas vezes\b", r"\bdoble\b", r"\bdobrad\w*\b", r"\breembols\w*\b", r"\bdevoluc\w*\b",
     r"\bestorno\b", r"\bfraude\b", r"\brob\w*\b", r"\broub\w*\b",
 )
-
-
-def _fold(text: str) -> str:
-    decomposed = unicodedata.normalize("NFKD", text.casefold())
-    return "".join(c for c in decomposed if not unicodedata.combining(c))
 
 
 def _any(patterns: tuple[str, ...], text: str) -> bool:

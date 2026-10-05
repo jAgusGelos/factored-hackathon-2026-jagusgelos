@@ -51,10 +51,16 @@ from unittest.mock import patch
 from app.case_model import TERMINAL_STATES, CaseState, CustomerAction
 from app.llm import ASSESSMENT_MARKER, CONFIRMATION_MARKER, STATEMENT_MARKER, Language
 from eval.run_eval import (
+    BUCKET_CORRECT_RESOLUTION,
+    BUCKET_CORRECT_TRANSFER,
+    BUCKET_MISSED_TRANSFER_OPEN,
+    BUCKET_UNNECESSARY_TRANSFER,
+    BUCKET_UNSAFE_RESOLUTION,
     BUCKETS,
     HAIKU_INPUT_USD_PER_M_TOKENS,
     HAIKU_OUTPUT_USD_PER_M_TOKENS,
     NOT_IN_LIST,
+    _percentile,
     classify_outcome,
 )
 
@@ -369,9 +375,10 @@ def _same_amount(actual: float | None, expected: float | None) -> bool:
 
 
 def _same_merchant(actual: str | None, expected: str | None) -> bool:
-    if expected is None or actual is None:
-        return actual is None and expected is None
-    a, e = actual.casefold().strip(), expected.casefold().strip()
+    # A blank merchant is no merchant: "" would otherwise be "in" every name.
+    a, e = (actual or "").casefold().strip(), (expected or "").casefold().strip()
+    if not a or not e:
+        return not a and not e
     return a in e or e in a
 
 
@@ -421,12 +428,10 @@ def score_case(record: dict, label: dict) -> dict:
     }
 
 
-def _percentile(values: list[float], p: float) -> float | None:
+def _latency(values: list[float]) -> dict:
     if not values:
-        return None
-    ordered = sorted(values)
-    index = min(len(ordered) - 1, max(0, round(p / 100 * (len(ordered) - 1))))
-    return round(ordered[index], 3)
+        return {"n": 0, "p50": None, "p95": None}
+    return {"n": len(values), "p50": round(_percentile(values, 0.5), 3), "p95": round(_percentile(values, 0.95), 3)}
 
 
 def _rate(numerator: int, denominator: int) -> dict:
@@ -459,10 +464,16 @@ def summarize(records: list[dict], labels: dict) -> dict:
     all_turns = typed + taps
     total_in = sum(r["input_tokens"] for r, _, _ in scored)
     total_out = sum(r["output_tokens"] for r, _, _ in scored)
-    resolved = [s for _, s, _ in scored if s["bucket"] == "correct_resolution"]
+    safely_resolved = [
+        s for _, s, _ in scored if s["bucket"] == BUCKET_CORRECT_RESOLUTION and s["correct"] and not s["unsafe"]
+    ]
+    escalated_both = [
+        (r, s) for r, s, lab in scored
+        if lab["expected_final_state"] == CaseState.ESCALATED and r["final_state"] == CaseState.ESCALATED
+    ]
 
     by_language = {}
-    for language in ("es", "pt"):
+    for language in Language:
         subset = [(r, s) for r, s, _ in scored if r["language"] == language]
         by_language[language] = {
             "cases": len(subset),
@@ -480,24 +491,18 @@ def summarize(records: list[dict], labels: dict) -> dict:
         "buckets": {b: buckets.get(b, 0) for b in BUCKETS},
         "expected_final_states": dict(expected_counts),
         "escalation_quality": {
-            "missed_transfers": buckets.get("unsafe_resolution", 0) + buckets.get("missed_transfer_open", 0),
-            "unnecessary_transfers": buckets.get("unnecessary_transfer", 0),
+            "missed_transfers": buckets.get(BUCKET_UNSAFE_RESOLUTION, 0) + buckets.get(BUCKET_MISSED_TRANSFER_OPEN, 0),
+            "unnecessary_transfers": buckets.get(BUCKET_UNNECESSARY_TRANSFER, 0),
             "escalation_reason_correct": _rate(
-                sum(1 for r, s, lab in scored if lab["expected_final_state"] == "escalated"
-                    and r["final_state"] == "escalated" and s["escalation_reason_correct"]),
-                sum(1 for r, _, lab in scored if lab["expected_final_state"] == "escalated" and r["final_state"] == "escalated"),
+                sum(s["escalation_reason_correct"] for _, s in escalated_both), len(escalated_both),
             ),
         },
-        "safe_automated_resolutions": _rate(len(resolved), expected_counts.get("resolved_auto", 0)),
+        "safe_automated_resolutions": _rate(len(safely_resolved), expected_counts.get(CaseState.RESOLVED_AUTO, 0)),
         "extraction_accuracy": {name: _rate(sum(v), len(v)) for name, v in sorted(field_hits.items())},
         "reason_accuracy": _rate(reason_hits, reason_total),
         "reason_confusion": {k: dict(v) for k, v in sorted(confusion.items())},
         "by_language": by_language,
-        "latency_seconds": {
-            "all_turns": {"n": len(all_turns), "p50": _percentile(all_turns, 50), "p95": _percentile(all_turns, 95)},
-            "typed_turns": {"n": len(typed), "p50": _percentile(typed, 50), "p95": _percentile(typed, 95)},
-            "tap_turns": {"n": len(taps), "p50": _percentile(taps, 50), "p95": _percentile(taps, 95)},
-        },
+        "latency_seconds": {"all_turns": _latency(all_turns), "typed_turns": _latency(typed), "tap_turns": _latency(taps)},
         "cost": {
             "input_tokens": total_in, "output_tokens": total_out,
             "usd": round(cost_usd(total_in, total_out), 4),
@@ -522,16 +527,18 @@ def escalate_everything_anchor(labels: dict, case_ids: Iterable[str]) -> dict:
     ids = list(case_ids)
     buckets = Counter(classify_outcome(CaseState(labels[i]["expected_final_state"]), CaseState.ESCALATED) for i in ids)
     by_language = {
-        lang: _rate(sum(1 for i in ids if i.endswith(lang) and labels[i]["expected_final_state"] == "escalated"),
-                    sum(1 for i in ids if i.endswith(lang)))
-        for lang in ("es", "pt")
+        str(lang): _rate(
+            sum(1 for i in ids if i.endswith(lang) and labels[i]["expected_final_state"] == CaseState.ESCALATED),
+            sum(1 for i in ids if i.endswith(lang)),
+        )
+        for lang in Language
     }
     return {
         "cases": len(ids),
-        "final_state_correct": _rate(buckets.get("correct_transfer", 0), len(ids)),
+        "final_state_correct": _rate(buckets.get(BUCKET_CORRECT_TRANSFER, 0), len(ids)),
         "unsafe": _rate(0, len(ids)),
         "buckets": {b: buckets.get(b, 0) for b in BUCKETS},
-        "escalation_quality": {"missed_transfers": 0, "unnecessary_transfers": buckets.get("unnecessary_transfer", 0)},
+        "escalation_quality": {"missed_transfers": 0, "unnecessary_transfers": buckets.get(BUCKET_UNNECESSARY_TRANSFER, 0)},
         "by_language_final_state_correct": by_language,
         "cost": {"usd": 0.0},
         "note": "Not run: computed from the labels (every case escalated at the first message, no model call).",
@@ -673,7 +680,7 @@ def main(argv: list[str] | None = None) -> int:
     systems = tuple(args.systems.split(","))
     if unknown := set(systems) - set(SYSTEMS):
         parser.error(f"unknown systems: {sorted(unknown)}")
-    labels_path = args.labels or latest_labels_path()
+    labels_path = (args.labels or latest_labels_path()).resolve()
     labels_doc = load_labels(labels_path)
     conversations = load_conversations()
     if args.cases:
@@ -687,7 +694,8 @@ def main(argv: list[str] | None = None) -> int:
         budget_usd=args.budget_usd,
     )
     meta = {
-        "model": config.ANTHROPIC_MODEL, "labels_path": str(labels_path.relative_to(REPO_ROOT)),
+        "model": config.ANTHROPIC_MODEL,
+        "labels_path": str(labels_path.relative_to(REPO_ROOT) if labels_path.is_relative_to(REPO_ROOT) else labels_path),
         "systems_run": list(systems), "runs": args.runs, "case_ids": [c["case_id"] for c in conversations],
         "pricing_usd_per_m_tokens": {"input": HAIKU_INPUT_USD_PER_M_TOKENS, "output": HAIKU_OUTPUT_USD_PER_M_TOKENS},
     }
