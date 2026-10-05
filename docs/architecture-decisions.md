@@ -657,3 +657,42 @@ the branch `feat/system-baseline-adrs`.
   record; code comments are not edited.
 - **Why:** the docs are what readers open first, and this file's note covers the code comments.
 - **Source:** `.workspace/features/system-baseline-adrs/plan.md`, AD-8 (line 183).
+
+## fraud-model
+
+A per-charge fraud-risk model measured against the dataset's `fraud_score`, offline only.
+Decided 2026-10-04 in --auto mode on the branch `feat/fraud-model`; the decisions log is
+`.workspace/features/fraud-model/decisions.md`. Model card: `docs/ml/fraud-model.md`.
+
+### AD-1: Two-year extraction into a separate warehouse
+
+- **Decision:** `transactions` 2024-06-17 to 2026-06-17 into `data/fraud_warehouse.duckdb`; the
+  app's `data/warehouse.duckdb` is never touched.
+- **Why:** the 30-day window has 92 scored frauds; two years give 2,809 frauds and 494 in a
+  4.5-month chronological test fold.
+- **Source:** `.workspace/features/fraud-model/decisions.md`, extraction window.
+
+### AD-2: fraud_score is the baseline, never one of our features
+
+- **Decision:** "ours" models use only authorization-time behavior; a separate "stacked" variant
+  adds `fraud_score`; `transaction_status`, `response_code` and customer snapshots are excluded.
+- **Why:** the question is whether behavior adds anything to the bank's score; the excluded
+  columns are outcomes of the authorization or snapshots that can encode the label.
+- **Source:** `.workspace/features/fraud-model/decisions.md`; `etl/fraud_features.py` docstring.
+
+### AD-3: Honest result, the threshold on fraud_score is the deliverable
+
+- **Decision:** the model is not proposed as a policy input; the deliverable is the
+  cost-justified rule "escalate when `fraud_score > 30`".
+- **Why:** our features are at chance (test PR-AUC 0.0009) and stacking lowers PR-AUC
+  (paired 95% CI [-0.024, -0.005]); the rule keeps every fraud the current `>= 30` catches with
+  18 fewer escalations on test.
+- **Source:** `docs/ml/fraud-model.md`; `data/fraud_eval_report.json`.
+
+### AD-4: JSONL experiment log and sklearn gradient boosting
+
+- **Decision:** every fit is a line in `docs/ml/experiments.jsonl`; gradient boosting is
+  `HistGradientBoostingClassifier`.
+- **Why:** no new heavy dependency (MLflow, LightGBM) in a shared environment the day before the
+  deadline, and a committed log is visible to reviewers, unlike a gitignored `mlruns/`.
+- **Source:** `.workspace/features/fraud-model/decisions.md`, tracking and model family.
