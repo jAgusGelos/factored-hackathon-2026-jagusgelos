@@ -107,3 +107,14 @@ def test_end_to_end_train_evaluate_and_score(tmp_path, monkeypatch):
     proba_dupes = tr.score_transactions(with_dupes, model_path)
     assert proba_dupes.shape == (len(with_dupes),)
     np.testing.assert_allclose(proba_dupes[: len(raw)], tr.score_transactions(raw, model_path))
+
+
+def test_mirrored_policy_constants_match_app_policy():
+    """etl/ never imports app/ (the offline pipeline stays independent of the
+    runtime), so the evaluation mirrors three policy constants; this keeps
+    them in sync."""
+    from app import policy
+
+    assert ev.AUTO_RESOLVE_MAX_AMOUNT_USD == policy.AUTO_RESOLVE_MAX_AMOUNT_USD
+    assert ev.AUTO_RESOLVE_REQUIRED_STATUS == policy.AUTO_RESOLVE_REQUIRED_STATUS
+    assert ev.CURRENT_POLICY_MAX_FRAUD_SCORE == policy.AUTO_RESOLVE_MAX_FRAUD_SCORE

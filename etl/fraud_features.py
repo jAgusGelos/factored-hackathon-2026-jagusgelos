@@ -142,7 +142,7 @@ def load_transactions(
             FROM (SELECT * FROM transactions QUALIFY ROW_NUMBER() OVER (
                     PARTITION BY transaction_id ORDER BY transaction_date) = 1) t
             LEFT JOIN {customers} cu ON cu.customer_id = t.customer_id
-            WHERE t.is_fraud IS NOT NULL AND t.transaction_date IS NOT NULL
+            WHERE t.is_fraud IS NOT NULL AND t.transaction_date IS NOT NULL AND t.customer_id IS NOT NULL
             """
         ).df()
     finally:
