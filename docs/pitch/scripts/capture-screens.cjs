@@ -11,9 +11,11 @@ const TURN_TIMEOUT_MS = 45_000;
 const SETTLE_MS = 600;
 // A finished turn adds at least the customer's bubble and the agent's reply to the chat log.
 const ENTRIES_PER_TURN = 2;
-const VIEW_SWITCH_MS = 800;
 const MAX_STATEMENT_TURNS = 6;
 const HANDOFF_BADGE_TEXT = 'Caso derivado';
+const RESOLVED_BADGE_TEXT = 'Resuelto';
+const ASK_MERCHANT = 'Taxi Seguro';
+const ASK_MIN_OPTIONS = 2;
 // The case panel scrolls inside a fixed-height frame; unclip it so the whole case file fits one shot.
 const UNCLIP_PANEL_CSS = '.app-frame, .app-body, .case-panel { height: auto !important; max-height: none !important; overflow: visible !important; }';
 
@@ -73,11 +75,14 @@ async function resolveScenario(page) {
   await send(page, 'No reconozco un cargo de 38.500 pesos del 14 de junio');
   await tap(page, 'Sí, es ese');
   await send(page, 'No uso Uber hace meses, tengo la tarjeta conmigo');
+  await page.getByText(RESOLVED_BADGE_TEXT, { exact: true }).first().waitFor({ timeout: TURN_TIMEOUT_MS });
   await shot(page, 'screen-resolve.png');
 }
 
 async function askScenario(page) {
   await send(page, 'Me cobraron dos veces un taxi de 27 mil');
+  const options = await page.locator('.charge-option__merchant', { hasText: ASK_MERCHANT }).count();
+  if (options < ASK_MIN_OPTIONS) throw new Error(`ask scenario showed ${options} "${ASK_MERCHANT}" options, expected ${ASK_MIN_OPTIONS}`);
   await shot(page, 'screen-ask.png');
 }
 
@@ -94,11 +99,11 @@ async function handoffScenario(page) {
   if (!(await isHandedOff(page))) throw new Error(`handoff scenario did not reach "${HANDOFF_BADGE_TEXT}"`);
   await shot(page, 'screen-handoff-client.png');
   await page.locator('button[data-view="internal"]').click();
-  await page.waitForTimeout(VIEW_SWITCH_MS);
+  const caseFile = page.locator('.handoff-card');
+  await caseFile.waitFor({ state: 'visible', timeout: TURN_TIMEOUT_MS });
   await shot(page, 'screen-handoff-internal.png');
   await page.addStyleTag({ content: UNCLIP_PANEL_CSS });
-  await page.waitForTimeout(SETTLE_MS);
-  await shot(page.locator('.handoff-card'), 'handoff-case-file.png');
+  await shot(caseFile, 'handoff-case-file.png');
 }
 
 async function main() {
