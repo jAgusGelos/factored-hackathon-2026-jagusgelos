@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Records one presenter take (webcam + microphone) for the launch video.
 #
-#   video/scripts/record_take.sh T05          # records video/takes/T05_<n>.mkv, n = next free number
+#   video/scripts/record_take.sh T05          # records video/takes/T05_<n>.mkv, n = highest existing + 1
 #   video/scripts/record_take.sh ROOMTONE     # 10 s of the quiet room, for the noise profile
 #   video/scripts/record_take.sh --check      # lists cameras, formats and microphones, records nothing
 #
@@ -44,10 +44,15 @@ check_devices() {
   echo "Default capture size: $(largest_mjpeg_size) @ ${VIDEO_FPS} fps"
 }
 
+# One above the highest existing number, never a deleted gap: the newest take keeps the top number.
 next_take_path() {
-  local take="$1" n=1
-  while compgen -G "$TAKES_DIR/${take}_${n}.*" >/dev/null; do n=$((n + 1)); done
-  echo "$TAKES_DIR/${take}_${n}.mkv"
+  local take="$1" n=0 f k
+  for f in "$TAKES_DIR/${take}"_*.*; do
+    [[ -e "$f" ]] || continue
+    k="${f##*/${take}_}"; k="${k%%.*}"
+    [[ "$k" =~ ^[0-9]+$ ]] && (( k > n )) && n=$k
+  done
+  echo "$TAKES_DIR/${take}_$((n + 1)).mkv"
 }
 
 if [[ "${1:-}" == "--check" ]]; then

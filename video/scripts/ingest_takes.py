@@ -56,6 +56,8 @@ ENVELOPE_PER_S = SR // ENVELOPE_HOP
 FPS = 30
 SPEECH_WINDOW_PAD_S = 0.4
 HEAD_PAD_S, TAIL_PAD_S = 0.25, 0.35
+# A breath or a hand on the keyboard after the last word also reads as voicing.
+MAX_WORD_TAIL_S = 0.5
 TARGET_LUFS, TRUE_PEAK = -15.0, -1.5
 VOICED_BELOW_PEAK_DB = 34
 HIGH_PASS = "highpass=f=80"
@@ -88,7 +90,7 @@ def find_take(takes_dir: Path, take: str, selection: dict) -> Path | None:
         if not chosen:
             sys.exit(f"selection.json picks {take}_{selection[take]}, which is not in {takes_dir}")
         return chosen[0]
-    return max(candidates, key=take_number)
+    return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
 def load_audio(path: Path) -> np.ndarray:
@@ -201,7 +203,7 @@ def align_words(session, vocab: dict, y: np.ndarray, text: str) -> list[dict]:
 def extend_to_voicing(spans: list[dict], voiced: np.ndarray, duration: float) -> list[dict]:
     """A word ends where the voice stops, not on its last CTC spike (never into the next word)."""
     for i, span in enumerate(spans):
-        limit = spans[i + 1]["start"] if i + 1 < len(spans) else duration
+        limit = min(spans[i + 1]["start"] if i + 1 < len(spans) else duration, span["end"] + MAX_WORD_TAIL_S)
         j = int(span["end"] * ENVELOPE_PER_S)
         while j < min(len(voiced), int(limit * ENVELOPE_PER_S)) and voiced[j]:
             j += 1

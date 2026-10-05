@@ -75,7 +75,7 @@ landscape and lock exposure and focus on your face (long-press on the face in th
 
 ## Choosing takes and handing over
 
-By default the last take of each id is used. To choose another one, write
+By default the most recently recorded take of each id is used. To choose another one, write
 `video/takes/selection.json`:
 
 ```json
