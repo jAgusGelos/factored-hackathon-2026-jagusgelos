@@ -189,8 +189,15 @@ def threshold_analysis(val: pd.DataFrame, test: pd.DataFrame, score_cols: dict[s
     for name, col in score_cols.items():
         chosen = best_threshold(yv, v[col].to_numpy(), v["amount_usd_filled"].to_numpy(), COST_ASSUMPTIONS)
         thr = chosen["threshold"]
+        val_scores = v[col].to_numpy()
+        below = val_scores[val_scores < thr]
         entry = {
-            "threshold_chosen_on_val": thr, "val": chosen,
+            "threshold_chosen_on_val": thr,
+            # Every threshold in (highest validation score below thr, thr] escalates
+            # exactly the same validation charges, so it has the same validation cost:
+            # the integration rule is "escalate when score > this bound".
+            "cost_equivalent_lower_bound": float(below.max()) if below.size else None,
+            "val": chosen,
             "test": expected_cost(yt, t[col].to_numpy(), t["amount_usd_filled"].to_numpy(), thr, COST_ASSUMPTIONS),
             "test_never_escalate": expected_cost(yt, t[col].to_numpy(), t["amount_usd_filled"].to_numpy(), np.inf, COST_ASSUMPTIONS),
         }
