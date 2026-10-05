@@ -329,6 +329,7 @@ def play_case(conversation: dict, label: dict, system: str, run_index: int) -> d
         "statement_status": ((final.handoff or {}).get("customer_reported") or {}).get("statement_status") if final else None,
         "dispute_reason": final.dispute_reason if final else None,
         "credited_transaction": final.matched_transaction_id if final and final.credit_key else None,
+        "card_blocked": _card_blocked(final),
         "first_extraction": turns[0]["extraction"] if turns else None,
         "first_assessment": _ASSESSMENTS[0] if _ASSESSMENTS else None,
         "assessments": list(_ASSESSMENTS),
@@ -339,6 +340,29 @@ def play_case(conversation: dict, label: dict, system: str, run_index: int) -> d
         "served_models": sorted({c.served_model for c in _CALLS if c.served_model}),
         "error": error,
     }
+
+
+def _card_blocked(case) -> bool:
+    """The protective block on escalation (AD-14), as the handoff records it."""
+    from app.handoffs import CARD_BLOCKED_ACTION
+
+    return case is not None and CARD_BLOCKED_ACTION in ((case.handoff or {}).get("actions_taken") or [])
+
+
+def _protective_block_accuracy(scored: list[tuple[dict, dict, dict]]) -> dict:
+    """Card blocks on the cases labeled with one (labels v2+), counted only
+    when the case did escalate: the block is part of the escalation.
+    """
+    counts = Counter()
+    for r, _, lab in scored:
+        expected = lab.get("expected_card_block")
+        if expected is None or r["final_state"] != CaseState.ESCALATED:
+            continue
+        actual = bool(r.get("card_blocked"))
+        counts[("true" if actual == expected else "false") + ("_block" if actual else "_no_block")] += 1
+    total = sum(counts.values())
+    hits = counts["true_block"] + counts["true_no_block"]
+    return {**_rate(hits, total), "missed_blocks": counts["false_no_block"], "unneeded_blocks": counts["false_block"]}
 
 
 def _converse(client, cursor: ScriptCursor, language: Language, db_path: Path) -> tuple[list[dict], str, str | None, str | None]:
@@ -526,6 +550,7 @@ def summarize(records: list[dict], labels: dict) -> dict:
         "safe_automated_resolutions": _rate(len(safely_resolved), expected_counts.get(CaseState.RESOLVED_AUTO, 0)),
         "extraction_accuracy": {name: _rate(sum(v), len(v)) for name, v in sorted(field_hits.items())},
         "reason_accuracy": _rate(reason_hits, reason_total),
+        "protective_block_accuracy": _protective_block_accuracy(scored),
         "reason_confusion": {k: dict(v) for k, v in sorted(confusion.items())},
         "by_language": by_language,
         "latency_seconds": {"all_turns": _latency(all_turns), "typed_turns": _latency(typed), "tap_turns": _latency(taps)},
@@ -594,6 +619,7 @@ def variability(runs: list[dict]) -> dict:
         "correct_rate": _mean_range(pick("correct.rate")),
         "unsafe_rate": _mean_range(pick("unsafe.rate")),
         "reason_accuracy": _mean_range(pick("reason_accuracy.rate")),
+        "protective_block_accuracy": _mean_range(pick("protective_block_accuracy.rate")),
         "missed_transfers": _mean_range(pick("escalation_quality.missed_transfers")),
         "unnecessary_transfers": _mean_range(pick("escalation_quality.unnecessary_transfers")),
         "es_correct_rate": _mean_range(pick("by_language.es.correct.rate")),

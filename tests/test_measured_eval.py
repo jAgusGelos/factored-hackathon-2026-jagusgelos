@@ -330,3 +330,19 @@ def test_play_case_with_the_rules_extractor_makes_no_extraction_call(monkeypatch
     assert "extraction" not in kinds
     assert record["first_extraction"]["amount"] == 38_500
     assert record["final_state"] == "resolved_auto"
+
+
+def test_protective_block_accuracy_counts_only_escalated_labeled_cases():
+    labels = {
+        "A-es": _label(expected_final_state="escalated", credit_allowed=False, expected_credit_transactions=[],
+                       expected_card_block=True),
+        "B-es": _label(expected_final_state="escalated", credit_allowed=False, expected_credit_transactions=[],
+                       expected_card_block=False),
+        "C-es": _label(expected_card_block=None),
+    }
+    escalated = {"final_state": "escalated", "credited_transaction": None}
+    records = [_record(case_id="A-es", card_blocked=False, **escalated),
+               _record(case_id="B-es", card_blocked=True, **escalated),
+               _record(case_id="C-es", card_blocked=False)]
+    block = summarize(records, labels)["protective_block_accuracy"]
+    assert block == {"n": 0, "of": 2, "rate": 0.0, "missed_blocks": 1, "unneeded_blocks": 1}
