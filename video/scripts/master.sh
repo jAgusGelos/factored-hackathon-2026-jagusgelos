@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Masters the Remotion render into the deliverable:
-#   video/scripts/master.sh [raw.mp4] [out.mp4] [poster frame]
+#   video/scripts/master.sh [raw.mp4] [out.mp4] [poster frame] [poster.jpg]
 # - audio to -14 LUFS integrated, -1.5 dBTP (two-pass loudnorm, linear)
-# - the poster frame saved as out/poster.jpg and baked over frame 0 (replaced, not added,
-#   so the audio stays in sync)
+# - the poster frame saved as poster.jpg next to the output (or the 4th argument) and baked
+#   over frame 0 (replaced, not added, so the audio stays in sync)
 set -euo pipefail
 
 VIDEO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RAW="${1:-$VIDEO_DIR/out/launch-raw.mp4}"
 OUT="${2:-$VIDEO_DIR/out/launch.mp4}"
 POSTER_FRAME="${3:-840}"
-POSTER="$(dirname "$OUT")/poster.jpg"
+POSTER="${4:-$(dirname "$OUT")/poster.jpg}"
 TARGET_LUFS=-14
 TARGET_TP=-1.5
 TARGET_LRA=11
