@@ -78,7 +78,7 @@ export const ClipOnLaptop: React.FC<{ clip: CaptionedClip }> = ({ clip }) => {
 
 export const RealFootageNote: React.FC = () => (
   <MonoLabel size={15} style={{ position: 'absolute', left: LAPTOP_X + 18, top: 1010 }}>
-    {`Real app · real model (${MODEL_NAME}) · model wait shortened in the edit`}
+    {`Real app · real model (${MODEL_NAME}) · model wait shortened, clips sped up`}
   </MonoLabel>
 );
 

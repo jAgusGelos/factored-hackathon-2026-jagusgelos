@@ -19,6 +19,7 @@ npm ci                                   # Remotion 4.0.532, pinned
 npx remotion studio src/index.ts         # live preview
 npm run render                           # -> out/launch-raw.mp4
 npm run master                           # -> out/launch.mp4 (-14 LUFS, poster as frame 0) + out/poster.jpg
+                                         #    poster = frame 840 (the reveal); pass another frame as the 3rd argument if the timeline moves
 node scripts/stills.mjs /tmp/stills 120 900 2400   # stills of chosen frames, for checking
 ```
 
@@ -43,7 +44,7 @@ re-times itself to the presenter's real delivery whenever a take is re-ingested.
 
 | Element | Status |
 |---|---|
-| App footage in the laptop (Uber resolution, duplicated taxi, policy hand-off, Portuguese) | **Real**: the local app with the real model (Claude Haiku 4.5), recorded with Playwright. The time spent waiting for the model is shortened in the edit (the footage says so on screen), and to fit their beats the clips play at 1x (moment 01), 1.2x (moment 02) and 1.7x (moment 03 and the Portuguese clip); replies are never faked. |
+| App footage in the laptop (Uber resolution, duplicated taxi, policy hand-off, Portuguese) | **Real**: the local app with the real model (Claude Haiku 4.5), recorded with Playwright. The time spent waiting for the model is shortened in the edit, and to fit their beats the clips play at 1x (moment 01), 1.2x (moment 02) and 1.7x (moment 03 and the Portuguese clip); the footage says both on screen, and replies are never faked. |
 | The advisor's case file in moment 03 | **Real**: a screenshot of the hand-off of the same recorded case. |
 | English captions over the chat | Translations of what the Spanish/Portuguese UI shows. |
 | The phone notification in the cold open | **Illustrative** (labelled on screen). The merchant and amount are the demo fixture's. |
@@ -65,7 +66,9 @@ label. The amounts and dates in the chat captions and the cold-open notification
 - **Visual language**: ported from **pdoom-video by mexicat** (MIT, see `video/LICENSE.pdoom-engine`)
   as used in the "Motion as Code" kit: graph paper, plotter pen and spark, karaoke words, glow and
   grain. Recoloured with the app's own tokens. The word aligner in `ingest_takes.py` is ported from
-  the same kit's `align_vo.py` (wav2vec2-base-960h, CTC).
+  the same kit's `align_vo.py` (wav2vec2-base-960h, CTC). That script is the kit author's own and
+  carries no licence of its own (the kit's MIT notice covers the pdoom-video engine); ours is a
+  reimplementation of its method, not a copy.
 - **Fonts**: Archivo, IBM Plex Mono, Cormorant Garamond (SIL Open Font License, `video/public/fonts/OFL.txt`).
 - **Sound effects**: Kenney (CC0), `video/public/sfx/`.
 - **Background removal**: Robust Video Matting (MobileNetV3, ONNX, GPL-3.0), downloaded at run time
