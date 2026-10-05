@@ -1,0 +1,1775 @@
+{
+ "voice": "en-US-AndrewNeural-Male",
+ "rate": 0.95,
+ "lines": [
+  {
+   "id": "cold1",
+   "take": "T01",
+   "scene": "cold",
+   "placement": "presenter",
+   "text": "It's late. You open your bank app, and there it is. A charge you don't recognize.",
+   "source": "presenter",
+   "take_file": "T01_1.mkv",
+   "file": "voice/cold1.m4a",
+   "duration": 6.55,
+   "words": [
+    {
+     "text": "It's",
+     "start": 0.25,
+     "end": 0.45
+    },
+    {
+     "text": "late",
+     "start": 0.45,
+     "end": 0.82
+    },
+    {
+     "text": "You",
+     "start": 1.25,
+     "end": 1.35
+    },
+    {
+     "text": "open",
+     "start": 1.35,
+     "end": 1.59
+    },
+    {
+     "text": "your",
+     "start": 1.59,
+     "end": 1.73
+    },
+    {
+     "text": "bank",
+     "start": 1.73,
+     "end": 2.07
+    },
+    {
+     "text": "app",
+     "start": 2.07,
+     "end": 2.47
+    },
+    {
+     "text": "and",
+     "start": 2.55,
+     "end": 2.97
+    },
+    {
+     "text": "there",
+     "start": 2.97,
+     "end": 3.17
+    },
+    {
+     "text": "it",
+     "start": 3.17,
+     "end": 3.33
+    },
+    {
+     "text": "is",
+     "start": 3.33,
+     "end": 3.73
+    },
+    {
+     "text": "A",
+     "start": 4.05,
+     "end": 4.13
+    },
+    {
+     "text": "charge",
+     "start": 4.13,
+     "end": 4.35
+    },
+    {
+     "text": "you",
+     "start": 4.35,
+     "end": 4.51
+    },
+    {
+     "text": "don't",
+     "start": 4.51,
+     "end": 4.71
+    },
+    {
+     "text": "recognize",
+     "start": 4.71,
+     "end": 6.2
+    }
+   ],
+   "presenter": {
+    "plain": "presenter/cold1.mp4",
+    "matte": "presenter/cold1.webm"
+   }
+  },
+  {
+   "id": "cold2",
+   "take": "T02",
+   "scene": "cold",
+   "placement": "presenter",
+   "text": "You report it. And then, you wait.",
+   "source": "presenter",
+   "take_file": "T02_1.mkv",
+   "file": "voice/cold2.m4a",
+   "duration": 3.13,
+   "words": [
+    {
+     "text": "You",
+     "start": 0.25,
+     "end": 0.43
+    },
+    {
+     "text": "report",
+     "start": 0.43,
+     "end": 0.79
+    },
+    {
+     "text": "it",
+     "start": 0.79,
+     "end": 1.1
+    },
+    {
+     "text": "And",
+     "start": 1.29,
+     "end": 1.41
+    },
+    {
+     "text": "then",
+     "start": 1.41,
+     "end": 1.9
+    },
+    {
+     "text": "you",
+     "start": 2.21,
+     "end": 2.37
+    },
+    {
+     "text": "wait",
+     "start": 2.37,
+     "end": 2.78
+    }
+   ],
+   "presenter": {
+    "plain": "presenter/cold2.mp4",
+    "matte": "presenter/cold2.webm"
+   }
+  },
+  {
+   "id": "cold3",
+   "take": "T03",
+   "scene": "cold",
+   "placement": "presenter",
+   "text": "At this bank, the median wait for a first answer is thirty-seven hours.",
+   "source": "presenter",
+   "take_file": "T03_1.mkv",
+   "file": "voice/cold3.m4a",
+   "duration": 5.24,
+   "words": [
+    {
+     "text": "At",
+     "start": 0.25,
+     "end": 0.41
+    },
+    {
+     "text": "this",
+     "start": 0.41,
+     "end": 0.69
+    },
+    {
+     "text": "bank",
+     "start": 0.69,
+     "end": 1.14
+    },
+    {
+     "text": "the",
+     "start": 1.39,
+     "end": 1.51
+    },
+    {
+     "text": "median",
+     "start": 1.51,
+     "end": 1.87
+    },
+    {
+     "text": "wait",
+     "start": 1.87,
+     "end": 2.11
+    },
+    {
+     "text": "for",
+     "start": 2.11,
+     "end": 2.29
+    },
+    {
+     "text": "a",
+     "start": 2.29,
+     "end": 2.39
+    },
+    {
+     "text": "first",
+     "start": 2.39,
+     "end": 2.75
+    },
+    {
+     "text": "answer",
+     "start": 2.75,
+     "end": 3.29
+    },
+    {
+     "text": "is",
+     "start": 3.29,
+     "end": 3.51
+    },
+    {
+     "text": "thirty-seven",
+     "start": 3.51,
+     "end": 4.13
+    },
+    {
+     "text": "hours",
+     "start": 4.13,
+     "end": 4.89
+    }
+   ],
+   "presenter": {
+    "plain": "presenter/cold3.mp4",
+    "matte": "presenter/cold3.webm"
+   }
+  },
+  {
+   "id": "reveal1",
+   "take": "T04",
+   "scene": "reveal",
+   "placement": "presenter",
+   "text": "I wanted that answer in seconds. And I wanted it to be right.",
+   "source": "presenter",
+   "take_file": "T04_1.mkv",
+   "file": "voice/reveal1.m4a",
+   "duration": 3.98,
+   "words": [
+    {
+     "text": "I",
+     "start": 0.25,
+     "end": 0.37
+    },
+    {
+     "text": "wanted",
+     "start": 0.37,
+     "end": 0.73
+    },
+    {
+     "text": "that",
+     "start": 0.73,
+     "end": 1.11
+    },
+    {
+     "text": "answer",
+     "start": 1.11,
+     "end": 1.61
+    },
+    {
+     "text": "in",
+     "start": 1.61,
+     "end": 1.75
+    },
+    {
+     "text": "seconds",
+     "start": 1.75,
+     "end": 2.41
+    },
+    {
+     "text": "And",
+     "start": 2.41,
+     "end": 2.53
+    },
+    {
+     "text": "I",
+     "start": 2.53,
+     "end": 2.61
+    },
+    {
+     "text": "wanted",
+     "start": 2.61,
+     "end": 2.89
+    },
+    {
+     "text": "it",
+     "start": 2.89,
+     "end": 2.95
+    },
+    {
+     "text": "to",
+     "start": 2.95,
+     "end": 3.05
+    },
+    {
+     "text": "be",
+     "start": 3.05,
+     "end": 3.21
+    },
+    {
+     "text": "right",
+     "start": 3.21,
+     "end": 3.63
+    }
+   ],
+   "presenter": {
+    "plain": "presenter/reveal1.mp4",
+    "matte": "presenter/reveal1.webm"
+   }
+  },
+  {
+   "id": "reveal2",
+   "take": "T05",
+   "scene": "reveal",
+   "placement": "presenter",
+   "text": "So I built the LATAM Bank Dispute Agent.",
+   "source": "presenter",
+   "take_file": "T05_2.mkv",
+   "file": "voice/reveal2.m4a",
+   "duration": 3.74,
+   "words": [
+    {
+     "text": "So",
+     "start": 0.25,
+     "end": 0.74
+    },
+    {
+     "text": "I",
+     "start": 0.95,
+     "end": 1.09
+    },
+    {
+     "text": "built",
+     "start": 1.09,
+     "end": 1.29
+    },
+    {
+     "text": "the",
+     "start": 1.29,
+     "end": 1.43
+    },
+    {
+     "text": "LATAM",
+     "start": 1.43,
+     "end": 1.85
+    },
+    {
+     "text": "Bank",
+     "start": 1.85,
+     "end": 2.37
+    },
+    {
+     "text": "Dispute",
+     "start": 2.37,
+     "end": 2.93
+    },
+    {
+     "text": "Agent",
+     "start": 2.93,
+     "end": 3.39
+    }
+   ],
+   "presenter": {
+    "plain": "presenter/reveal2.mp4",
+    "matte": "presenter/reveal2.webm"
+   }
+  },
+  {
+   "id": "m1a",
+   "take": "T06",
+   "scene": "m1",
+   "placement": "bubble",
+   "text": "The customer writes it in their own words. The agent finds the exact charge in their history, and asks: is this the one?",
+   "source": "presenter",
+   "take_file": "T06_1.mkv",
+   "file": "voice/m1a.m4a",
+   "duration": 7.85,
+   "words": [
+    {
+     "text": "The",
+     "start": 0.25,
+     "end": 0.39
+    },
+    {
+     "text": "customer",
+     "start": 0.39,
+     "end": 1.17
+    },
+    {
+     "text": "writes",
+     "start": 1.17,
+     "end": 1.39
+    },
+    {
+     "text": "it",
+     "start": 1.39,
+     "end": 1.57
+    },
+    {
+     "text": "in",
+     "start": 1.57,
+     "end": 1.67
+    },
+    {
+     "text": "their",
+     "start": 1.67,
+     "end": 1.96
+    },
+    {
+     "text": "own",
+     "start": 1.97,
+     "end": 2.15
+    },
+    {
+     "text": "words",
+     "start": 2.15,
+     "end": 2.65
+    },
+    {
+     "text": "The",
+     "start": 2.89,
+     "end": 3.07
+    },
+    {
+     "text": "agent",
+     "start": 3.07,
+     "end": 3.41
+    },
+    {
+     "text": "finds",
+     "start": 3.41,
+     "end": 3.73
+    },
+    {
+     "text": "the",
+     "start": 3.73,
+     "end": 3.93
+    },
+    {
+     "text": "exact",
+     "start": 3.93,
+     "end": 4.39
+    },
+    {
+     "text": "charge",
+     "start": 4.39,
+     "end": 4.71
+    },
+    {
+     "text": "in",
+     "start": 4.71,
+     "end": 4.83
+    },
+    {
+     "text": "their",
+     "start": 4.83,
+     "end": 4.97
+    },
+    {
+     "text": "history",
+     "start": 4.97,
+     "end": 5.51
+    },
+    {
+     "text": "and",
+     "start": 5.51,
+     "end": 5.79
+    },
+    {
+     "text": "asks",
+     "start": 5.79,
+     "end": 6.47
+    },
+    {
+     "text": "is",
+     "start": 6.47,
+     "end": 6.59
+    },
+    {
+     "text": "this",
+     "start": 6.59,
+     "end": 6.79
+    },
+    {
+     "text": "the",
+     "start": 6.79,
+     "end": 6.99
+    },
+    {
+     "text": "one",
+     "start": 6.99,
+     "end": 7.5
+    }
+   ],
+   "presenter": {
+    "plain": "presenter/m1a.mp4",
+    "matte": "presenter/m1a.webm"
+   }
+  },
+  {
+   "id": "m1b",
+   "take": "T07",
+   "scene": "m1",
+   "placement": "bubble",
+   "text": "One short explanation, and it's done. A provisional credit, the card blocked, a reference number. Every fact is checked against the record.",
+   "source": "presenter",
+   "take_file": "T07_2.mkv",
+   "file": "voice/m1b.m4a",
+   "duration": 8.73,
+   "words": [
+    {
+     "text": "One",
+     "start": 0.25,
+     "end": 0.43
+    },
+    {
+     "text": "short",
+     "start": 0.43,
+     "end": 0.67
+    },
+    {
+     "text": "explanation",
+     "start": 0.67,
+     "end": 1.35
+    },
+    {
+     "text": "and",
+     "start": 1.35,
+     "end": 1.45
+    },
+    {
+     "text": "it's",
+     "start": 1.45,
+     "end": 1.63
+    },
+    {
+     "text": "done",
+     "start": 1.63,
+     "end": 2.09
+    },
+    {
+     "text": "A",
+     "start": 2.09,
+     "end": 2.19
+    },
+    {
+     "text": "provisional",
+     "start": 2.19,
+     "end": 2.71
+    },
+    {
+     "text": "credit",
+     "start": 2.71,
+     "end": 3.32
+    },
+    {
+     "text": "the",
+     "start": 3.49,
+     "end": 3.65
+    },
+    {
+     "text": "card",
+     "start": 3.65,
+     "end": 4.17
+    },
+    {
+     "text": "blocked",
+     "start": 4.17,
+     "end": 4.7
+    },
+    {
+     "text": "a",
+     "start": 4.77,
+     "end": 4.89
+    },
+    {
+     "text": "reference",
+     "start": 4.89,
+     "end": 5.25
+    },
+    {
+     "text": "number",
+     "start": 5.25,
+     "end": 5.79
+    },
+    {
+     "text": "Every",
+     "start": 6.05,
+     "end": 6.31
+    },
+    {
+     "text": "fact",
+     "start": 6.31,
+     "end": 6.67
+    },
+    {
+     "text": "is",
+     "start": 6.67,
+     "end": 6.87
+    },
+    {
+     "text": "checked",
+     "start": 6.87,
+     "end": 7.37
+    },
+    {
+     "text": "against",
+     "start": 7.37,
+     "end": 7.73
+    },
+    {
+     "text": "the",
+     "start": 7.73,
+     "end": 7.83
+    },
+    {
+     "text": "record",
+     "start": 7.83,
+     "end": 8.38
+    }
+   ],
+   "presenter": {
+    "plain": "presenter/m1b.mp4",
+    "matte": "presenter/m1b.webm"
+   }
+  },
+  {
+   "id": "m2a",
+   "take": "T08",
+   "scene": "m2",
+   "placement": "bubble",
+   "text": "Charged twice for one taxi? It doesn't guess. It shows the customer their own charges, and lets them pick.",
+   "source": "presenter",
+   "take_file": "T08_3.mkv",
+   "file": "voice/m2a.m4a",
+   "duration": 6.18,
+   "words": [
+    {
+     "text": "Charged",
+     "start": 0.25,
+     "end": 0.55
+    },
+    {
+     "text": "twice",
+     "start": 0.55,
+     "end": 0.87
+    },
+    {
+     "text": "for",
+     "start": 0.87,
+     "end": 1.07
+    },
+    {
+     "text": "one",
+     "start": 1.07,
+     "end": 1.27
+    },
+    {
+     "text": "taxi",
+     "start": 1.27,
+     "end": 1.87
+    },
+    {
+     "text": "It",
+     "start": 1.87,
+     "end": 1.96
+    },
+    {
+     "text": "doesn't",
+     "start": 1.97,
+     "end": 2.29
+    },
+    {
+     "text": "guess",
+     "start": 2.29,
+     "end": 2.73
+    },
+    {
+     "text": "It",
+     "start": 2.79,
+     "end": 2.93
+    },
+    {
+     "text": "shows",
+     "start": 2.93,
+     "end": 3.19
+    },
+    {
+     "text": "the",
+     "start": 3.19,
+     "end": 3.35
+    },
+    {
+     "text": "customer",
+     "start": 3.35,
+     "end": 3.81
+    },
+    {
+     "text": "their",
+     "start": 3.81,
+     "end": 4.09
+    },
+    {
+     "text": "own",
+     "start": 4.09,
+     "end": 4.31
+    },
+    {
+     "text": "charges",
+     "start": 4.31,
+     "end": 4.91
+    },
+    {
+     "text": "and",
+     "start": 4.91,
+     "end": 5.03
+    },
+    {
+     "text": "lets",
+     "start": 5.03,
+     "end": 5.19
+    },
+    {
+     "text": "them",
+     "start": 5.19,
+     "end": 5.39
+    },
+    {
+     "text": "pick",
+     "start": 5.39,
+     "end": 5.83
+    }
+   ],
+   "presenter": {
+    "plain": "presenter/m2a.mp4",
+    "matte": "presenter/m2a.webm"
+   }
+  },
+  {
+   "id": "m2b",
+   "take": "T09",
+   "scene": "m2",
+   "placement": "bubble",
+   "text": "Then it finds the twin in the data, and refunds one. Only one.",
+   "source": "presenter",
+   "take_file": "T09_1.mkv",
+   "file": "voice/m2b.m4a",
+   "duration": 5.27,
+   "words": [
+    {
+     "text": "Then",
+     "start": 0.25,
+     "end": 0.65
+    },
+    {
+     "text": "it",
+     "start": 0.65,
+     "end": 0.83
+    },
+    {
+     "text": "finds",
+     "start": 0.83,
+     "end": 1.09
+    },
+    {
+     "text": "the",
+     "start": 1.09,
+     "end": 1.21
+    },
+    {
+     "text": "twin",
+     "start": 1.21,
+     "end": 1.47
+    },
+    {
+     "text": "in",
+     "start": 1.47,
+     "end": 1.59
+    },
+    {
+     "text": "the",
+     "start": 1.59,
+     "end": 1.73
+    },
+    {
+     "text": "data",
+     "start": 1.73,
+     "end": 2.29
+    },
+    {
+     "text": "and",
+     "start": 2.29,
+     "end": 2.41
+    },
+    {
+     "text": "refunds",
+     "start": 2.41,
+     "end": 3.19
+    },
+    {
+     "text": "one",
+     "start": 3.19,
+     "end": 3.55
+    },
+    {
+     "text": "Only",
+     "start": 3.79,
+     "end": 4.23
+    },
+    {
+     "text": "one",
+     "start": 4.59,
+     "end": 4.92
+    }
+   ],
+   "presenter": {
+    "plain": "presenter/m2b.mp4",
+    "matte": "presenter/m2b.webm"
+   }
+  },
+  {
+   "id": "m3a",
+   "take": "T10",
+   "scene": "m3",
+   "placement": "bubble",
+   "text": "And when a charge should not be paid automatically, it knows not to act.",
+   "source": "presenter",
+   "take_file": "T10_2.mkv",
+   "file": "voice/m3a.m4a",
+   "duration": 4.64,
+   "words": [
+    {
+     "text": "And",
+     "start": 0.25,
+     "end": 0.35
+    },
+    {
+     "text": "when",
+     "start": 0.35,
+     "end": 0.53
+    },
+    {
+     "text": "a",
+     "start": 0.53,
+     "end": 0.61
+    },
+    {
+     "text": "charge",
+     "start": 0.61,
+     "end": 0.83
+    },
+    {
+     "text": "should",
+     "start": 0.83,
+     "end": 1.01
+    },
+    {
+     "text": "not",
+     "start": 1.01,
+     "end": 1.17
+    },
+    {
+     "text": "be",
+     "start": 1.17,
+     "end": 1.29
+    },
+    {
+     "text": "paid",
+     "start": 1.29,
+     "end": 1.49
+    },
+    {
+     "text": "automatically",
+     "start": 1.49,
+     "end": 2.35
+    },
+    {
+     "text": "it",
+     "start": 2.85,
+     "end": 2.99
+    },
+    {
+     "text": "knows",
+     "start": 2.99,
+     "end": 3.31
+    },
+    {
+     "text": "not",
+     "start": 3.31,
+     "end": 3.53
+    },
+    {
+     "text": "to",
+     "start": 3.53,
+     "end": 3.67
+    },
+    {
+     "text": "act",
+     "start": 3.67,
+     "end": 4.29
+    }
+   ],
+   "presenter": {
+    "plain": "presenter/m3a.mp4",
+    "matte": "presenter/m3a.webm"
+   }
+  },
+  {
+   "id": "m3b",
+   "take": "T11",
+   "scene": "m3",
+   "placement": "voice",
+   "text": "It asks the questions an advisor would call back for, and blocks the card to keep the customer safe. Then a person gets the full case file: verified facts, the customer's story, and what is still open.",
+   "source": "presenter",
+   "take_file": "T11_1.mkv",
+   "file": "voice/m3b.m4a",
+   "duration": 12.26,
+   "words": [
+    {
+     "text": "It",
+     "start": 0.25,
+     "end": 0.51
+    },
+    {
+     "text": "asks",
+     "start": 0.51,
+     "end": 0.73
+    },
+    {
+     "text": "the",
+     "start": 0.73,
+     "end": 0.85
+    },
+    {
+     "text": "questions",
+     "start": 0.85,
+     "end": 1.33
+    },
+    {
+     "text": "an",
+     "start": 1.33,
+     "end": 1.45
+    },
+    {
+     "text": "advisor",
+     "start": 1.45,
+     "end": 1.87
+    },
+    {
+     "text": "would",
+     "start": 1.87,
+     "end": 2.07
+    },
+    {
+     "text": "call",
+     "start": 2.07,
+     "end": 2.31
+    },
+    {
+     "text": "back",
+     "start": 2.31,
+     "end": 2.57
+    },
+    {
+     "text": "for",
+     "start": 2.57,
+     "end": 3.1
+    },
+    {
+     "text": "and",
+     "start": 3.27,
+     "end": 3.41
+    },
+    {
+     "text": "blocks",
+     "start": 3.41,
+     "end": 3.71
+    },
+    {
+     "text": "the",
+     "start": 3.71,
+     "end": 3.83
+    },
+    {
+     "text": "card",
+     "start": 3.83,
+     "end": 4.19
+    },
+    {
+     "text": "to",
+     "start": 4.19,
+     "end": 4.33
+    },
+    {
+     "text": "keep",
+     "start": 4.33,
+     "end": 4.51
+    },
+    {
+     "text": "the",
+     "start": 4.51,
+     "end": 4.63
+    },
+    {
+     "text": "customer",
+     "start": 4.63,
+     "end": 5.13
+    },
+    {
+     "text": "safe",
+     "start": 5.13,
+     "end": 5.54
+    },
+    {
+     "text": "Then",
+     "start": 6.19,
+     "end": 6.69
+    },
+    {
+     "text": "a",
+     "start": 6.69,
+     "end": 6.77
+    },
+    {
+     "text": "person",
+     "start": 6.77,
+     "end": 7.05
+    },
+    {
+     "text": "gets",
+     "start": 7.05,
+     "end": 7.29
+    },
+    {
+     "text": "the",
+     "start": 7.29,
+     "end": 7.41
+    },
+    {
+     "text": "full",
+     "start": 7.41,
+     "end": 7.67
+    },
+    {
+     "text": "case",
+     "start": 7.67,
+     "end": 7.83
+    },
+    {
+     "text": "file",
+     "start": 7.83,
+     "end": 8.09
+    },
+    {
+     "text": "verified",
+     "start": 8.09,
+     "end": 8.63
+    },
+    {
+     "text": "facts",
+     "start": 8.63,
+     "end": 9.26
+    },
+    {
+     "text": "the",
+     "start": 9.41,
+     "end": 9.53
+    },
+    {
+     "text": "customer's",
+     "start": 9.53,
+     "end": 9.95
+    },
+    {
+     "text": "story",
+     "start": 9.95,
+     "end": 10.71
+    },
+    {
+     "text": "and",
+     "start": 10.73,
+     "end": 10.85
+    },
+    {
+     "text": "what",
+     "start": 10.85,
+     "end": 11.01
+    },
+    {
+     "text": "is",
+     "start": 11.01,
+     "end": 11.11
+    },
+    {
+     "text": "still",
+     "start": 11.11,
+     "end": 11.39
+    },
+    {
+     "text": "open",
+     "start": 11.39,
+     "end": 11.91
+    }
+   ],
+   "presenter": {
+    "plain": "presenter/m3b.mp4",
+    "matte": "presenter/m3b.webm"
+   }
+  },
+  {
+   "id": "m3c",
+   "take": "T12",
+   "scene": "m3",
+   "placement": "voice",
+   "text": "In Spanish, or in Portuguese.",
+   "source": "presenter",
+   "take_file": "T12_1.mkv",
+   "file": "voice/m3c.m4a",
+   "duration": 2.55,
+   "words": [
+    {
+     "text": "In",
+     "start": 0.25,
+     "end": 0.37
+    },
+    {
+     "text": "Spanish",
+     "start": 0.37,
+     "end": 1.07
+    },
+    {
+     "text": "or",
+     "start": 1.07,
+     "end": 1.15
+    },
+    {
+     "text": "in",
+     "start": 1.15,
+     "end": 1.23
+    },
+    {
+     "text": "Portuguese",
+     "start": 1.23,
+     "end": 2.2
+    }
+   ],
+   "presenter": {
+    "plain": "presenter/m3c.mp4",
+    "matte": "presenter/m3c.webm"
+   }
+  },
+  {
+   "id": "how1",
+   "take": "T13",
+   "scene": "how",
+   "placement": "diagram",
+   "text": "Why would a bank trust it? Because the model only reads. The rules and permissions live in code. And every fact is checked against the customer's own ledger.",
+   "source": "presenter",
+   "take_file": "T13_2.mkv",
+   "file": "voice/how1.m4a",
+   "duration": 10.32,
+   "words": [
+    {
+     "text": "Why",
+     "start": 0.25,
+     "end": 0.47
+    },
+    {
+     "text": "would",
+     "start": 0.47,
+     "end": 0.71
+    },
+    {
+     "text": "a",
+     "start": 0.71,
+     "end": 0.77
+    },
+    {
+     "text": "bank",
+     "start": 0.77,
+     "end": 1.13
+    },
+    {
+     "text": "trust",
+     "start": 1.13,
+     "end": 1.55
+    },
+    {
+     "text": "it",
+     "start": 1.55,
+     "end": 1.82
+    },
+    {
+     "text": "Because",
+     "start": 1.87,
+     "end": 2.17
+    },
+    {
+     "text": "the",
+     "start": 2.17,
+     "end": 2.27
+    },
+    {
+     "text": "model",
+     "start": 2.27,
+     "end": 2.79
+    },
+    {
+     "text": "only",
+     "start": 2.79,
+     "end": 3.09
+    },
+    {
+     "text": "reads",
+     "start": 3.09,
+     "end": 3.53
+    },
+    {
+     "text": "The",
+     "start": 3.75,
+     "end": 3.91
+    },
+    {
+     "text": "rules",
+     "start": 3.91,
+     "end": 4.35
+    },
+    {
+     "text": "and",
+     "start": 4.35,
+     "end": 4.47
+    },
+    {
+     "text": "permissions",
+     "start": 4.47,
+     "end": 5.19
+    },
+    {
+     "text": "live",
+     "start": 5.19,
+     "end": 5.37
+    },
+    {
+     "text": "in",
+     "start": 5.37,
+     "end": 5.51
+    },
+    {
+     "text": "code",
+     "start": 5.51,
+     "end": 5.97
+    },
+    {
+     "text": "And",
+     "start": 5.97,
+     "end": 6.23
+    },
+    {
+     "text": "every",
+     "start": 6.23,
+     "end": 6.59
+    },
+    {
+     "text": "fact",
+     "start": 6.59,
+     "end": 7.03
+    },
+    {
+     "text": "is",
+     "start": 7.03,
+     "end": 7.23
+    },
+    {
+     "text": "checked",
+     "start": 7.23,
+     "end": 7.97
+    },
+    {
+     "text": "against",
+     "start": 8.03,
+     "end": 8.37
+    },
+    {
+     "text": "the",
+     "start": 8.37,
+     "end": 8.49
+    },
+    {
+     "text": "customer's",
+     "start": 8.49,
+     "end": 9.25
+    },
+    {
+     "text": "own",
+     "start": 9.25,
+     "end": 9.53
+    },
+    {
+     "text": "ledger",
+     "start": 9.53,
+     "end": 9.97
+    }
+   ],
+   "presenter": {
+    "plain": "presenter/how1.mp4",
+    "matte": "presenter/how1.webm"
+   }
+  },
+  {
+   "id": "how2",
+   "take": "T14",
+   "scene": "how",
+   "placement": "diagram",
+   "text": "I built it on a focused slice of the data: one month of transactions. A dispute only needs recent history, and the live app never touches the raw data.",
+   "source": "presenter",
+   "take_file": "T14_2.mkv",
+   "file": "voice/how2.m4a",
+   "duration": 9.44,
+   "words": [
+    {
+     "text": "I",
+     "start": 0.25,
+     "end": 0.35
+    },
+    {
+     "text": "built",
+     "start": 0.35,
+     "end": 0.61
+    },
+    {
+     "text": "it",
+     "start": 0.61,
+     "end": 0.85
+    },
+    {
+     "text": "on",
+     "start": 0.85,
+     "end": 0.95
+    },
+    {
+     "text": "a",
+     "start": 0.95,
+     "end": 1.03
+    },
+    {
+     "text": "focused",
+     "start": 1.03,
+     "end": 1.37
+    },
+    {
+     "text": "slice",
+     "start": 1.37,
+     "end": 1.81
+    },
+    {
+     "text": "of",
+     "start": 1.81,
+     "end": 1.93
+    },
+    {
+     "text": "the",
+     "start": 1.93,
+     "end": 2.03
+    },
+    {
+     "text": "data",
+     "start": 2.03,
+     "end": 2.59
+    },
+    {
+     "text": "one",
+     "start": 2.77,
+     "end": 2.93
+    },
+    {
+     "text": "month",
+     "start": 2.93,
+     "end": 3.17
+    },
+    {
+     "text": "of",
+     "start": 3.17,
+     "end": 3.33
+    },
+    {
+     "text": "transactions",
+     "start": 3.33,
+     "end": 4.15
+    },
+    {
+     "text": "A",
+     "start": 4.19,
+     "end": 4.29
+    },
+    {
+     "text": "dispute",
+     "start": 4.29,
+     "end": 4.89
+    },
+    {
+     "text": "only",
+     "start": 5.03,
+     "end": 5.25
+    },
+    {
+     "text": "needs",
+     "start": 5.25,
+     "end": 5.53
+    },
+    {
+     "text": "recent",
+     "start": 5.53,
+     "end": 5.81
+    },
+    {
+     "text": "history",
+     "start": 5.81,
+     "end": 6.43
+    },
+    {
+     "text": "and",
+     "start": 6.43,
+     "end": 6.53
+    },
+    {
+     "text": "the",
+     "start": 6.53,
+     "end": 6.65
+    },
+    {
+     "text": "live",
+     "start": 6.65,
+     "end": 6.89
+    },
+    {
+     "text": "app",
+     "start": 6.89,
+     "end": 7.25
+    },
+    {
+     "text": "never",
+     "start": 7.25,
+     "end": 7.51
+    },
+    {
+     "text": "touches",
+     "start": 7.51,
+     "end": 7.93
+    },
+    {
+     "text": "the",
+     "start": 7.93,
+     "end": 8.11
+    },
+    {
+     "text": "raw",
+     "start": 8.11,
+     "end": 8.27
+    },
+    {
+     "text": "data",
+     "start": 8.27,
+     "end": 9.09
+    }
+   ],
+   "presenter": {
+    "plain": "presenter/how2.mp4",
+    "matte": "presenter/how2.webm"
+   }
+  },
+  {
+   "id": "how3",
+   "take": "T15",
+   "scene": "how",
+   "placement": "diagram",
+   "text": "I tested it on forty-eight new conversations, with the real model. It resolved all eighteen it should, with zero unsafe outcomes.",
+   "source": "presenter",
+   "take_file": "T15_1.mkv",
+   "file": "voice/how3.m4a",
+   "duration": 9.04,
+   "words": [
+    {
+     "text": "I",
+     "start": 0.25,
+     "end": 0.39
+    },
+    {
+     "text": "tested",
+     "start": 0.39,
+     "end": 0.77
+    },
+    {
+     "text": "it",
+     "start": 0.77,
+     "end": 1.07
+    },
+    {
+     "text": "on",
+     "start": 1.07,
+     "end": 1.19
+    },
+    {
+     "text": "forty-eight",
+     "start": 1.19,
+     "end": 1.71
+    },
+    {
+     "text": "new",
+     "start": 1.71,
+     "end": 1.88
+    },
+    {
+     "text": "conversations",
+     "start": 1.89,
+     "end": 2.63
+    },
+    {
+     "text": "with",
+     "start": 2.63,
+     "end": 2.79
+    },
+    {
+     "text": "the",
+     "start": 2.79,
+     "end": 2.91
+    },
+    {
+     "text": "real",
+     "start": 2.91,
+     "end": 3.15
+    },
+    {
+     "text": "model",
+     "start": 3.15,
+     "end": 3.81
+    },
+    {
+     "text": "It",
+     "start": 3.81,
+     "end": 3.93
+    },
+    {
+     "text": "resolved",
+     "start": 3.93,
+     "end": 4.45
+    },
+    {
+     "text": "all",
+     "start": 4.45,
+     "end": 4.61
+    },
+    {
+     "text": "eighteen",
+     "start": 4.61,
+     "end": 5.03
+    },
+    {
+     "text": "it",
+     "start": 5.03,
+     "end": 5.17
+    },
+    {
+     "text": "should",
+     "start": 5.17,
+     "end": 5.66
+    },
+    {
+     "text": "with",
+     "start": 5.71,
+     "end": 5.91
+    },
+    {
+     "text": "zero",
+     "start": 5.91,
+     "end": 6.43
+    },
+    {
+     "text": "unsafe",
+     "start": 6.43,
+     "end": 6.81
+    },
+    {
+     "text": "outcomes",
+     "start": 6.81,
+     "end": 8.69
+    }
+   ],
+   "presenter": {
+    "plain": "presenter/how3.mp4",
+    "matte": "presenter/how3.webm"
+   }
+  },
+  {
+   "id": "close1",
+   "take": "T16",
+   "scene": "close",
+   "placement": "presenter",
+   "text": "Answers in seconds for the cases it should resolve. A person for the ones it shouldn't.",
+   "source": "presenter",
+   "take_file": "T16_1.mkv",
+   "file": "voice/close1.m4a",
+   "duration": 5.38,
+   "words": [
+    {
+     "text": "Answers",
+     "start": 0.25,
+     "end": 0.65
+    },
+    {
+     "text": "in",
+     "start": 0.65,
+     "end": 0.81
+    },
+    {
+     "text": "seconds",
+     "start": 0.81,
+     "end": 1.23
+    },
+    {
+     "text": "for",
+     "start": 1.23,
+     "end": 1.41
+    },
+    {
+     "text": "the",
+     "start": 1.41,
+     "end": 1.51
+    },
+    {
+     "text": "cases",
+     "start": 1.51,
+     "end": 1.93
+    },
+    {
+     "text": "it",
+     "start": 1.93,
+     "end": 2.09
+    },
+    {
+     "text": "should",
+     "start": 2.09,
+     "end": 2.29
+    },
+    {
+     "text": "resolve",
+     "start": 2.29,
+     "end": 2.93
+    },
+    {
+     "text": "A",
+     "start": 3.11,
+     "end": 3.21
+    },
+    {
+     "text": "person",
+     "start": 3.21,
+     "end": 3.93
+    },
+    {
+     "text": "for",
+     "start": 3.93,
+     "end": 4.09
+    },
+    {
+     "text": "the",
+     "start": 4.09,
+     "end": 4.23
+    },
+    {
+     "text": "ones",
+     "start": 4.23,
+     "end": 4.37
+    },
+    {
+     "text": "it",
+     "start": 4.37,
+     "end": 4.49
+    },
+    {
+     "text": "shouldn't",
+     "start": 4.49,
+     "end": 5.03
+    }
+   ],
+   "presenter": {
+    "plain": "presenter/close1.mp4",
+    "matte": "presenter/close1.webm"
+   }
+  },
+  {
+   "id": "close2",
+   "take": "T17",
+   "scene": "close",
+   "placement": "presenter",
+   "text": "The LATAM Bank Dispute Agent. Try it live. The link is below.",
+   "source": "presenter",
+   "take_file": "T17_1.mkv",
+   "file": "voice/close2.m4a",
+   "duration": 4.25,
+   "words": [
+    {
+     "text": "The",
+     "start": 0.25,
+     "end": 0.41
+    },
+    {
+     "text": "LATAM",
+     "start": 0.41,
+     "end": 0.77
+    },
+    {
+     "text": "Bank",
+     "start": 0.77,
+     "end": 1.01
+    },
+    {
+     "text": "Dispute",
+     "start": 1.01,
+     "end": 1.47
+    },
+    {
+     "text": "Agent",
+     "start": 1.47,
+     "end": 1.97
+    },
+    {
+     "text": "Try",
+     "start": 1.97,
+     "end": 2.2
+    },
+    {
+     "text": "it",
+     "start": 2.21,
+     "end": 2.33
+    },
+    {
+     "text": "live",
+     "start": 2.33,
+     "end": 2.69
+    },
+    {
+     "text": "The",
+     "start": 2.69,
+     "end": 2.83
+    },
+    {
+     "text": "link",
+     "start": 2.83,
+     "end": 3.03
+    },
+    {
+     "text": "is",
+     "start": 3.03,
+     "end": 3.15
+    },
+    {
+     "text": "below",
+     "start": 3.15,
+     "end": 3.9
+    }
+   ],
+   "presenter": {
+    "plain": "presenter/close2.mp4",
+    "matte": "presenter/close2.webm"
+   }
+  }
+ ]
+}

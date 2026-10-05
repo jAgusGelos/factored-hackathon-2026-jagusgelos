@@ -1,0 +1,16 @@
+1
+00:00:00,105 --> 00:00:02,342
+I built it on a focused slice of the data
+
+2
+00:00:02,684 --> 00:00:04,171
+one month of transactions
+
+3
+00:00:04,605 --> 00:00:06,855
+A dispute only needs recent history
+
+4
+00:00:07,158 --> 00:00:09,566
+and the live app never touches the raw data
+

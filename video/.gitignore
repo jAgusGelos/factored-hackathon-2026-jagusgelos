@@ -1,0 +1,9 @@
+node_modules/
+out/
+.remotion/
+# Raw Playwright recordings: large, re-recorded by scripts
+recordings/
+# Root .gitignore ignores every data/ dir; nothing under video/ is named data/ on purpose (src/meta/).
+# Presenter takes from the camera (raw) and the processed presenter cut-outs
+takes/
+public/presenter/

@@ -1,0 +1,16 @@
+1
+00:00:00,118 --> 00:00:02,197
+The customer writes it in their own words
+
+2
+00:00:02,632 --> 00:00:05,460
+The agent finds the exact charge in their history
+
+3
+00:00:05,684 --> 00:00:06,434
+and asks
+
+4
+00:00:06,763 --> 00:00:07,474
+is this the one
+

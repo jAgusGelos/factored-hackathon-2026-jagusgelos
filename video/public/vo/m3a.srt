@@ -1,0 +1,8 @@
+1
+00:00:00,105 --> 00:00:02,460
+And when a charge should not be paid automatically
+
+2
+00:00:02,750 --> 00:00:04,013
+it knows not to act
+
