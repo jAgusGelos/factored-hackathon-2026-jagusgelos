@@ -904,7 +904,7 @@ def test_a_lost_card_replaces_the_advisor_block_question_with_the_reissue_task(r
     reply = finish_statement(session, real_fixture_app_db, picked, mock={"statement": lost})
 
     handoff = cases.get_case(reply["case_id"], db_path=real_fixture_app_db).handoff
-    assert handoffs.CARD_LOST_QUESTION not in handoff["open_questions"]
+    assert not any("bloquear" in question for question in handoff["open_questions"])
     assert handoffs.CARD_BLOCKED_TASK in handoff["open_questions"]
     assert "card_out_of_hands" in _card_block(real_fixture_app_db, reply["case_id"])[0]["signals"]
 

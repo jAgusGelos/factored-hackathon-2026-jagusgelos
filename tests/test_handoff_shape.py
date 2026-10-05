@@ -203,7 +203,7 @@ def test_a_statement_keeps_the_seven_parts_and_only_adds_to_reported_and_questio
     assert list(handoff["open_questions"][: len(pending["open_questions"])]) == list(pending["open_questions"])
 
 
-def test_each_unknown_key_fact_becomes_one_advisor_task_and_a_missing_card_is_flagged():
+def test_each_unknown_key_fact_becomes_one_advisor_task():
     pending, handoff = _with_statement("ineligible_match")
 
     added = handoff["open_questions"][len(pending["open_questions"]):]
@@ -212,21 +212,14 @@ def test_each_unknown_key_fact_becomes_one_advisor_task_and_a_missing_card_is_fl
         "Confirmar con el cliente si conoce el comercio o lo usó alguna vez.",
         "Confirmar con el cliente si perdió la tarjeta o se la robaron.",
         "Confirmar con el cliente si hay otros cargos o movimientos que no reconoce.",
-        handoffs.CARD_LOST_QUESTION,
     ]
 
 
-def test_a_known_loss_is_reported_and_leaves_only_the_card_block_task():
+def test_a_known_loss_is_reported_and_is_no_longer_a_task():
     _, handoff = _with_statement("ineligible_match", facts={**STATEMENT_FACTS, "card_loss": "stolen"})
 
     assert handoff["customer_reported"]["card_loss"] == "stolen"
     assert "Confirmar con el cliente si perdió la tarjeta o se la robaron." not in handoff["open_questions"]
-    assert handoffs.CARD_LOST_QUESTION in handoff["open_questions"]
-
-
-def test_the_lost_card_task_only_when_the_customer_says_they_do_not_have_it():
-    _, handoff = _with_statement("ineligible_match", facts={**STATEMENT_FACTS, "card_possession": "yes"})
-    assert handoffs.CARD_LOST_QUESTION not in handoff["open_questions"]
 
 
 def test_card_possession_is_not_a_task_when_the_customer_made_the_purchase():
@@ -263,7 +256,7 @@ def test_a_card_block_is_an_action_taken_and_the_advisor_confirms_the_reissue():
 
     blocked = handoffs.with_card_block(handoff, protection)
 
-    assert handoffs.CARD_LOST_QUESTION not in blocked["open_questions"]
+    assert blocked["open_questions"] == [*handoff["open_questions"], handoffs.CARD_BLOCKED_TASK]
     assert blocked["open_questions"][-1] == handoffs.CARD_BLOCKED_TASK
     assert blocked["actions_taken"][:-1] == list(handoff["actions_taken"])
     assert "simulado" in blocked["actions_taken"][-1] and "fuera del poder del cliente" in blocked["actions_taken"][-1]

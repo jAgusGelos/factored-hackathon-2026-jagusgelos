@@ -30,7 +30,6 @@ from app.policy import (
     FraudSignal,
     ProtectiveDecision,
     StatementField,
-    Tristate,
     known_fact,
     open_facts,
 )
@@ -368,7 +367,6 @@ _STATEMENT_OPEN_QUESTIONS = {
         "Confirmar con el cliente si hay otros cargos o movimientos que no reconoce."
     ),
 }
-CARD_LOST_QUESTION = "Evaluar si corresponde bloquear la tarjeta: el cliente no la tiene consigo."
 CARD_BLOCKED_TASK = "Tarjeta bloqueada por el agente (simulado): confirmar con el cliente la reposición."
 
 _FRAUD_SIGNALS = {
@@ -379,8 +377,7 @@ _FRAUD_SIGNALS = {
 
 
 def _statement_open_questions(facts: dict[str, str | None]) -> tuple[str, ...]:
-    questions = tuple(_STATEMENT_OPEN_QUESTIONS[fact] for fact in open_facts(facts, _STATEMENT_OPEN_QUESTIONS))
-    return (*questions, CARD_LOST_QUESTION) if facts.get(StatementField.CARD_POSSESSION) == Tristate.NO else questions
+    return tuple(_STATEMENT_OPEN_QUESTIONS[fact] for fact in open_facts(facts, _STATEMENT_OPEN_QUESTIONS))
 
 
 def with_statement(
@@ -407,17 +404,17 @@ def with_statement(
 def with_card_block(handoff: dict, protection: ProtectiveDecision) -> dict:
     """A handoff whose escalation blocked the card (`policy.protective_action`):
     the block is an action taken, and the advisor's task is the reissue, not
-    whether to block (the lost-card question gives way to it).
+    whether to block. A card the customer does not have always blocks
+    (`FraudSignal.CARD_OUT_OF_HANDS`), so no handoff asks whether to block it.
     """
     why = "; ".join(_FRAUD_SIGNALS[signal] for signal in protection.signals)
-    questions = [q for q in handoff["open_questions"] if q != CARD_LOST_QUESTION]
     return {
         **handoff,
         "actions_taken": [
             *handoff["actions_taken"],
             f"Tarjeta bloqueada preventivamente por el agente (simulado, sin movimiento de dinero): {why}.",
         ],
-        "open_questions": [*questions, CARD_BLOCKED_TASK],
+        "open_questions": [*handoff["open_questions"], CARD_BLOCKED_TASK],
     }
 
 
