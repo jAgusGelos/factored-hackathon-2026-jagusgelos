@@ -108,9 +108,9 @@ def test_the_advisor_sees_the_model_estimate_labelled_as_an_estimate_with_its_ve
     ).handoff
     facts = handoff.verified_facts
     assert facts["fraud_score"] == "91.0"
-    assert facts["fraud_risk_estimate"].startswith("99.9 % (estimación del modelo, no un hecho verificado")
+    assert facts["fraud_risk_estimate"].startswith("99.9376 % (estimación del modelo, no un hecho verificado")
     assert "la política no la usa" in facts["fraud_risk_estimate"]
-    assert facts["fraud_risk_threshold"].startswith("0.353 %")
+    assert facts["fraud_risk_threshold"].startswith("0.3527 %")
     assert facts["fraud_model_version"] == "logistic_stacked-d7c46aeb"
     assert set(facts) - set(CHARGE_RECORD_KEYS) <= handoffs.INTERNAL_FACTS
 

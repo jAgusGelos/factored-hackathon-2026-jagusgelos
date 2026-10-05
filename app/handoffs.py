@@ -99,7 +99,7 @@ INTERNAL_FACTS = frozenset({
 
 
 def _percent(probability: float) -> str:
-    return f"{probability * 100:.3g} %"
+    return f"{probability * 100:.4f} %"
 
 
 def _fraud_facts(charge: TransactionCandidate) -> dict[str, str]:

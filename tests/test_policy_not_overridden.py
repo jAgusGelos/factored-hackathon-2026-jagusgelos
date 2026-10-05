@@ -174,7 +174,7 @@ HIGH_RISK = FraudRiskEstimate(risk=1.0, threshold=0.0035, model_version="test")
 
 def _policy_domain():
     """Every dispute reason (and none) x the full boolean domain of the other
-    gating conditions, fraud score held below the threshold.
+    gating conditions, fraud score held at the threshold (the highest that passes).
     """
     for reason in (None, *DisputeReason):
         for amount_ok, status_ok, abuse_ok, channel_ok, history_ok, twin_ok, critical in itertools.product(
