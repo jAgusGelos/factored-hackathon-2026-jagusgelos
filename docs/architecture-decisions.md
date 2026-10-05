@@ -685,7 +685,7 @@ Decided 2026-10-04 in --auto mode on the branch `feat/fraud-model`; the decision
 - **Decision:** the model is not proposed as a policy input; the deliverable is the
   cost-justified rule "escalate when `fraud_score > 30`".
 - **Why:** our features are at chance (test PR-AUC 0.0009) and stacking lowers PR-AUC
-  (paired 95% CI [-0.023, -0.005]); the rule keeps every fraud the current `>= 30` catches with
+  (paired 95% CI [-0.024, -0.005]); the rule keeps every fraud the current `>= 30` catches with
   18 fewer escalations on test.
 - **Source:** `docs/ml/fraud-model.md`; `data/fraud_eval_report.json`.
 

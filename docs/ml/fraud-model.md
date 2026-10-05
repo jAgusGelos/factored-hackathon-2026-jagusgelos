@@ -29,7 +29,9 @@ Labels used below: **MEASURED** (computed on the dataset), **ASSUMED** (an input
 
 Extraction: `python -m etl.extract --tables transactions --start-date 2024-06-17 --warehouse
 data/fraud_warehouse.duckdb --manifest data/fraud_extraction_manifest.json` (about 9 minutes).
-The existing `etl.quality_checks` ran on it (duplicate rate 0.0, in band). Two years were chosen
+The existing `etl.quality_checks` ran on it: duplicate rate 0.0 (in band); mean null rate 0.199
+(out of the 0 to 15% band), explained by the channel-specific columns above (coordinates,
+merchant, `amount_usd` for USD), the same known pattern `etl/quality_checks.py` documents. Two years were chosen
 so the test fold lands well above 300 frauds: it has 494 (391 with a score). The 30-day window
 the app uses has only 92 scored frauds.
 
@@ -72,6 +74,10 @@ past features unchanged.
 
 - Comparison population: rows with a `fraud_score` (the only rows where the baseline exists).
 - Selection on validation PR-AUC only; the test fold was scored after every choice was fixed.
+  During review the threshold search was made exact (it had sampled 400 candidates) and the
+  confidence intervals were switched to a customer-cluster bootstrap; both changes were made
+  without looking at test metrics, the threshold is still chosen on validation only, and every
+  evaluation run is in `docs/ml/experiments.jsonl` (the numbers here are from the last one).
 - Training uses every fraud plus a fixed 10% sample of legitimate rows, weighted x10 (an unbiased
   estimate of the full loss; validation and test are always scored in full).
 - Calibration: Platt scaling fitted on validation for the selected configuration of each model family and variant (4 models).
@@ -88,17 +94,18 @@ past features unchanged.
 
 ## Results on the test fold (MEASURED, 451,556 scored charges, 391 frauds, base rate 0.087%)
 
-95% CIs from 500 stratified bootstrap replicates; the last column is the paired CI of
-PR-AUC(model) minus PR-AUC(`fraud_score`).
+95% CIs from 500 paired customer-cluster bootstrap replicates (customers resampled with
+replacement with all their charges, since one customer's charges share history features); the
+last column is the paired CI of PR-AUC(model) minus PR-AUC(`fraud_score`).
 
 | Score | PR-AUC [95% CI] | ROC-AUC [95% CI] | Recall at FPR 0.1% | Recall at FPR 1% | PR-AUC minus fraud_score |
 |---|---|---|---|---|---|
-| **fraud_score** | **0.720 [0.677, 0.762]** | 0.847 [0.815, 0.876] | 0.719 | 0.726 | reference |
-| rules | 0.0009 [0.0008, 0.0009] | 0.511 [0.490, 0.531] | 0.000 | 0.005 | [-0.761, -0.676] |
-| logistic, ours | 0.0008 [0.0008, 0.0009] | 0.502 [0.477, 0.529] | 0.000 | 0.010 | [-0.761, -0.676] |
-| HGB, ours | 0.0009 [0.0009, 0.0011] | 0.527 [0.498, 0.553] | 0.005 | 0.008 | [-0.761, -0.676] |
-| logistic, stacked (selected on validation) | 0.707 [0.663, 0.750] | 0.847 [0.815, 0.875] | 0.708 | 0.714 | [-0.023, -0.005] |
-| HGB, stacked | 0.604 [0.557, 0.651] | 0.861 [0.835, 0.886] | 0.719 | 0.721 | [-0.138, -0.093] |
+| **fraud_score** | **0.720 [0.676, 0.760]** | 0.847 [0.817, 0.875] | 0.719 [0.675, 0.759] | 0.726 [0.684, 0.766] | reference |
+| rules | 0.0009 [0.0008, 0.0010] | 0.510 [0.491, 0.532] | 0.000 [0.000, 0.000] | 0.005 [0.000, 0.013] | [-0.759, -0.675] |
+| logistic, ours | 0.0008 [0.0007, 0.0009] | 0.502 [0.474, 0.526] | 0.000 [0.000, 0.000] | 0.010 [0.001, 0.020] | [-0.759, -0.675] |
+| HGB, ours | 0.0009 [0.0008, 0.0012] | 0.527 [0.498, 0.554] | 0.005 [0.000, 0.013] | 0.008 [0.000, 0.016] | [-0.759, -0.675] |
+| logistic, stacked (selected on validation) | 0.707 [0.662, 0.750] | 0.847 [0.817, 0.875] | 0.708 [0.663, 0.751] | 0.714 [0.669, 0.756] | [-0.024, -0.005] |
+| HGB, stacked | 0.604 [0.556, 0.647] | 0.861 [0.835, 0.886] | 0.719 [0.673, 0.759] | 0.721 [0.679, 0.761] | [-0.142, -0.097] |
 
 ![Precision-recall on the test fold](fraud_pr_curve.png)
 
@@ -127,9 +134,13 @@ band the model's ordering is noise, so its small probabilities there are not mea
 ## Operating threshold by cost
 
 The policy gate (`AUTO_RESOLVE_MAX_FRAUD_SCORE = 30` in `app/policy.py`, a hackathon default)
-turned into numbers. Population: charges the rest of the AD-13 screening would let through
-(score present, `Approved`, `amount_usd <= 200`): 91,666 validation charges (86 frauds), 84,269
-test charges (71 frauds).
+turned into numbers. Population: a **transaction-level proxy** for the charges the gate decides
+on (score present, `Approved`, `amount_usd <= 200`): 91,666 validation charges (86 frauds), 84,269
+test charges (71 frauds). The other AD-13 gates (charge age, customer status, dispute history,
+classifier, the reason-specific evidence check) only exist once a customer disputes a charge, and
+no historical complaint links to a transaction (`docs/analysis/demand-report.md`), so they cannot
+be reconstructed here. Fraud prevalence among disputed charges is likely higher than in this
+proxy, which would push the optimum toward escalating more, never less (DESIGN ARGUMENT).
 
 | Cost input | Value | Label |
 |---|---|---|
@@ -185,8 +196,10 @@ labels 100 times, scores a mean macro-F1 of 0.2434 (95th percentile 0.2607); the
 permutation p-value is 0.45. A random guesser that follows the class proportions gets 0.2494. The
 mutual information of every intake feature with `priority` is not above its own 95th percentile under
 50 label shuffles (largest: `product_type` 0.0013 nats against an entropy of 1.14 nats for
-`priority`). Conclusion: **at intake, `priority` carries no signal these features can recover**.
-The classifier's lift over the majority baseline is the lift any class-balanced guesser gets.
+`priority`). Conclusion: **for this pipeline and feature set we detect no predictive lift**: the
+classifier's lift over the majority baseline is the lift any class-balanced guesser gets. This
+does not rule out signal that another model class or richer features could find; univariate mutual
+information also cannot see feature interactions.
 The shipped model was not retrained.
 
 ## Integration hand-off (a later feature)
