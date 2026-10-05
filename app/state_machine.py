@@ -464,7 +464,8 @@ def _handle_human_request(turn: Turn, *, account: GivenAccount | None = None) ->
         evaluation = handoffs.human_request(turn.report, charge, explained=account_given)
         if account is not None:
             evaluation = handoffs.with_reported(evaluation, handoffs.explanation_reported(account.assessment))
-        return escalate(turn, evaluation, charge=charge, account_given=account_given)
+        claimed_reason = account.assessment.reason if account is not None else None
+        return escalate(turn, evaluation, charge=charge, account_given=account_given, claimed_reason=claimed_reason)
     turn = replace(turn, human_requested=True)
     state = CaseState(case.state)
     if state in (CaseState.AWAITING_EXPLANATION, CaseState.CONFIRMING):

@@ -310,6 +310,7 @@ def finish_escalated(
     turn: Turn, evaluation: CaseEvaluation, report: ReportedCharge,
     *, expected_offered: tuple[str, ...] | None = None, drop_proposed_match: bool = False,
     charge: TransactionCandidate | None = None, account_given: bool = False,
+    claimed_reason: DisputeReason | None = None,
 ) -> ChatReply:
     """Escalates at once only when `account_given`: the customer already
     explained the charge in this case. Otherwise the escalation is held as
@@ -323,6 +324,9 @@ def finish_escalated(
     `charge`: a charge the customer identified that the verdict does not carry
     (e.g. the one they confirmed, when its re-verification failed); otherwise
     the notice names the verdict's own match, if any.
+    `claimed_reason`: the reason an account the case does not store names (a
+    text that explained the charge and asked for a person): only AD-14's
+    protective block reads it.
     """
     if evaluation.handoff is None:
         raise ValueError(f"Escalation without a handoff record (case {turn.case.case_id})")
@@ -341,7 +345,9 @@ def finish_escalated(
     if not account_given:
         pending = PendingEscalation(reason, handoff, notice_charge, high_fraud_score=high_fraud_score)
         return _ask_for_statement(turn, pending, fields)
-    protection = _protection(report.reason, notice_charge, high_fraud_score=high_fraud_score, facts={})
+    protection = _protection(
+        claimed_reason or report.reason, notice_charge, high_fraud_score=high_fraud_score, facts={},
+    )
     handoff = _protected_handoff(handoff, protection)
     lost = transition(turn, CaseState.ESCALATED, handoff=handoff, escalation_reason=reason, **fields)
     if lost:
@@ -400,6 +406,8 @@ def finish_pending_escalation(
 
 def escalate(
     turn: Turn, evaluation: CaseEvaluation, *, charge: TransactionCandidate | None = None,
-    account_given: bool = False,
+    account_given: bool = False, claimed_reason: DisputeReason | None = None,
 ) -> ChatReply:
-    return finish_escalated(turn, evaluation, turn.report, charge=charge, account_given=account_given)
+    return finish_escalated(
+        turn, evaluation, turn.report, charge=charge, account_given=account_given, claimed_reason=claimed_reason,
+    )

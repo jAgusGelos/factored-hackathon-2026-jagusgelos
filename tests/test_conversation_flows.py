@@ -918,6 +918,32 @@ def test_a_card_present_charge_the_customer_denies_blocks_the_card(real_fixture_
     assert "bloqueamos su tarjeta" in reply["reply"]
 
 
+def test_a_denial_told_with_a_request_for_a_person_still_blocks_the_card(real_fixture_app_db):
+    """The account that asked for a person is not stored as the explanation,
+    yet the reason it names (a card-present charge the customer denies)
+    still blocks the card when the case is handed off.
+    """
+    session = demo_session(real_fixture_app_db)
+    picked = _pick(session, real_fixture_app_db, CARD_PRESENT_CHARGE)
+    asks = {**CONVINCING_ASSESSMENT, "wants_human": True}
+    _explain(session, real_fixture_app_db, picked["case_id"], asks)
+    reply = _explain(session, real_fixture_app_db, picked["case_id"], asks)
+
+    assert reply["state"] == CaseState.ESCALATED
+    assert _card_block(real_fixture_app_db, reply["case_id"])[0]["signals"] == ["card_present_denied"]
+
+
+def test_a_request_for_a_person_without_a_denial_never_blocks(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    picked = _pick(session, real_fixture_app_db, CARD_PRESENT_CHARGE)
+    asks = {**NOT_RECEIVED_ASSESSMENT, "wants_human": True}
+    _explain(session, real_fixture_app_db, picked["case_id"], asks)
+    reply = _explain(session, real_fixture_app_db, picked["case_id"], asks)
+
+    assert reply["state"] == CaseState.ESCALATED
+    assert _card_block(real_fixture_app_db, reply["case_id"]) == []
+
+
 def test_an_amount_cap_escalation_the_customer_does_not_deny_never_blocks(real_fixture_app_db):
     session = demo_session(real_fixture_app_db)
     recognized = {**GIVEN_STATEMENT, "denies_purchase": "no", "summary": "El cliente hizo la compra."}
