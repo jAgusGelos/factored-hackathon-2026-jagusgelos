@@ -116,6 +116,8 @@ _EARTH_RADIUS_KM = 6371.0
 # Minimum elapsed time for the implied speed, so two geolocated charges seconds
 # apart do not divide by ~0 (one minute).
 _MIN_HOURS_FOR_SPEED = 1.0 / 60.0
+# Floor on the spread of a customer's past log-amounts in `amount_zscore`.
+_MIN_LOG_AMOUNT_STD = 0.25
 
 
 def load_transactions(
@@ -202,6 +204,42 @@ def _is_first_seen(df: pd.DataFrame, column: str) -> pd.Series:
     return out.where(df[column].notna())
 
 
+def _prior_sum(cumulative: np.ndarray, prior: np.ndarray, starts: np.ndarray) -> np.ndarray:
+    """Sum of the per-row values behind `cumulative` over the same customer's
+    rows up to `prior` (inclusive), 0 when there is no prior row."""
+    base = np.where(starts > 0, cumulative[np.clip(starts - 1, 0, None)], 0.0)
+    return np.where(prior >= 0, _take(cumulative, prior) - base, 0.0)
+
+
+def _amount_zscore(log_amount: np.ndarray, prior: np.ndarray, starts: np.ndarray) -> np.ndarray:
+    """Z-score of each log-amount vs the customer's strictly earlier
+    log-amounts (NaN with fewer than two of them)."""
+    has_amount = ~np.isnan(log_amount)
+    prior_n = _prior_sum(np.cumsum(has_amount), prior, starts)
+    prior_s = _prior_sum(np.cumsum(np.where(has_amount, log_amount, 0.0)), prior, starts)
+    prior_q = _prior_sum(np.cumsum(np.where(has_amount, log_amount**2, 0.0)), prior, starts)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        mean = prior_s / prior_n
+        var = np.maximum(prior_q / prior_n - mean**2, 0.0)
+        # A floor on the spread keeps a customer with identical past amounts
+        # from producing an infinite z-score.
+        z = (log_amount - mean) / np.maximum(np.sqrt(var), _MIN_LOG_AMOUNT_STD)
+    return np.where(prior_n >= 2, z, np.nan)
+
+
+def _prev_geo_distance_and_speed(
+    lat: np.ndarray, lon: np.ndarray, seconds: np.ndarray, prior: np.ndarray, starts: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Distance (km) and implied speed (km/h) from the same customer's
+    previous geolocated transaction among the strictly earlier ones."""
+    geo_valid = ~np.isnan(lat) & ~np.isnan(lon)
+    last_geo = _last_valid_index(geo_valid, starts)
+    prev_geo = np.where(prior >= 0, last_geo[np.clip(prior, 0, None)], -1)
+    km = _haversine_km(lat, lon, _take(lat, prev_geo), _take(lon, prev_geo))
+    hours = (seconds - _take(seconds, prev_geo)) / _SECONDS_PER_HOUR
+    return km, km / np.maximum(hours, _MIN_HOURS_FOR_SPEED)
+
+
 def build_features(raw: pd.DataFrame) -> pd.DataFrame:
     """Adds every model feature to a copy of `raw` and returns it sorted
     chronologically by (transaction_date, transaction_id), the order the
@@ -234,37 +272,15 @@ def build_features(raw: pd.DataFrame) -> pd.DataFrame:
         window_start = np.searchsorted(key, key - window_seconds, side="left")
         df[label] = (first_at_or_after - np.maximum(window_start, starts)).astype(float)
 
-    # Amount z-score vs the customer's strictly earlier log-amounts.
     log_amount = np.log1p(df["amount_usd_filled"].clip(lower=0).to_numpy())
-    has_amount = ~np.isnan(log_amount)
-    cum_n = np.cumsum(has_amount)
-    cum_s = np.cumsum(np.where(has_amount, log_amount, 0.0))
-    cum_q = np.cumsum(np.where(has_amount, log_amount**2, 0.0))
-    base_n = np.where(starts > 0, cum_n[np.clip(starts - 1, 0, None)], 0)
-    base_s = np.where(starts > 0, cum_s[np.clip(starts - 1, 0, None)], 0.0)
-    base_q = np.where(starts > 0, cum_q[np.clip(starts - 1, 0, None)], 0.0)
-    prior_n = np.where(prior >= 0, _take(cum_n, prior) - base_n, 0.0)
-    prior_s = np.where(prior >= 0, _take(cum_s, prior) - base_s, 0.0)
-    prior_q = np.where(prior >= 0, _take(cum_q, prior) - base_q, 0.0)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        mean = prior_s / prior_n
-        var = np.maximum(prior_q / prior_n - mean**2, 0.0)
-        # A floor on the spread keeps a customer with identical past amounts
-        # from producing an infinite z-score.
-        z = (log_amount - mean) / np.maximum(np.sqrt(var), 0.25)
-    df["amount_zscore"] = np.where(prior_n >= 2, z, np.nan)
+    df["amount_zscore"] = _amount_zscore(log_amount, prior, starts)
     df["log_amount_usd"] = log_amount
 
-    # Distance and implied speed from the previous geolocated transaction.
-    lat = df["latitude"].to_numpy(dtype=float)
-    lon = df["longitude"].to_numpy(dtype=float)
-    geo_valid = ~np.isnan(lat) & ~np.isnan(lon)
-    last_geo = _last_valid_index(geo_valid, starts)
-    prev_geo = np.where(prior >= 0, last_geo[np.clip(prior, 0, None)], -1)
-    km = _haversine_km(lat, lon, _take(lat, prev_geo), _take(lon, prev_geo))
-    hours = (seconds - _take(seconds, prev_geo)) / _SECONDS_PER_HOUR
+    km, kmh = _prev_geo_distance_and_speed(
+        df["latitude"].to_numpy(dtype=float), df["longitude"].to_numpy(dtype=float), seconds, prior, starts
+    )
     df["km_from_prev_geo"] = km
-    df["kmh_from_prev_geo"] = km / np.maximum(hours, _MIN_HOURS_FOR_SPEED)
+    df["kmh_from_prev_geo"] = kmh
 
     df["is_new_merchant"] = _is_first_seen(df, "merchant_name")
     df["is_new_city"] = _is_first_seen(df, "transaction_city")

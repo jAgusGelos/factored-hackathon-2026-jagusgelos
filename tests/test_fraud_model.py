@@ -90,12 +90,7 @@ def test_end_to_end_train_evaluate_and_score(tmp_path, monkeypatch):
     predictions = result.pop("predictions")
     model_path = tmp_path / "fraud_model.joblib"
     joblib.dump(result, model_path)
-    pred = {**predictions, "selected": result["selected"], "split": result["split"],
-            "run_group": result["run_group"], "git_sha": result["git_sha"],
-            "baselines_val": result["baselines_val"],
-            "models": {k: {kk: vv for kk, vv in v.items() if kk not in ("pipeline", "calibrator")}
-                       for k, v in result["models"].items()}}
-    report = ev.evaluate(pred, docs_dir=tmp_path / "docs")
+    report = ev.evaluate(tr.predictions_bundle(result, predictions), docs_dir=tmp_path / "docs")
     assert (tmp_path / "docs" / "fraud_pr_curve.png").exists()
     assert "fraud_score" in report["thresholds"]["scores"]
     assert report["test_point_estimates"]["fraud_score"]["pr_auc"] > 0.5  # planted signal

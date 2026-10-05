@@ -237,35 +237,36 @@ def append_experiment(path: Path, record: dict) -> None:
         fh.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
 
 
-def train(df: pd.DataFrame, experiments_path: Path | None = None) -> dict:
-    train_df, val_df, test_df, split = chronological_split(df)
-    logger.info("Split: %s", split)
-    sample, weights = _training_sample(train_df)
-    y_sample = sample[TARGET_COLUMN].to_numpy()
-    val_scored = val_df[_scored(val_df)]
-    y_val = val_scored[TARGET_COLUMN].to_numpy()
+def _log_experiment(experiments_path: Path | None, common: dict, record: dict) -> None:
+    if experiments_path:
+        append_experiment(experiments_path, {**common, "timestamp": datetime.now(UTC).isoformat(), **record})
 
-    run_group = uuid.uuid4().hex[:8]
-    common = {
-        "run_group": run_group, "git_sha": _git_sha(), "data_window": DATA_WINDOW,
-        "split": asdict(split), "negative_sample_rate": NEGATIVE_SAMPLE_RATE,
-        "selection_metric": "val_pr_auc on rows with fraud_score",
-    }
 
+def _evaluate_baselines(
+    val_scored: pd.DataFrame, y_val: np.ndarray, experiments_path: Path | None, common: dict
+) -> dict[str, dict[str, float]]:
     baselines = {
         "fraud_score": _val_metrics(y_val, val_scored[BASELINE_SCORE_COLUMN].to_numpy()),
         "rules": _val_metrics(y_val, rules_score(val_scored)),
     }
     for name, metrics in baselines.items():
         logger.info("Baseline %s: %s", name, metrics)
-        if experiments_path:
-            append_experiment(experiments_path, {
-                **common, "timestamp": datetime.now(UTC).isoformat(), "model": f"baseline_{name}",
-                "variant": "baseline", "params": {"rules": list(RULES)} if name == "rules" else {},
-                "features": [BASELINE_SCORE_COLUMN] if name == "fraud_score" else list(RULES),
-                "metrics": metrics,
-            })
+        _log_experiment(experiments_path, common, {
+            "model": f"baseline_{name}", "variant": "baseline",
+            "params": {"rules": list(RULES)} if name == "rules" else {},
+            "features": [BASELINE_SCORE_COLUMN] if name == "fraud_score" else list(RULES),
+            "metrics": metrics,
+        })
+    return baselines
 
+
+def _grid_search(
+    sample: pd.DataFrame, weights: np.ndarray, val_scored: pd.DataFrame, y_val: np.ndarray,
+    experiments_path: Path | None, common: dict,
+) -> dict[tuple[str, str], dict]:
+    """Fits every grid point of every (family, variant) and keeps the best one
+    of each on validation PR-AUC."""
+    y_sample = sample[TARGET_COLUMN].to_numpy()
     best: dict[tuple[str, str], dict] = {}
     for variant, columns in VARIANTS.items():
         for family, builder in BUILDERS.items():
@@ -276,16 +277,19 @@ def train(df: pd.DataFrame, experiments_path: Path | None = None) -> dict:
                 raw_val = pipe.predict_proba(val_scored[list(columns)])[:, 1]
                 metrics = _val_metrics(y_val, raw_val)
                 logger.info("%s/%s %s -> %s", family, variant, params, metrics)
-                if experiments_path:
-                    append_experiment(experiments_path, {
-                        **common, "timestamp": datetime.now(UTC).isoformat(), "model": family,
-                        "variant": variant, "params": params, "features": list(columns),
-                        "metrics": metrics,
-                    })
+                _log_experiment(experiments_path, common, {
+                    "model": family, "variant": variant, "params": params, "features": list(columns),
+                    "metrics": metrics,
+                })
                 current = best.get((family, variant))
                 if current is None or metrics["val_pr_auc"] > current["metrics"]["val_pr_auc"]:
                     best[(family, variant)] = {"pipeline": pipe, "params": params, "metrics": metrics}
+    return best
 
+
+def _calibrated_models(
+    best: dict[tuple[str, str], dict], val_scored: pd.DataFrame, y_val: np.ndarray
+) -> dict[str, dict]:
     models = {}
     for (family, variant), entry in best.items():
         columns = VARIANTS[variant]
@@ -296,28 +300,65 @@ def train(df: pd.DataFrame, experiments_path: Path | None = None) -> dict:
             "params": entry["params"], "val_metrics": entry["metrics"],
             "pipeline": entry["pipeline"], "calibrator": calibrator,
         }
+    return models
 
-    # The integration model: the best variant on validation PR-AUC.
-    selected = max(models, key=lambda k: models[k]["val_metrics"]["val_pr_auc"])
-    logger.info("Selected on validation: %s", selected)
 
-    predictions = {}
+def _fold_predictions(models: dict[str, dict], folds: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    """Every fold scored in full by the rules baseline and every calibrated model."""
     keep_cols = [
         "transaction_id", "transaction_date", "customer_id", TARGET_COLUMN, BASELINE_SCORE_COLUMN,
         "amount_usd_filled", "transaction_status", *FEATURE_COLUMNS,
     ]
-    for fold_name, fold in (("val", val_df), ("test", test_df)):
+    predictions = {}
+    for fold_name, fold in folds.items():
         out = fold[[c for c in keep_cols if c in fold.columns]].copy()
         out["rules_score"] = rules_score(fold)
         for name, model in models.items():
             raw = model["pipeline"].predict_proba(fold[model["features"]])[:, 1]
             out[f"p_{name}"] = model["calibrator"].transform(raw)
         predictions[fold_name] = out.reset_index(drop=True)
+    return predictions
+
+
+def train(df: pd.DataFrame, experiments_path: Path | None = None) -> dict:
+    train_df, val_df, test_df, split = chronological_split(df)
+    logger.info("Split: %s", split)
+    sample, weights = _training_sample(train_df)
+    val_scored = val_df[_scored(val_df)]
+    y_val = val_scored[TARGET_COLUMN].to_numpy()
+
+    run_group = uuid.uuid4().hex[:8]
+    common = {
+        "run_group": run_group, "git_sha": _git_sha(), "data_window": DATA_WINDOW,
+        "split": asdict(split), "negative_sample_rate": NEGATIVE_SAMPLE_RATE,
+        "selection_metric": "val_pr_auc on rows with fraud_score",
+    }
+
+    baselines = _evaluate_baselines(val_scored, y_val, experiments_path, common)
+    best = _grid_search(sample, weights, val_scored, y_val, experiments_path, common)
+    models = _calibrated_models(best, val_scored, y_val)
+
+    # The integration model: the best variant on validation PR-AUC.
+    selected = max(models, key=lambda k: models[k]["val_metrics"]["val_pr_auc"])
+    logger.info("Selected on validation: %s", selected)
+    predictions = _fold_predictions(models, {"val": val_df, "test": test_df})
 
     return {
         "split": asdict(split), "run_group": run_group, "git_sha": common["git_sha"],
         "data_window": DATA_WINDOW, "baselines_val": baselines, "models": models,
         "selected": selected, "predictions": predictions,
+    }
+
+
+def predictions_bundle(result: dict, predictions: dict) -> dict:
+    """What `etl/evaluate_fraud_model.py` reads: the val/test predictions plus
+    the run metadata, with the fitted pipelines and calibrators left out."""
+    return {
+        **predictions, "selected": result["selected"], "split": result["split"],
+        "run_group": result["run_group"], "git_sha": result["git_sha"],
+        "baselines_val": result["baselines_val"], "data_profile": result.get("data_profile"),
+        "models": {k: {kk: vv for kk, vv in v.items() if kk not in ("pipeline", "calibrator")}
+                   for k, v in result["models"].items()},
     }
 
 
@@ -361,12 +402,7 @@ def main(argv: list[str] | None = None) -> int:
          "categorical_features": list(CATEGORICAL_FEATURES)},
         args.model,
     )
-    joblib.dump({**predictions, "selected": result["selected"], "split": result["split"],
-                 "run_group": result["run_group"], "git_sha": result["git_sha"],
-                 "baselines_val": result["baselines_val"], "data_profile": result["data_profile"],
-                 "models": {k: {kk: vv for kk, vv in v.items() if kk not in ("pipeline", "calibrator")}
-                            for k, v in result["models"].items()}},
-                args.predictions)
+    joblib.dump(predictions_bundle(result, predictions), args.predictions)
     logger.info("Wrote %s and %s", args.model, args.predictions)
     return 0
 
