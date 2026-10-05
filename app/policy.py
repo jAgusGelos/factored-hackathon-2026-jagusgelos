@@ -14,7 +14,7 @@ AD-11's rows, in order:
      escalate if still ambiguous.
   4. Auto-resolution eligible (AD-13). Before anything else the charge must
      pass the SCREENING conditions, common to every reason: status ==
-     "Approved", fraud_score < 30, amount_usd <= 200, no older than MAX_TRANSACTION_AGE_DAYS,
+     "Approved", fraud_score <= 30 (AD-15), amount_usd <= 200, no older than MAX_TRANSACTION_AGE_DAYS,
      customer_status == "Active", < 3 dataset disputes in the same category
      in the trailing 90 days, the classifier does not predict Critical, and
      the automatic credits this system granted the customer in the trailing
@@ -27,9 +27,11 @@ AD-11's rows, in order:
      never on the claim:
        - duplicate: a verifiable twin exists (an Approved charge at the same
          merchant, exact amount, currency and type, at most
-         DUPLICATE_WINDOW_DAYS apart: a pending hold or a declined retry was
-         never collected, so it is not a second charge) and no
-         charge of the pair was credited before -> reverse it.
+         DUPLICATE_WINDOW_MINUTES apart by full timestamp: a pending hold or
+         a declined retry was never collected, so it is not a second charge)
+         and no charge of the pair was credited before -> reverse it. Equal
+         charges further apart are two purchases: they go to a person, named
+         as evidence, never reversed on the customer's word.
        - unrecognized: card-not-present purchase (Web/App), no other charge
          of theirs at the same merchant (an existing relationship with the
          merchant contradicts "I never used it"), and
@@ -49,6 +51,12 @@ AD-11's rows, in order:
      never a real transfer. An unrecognized charge also logs a simulated card
      block and queues the credit for back-office review (it is reversed if
      the investigation shows the customer made the charge).
+  7. Protective card block on escalation (AD-14, `protective_action`): when
+     the customer denies the charge or says the card is out of their hands,
+     and the case goes to a person for a fraud reason (fraud score above
+     the threshold, a card-present charge they deny, a lost or stolen card),
+     the card is blocked (SIMULATED) before the handoff. Never on an
+     escalation unrelated to fraud; no money moves.
 
 Simplification, disclosed: the "2 USD-equivalent" floor in Row 1 is applied
 as a flat 2-unit floor in the complaint's OWN currency, not currency-converted
@@ -75,6 +83,16 @@ MATCH_AMOUNT_PCT_TOLERANCE = 0.05
 MATCH_AMOUNT_MIN_TOLERANCE = 2.0
 
 AUTO_RESOLVE_MAX_AMOUNT_USD = 200.0
+# AD-15: the highest vendor fraud_score that may still be auto-resolved; above
+# it the case escalates. Cost-justified, not a default: chosen on the
+# validation fold by expected cost (escalation USD 1.18 vs a missed fraud's
+# amount + USD 25), the optimum (30.0, 30.06] is the same rule in all nine
+# cost-sensitivity settings, and on the test fold "> 30" catches the same 48
+# of 71 frauds as the old ">= 30" with 48 escalations instead of 66 (MEASURED,
+# docs/ml/fraud-model.md). The fraud-risk model did not beat fraud_score
+# (test PR-AUC 0.707 vs 0.720), so the gate stays on fraud_score; the model's
+# estimate reaches only the advisor's handoff and no function here reads it
+# (tests/test_policy_not_overridden.py).
 AUTO_RESOLVE_MAX_FRAUD_SCORE = 30.0
 AUTO_RESOLVE_REQUIRED_STATUS = "Approved"
 AUTO_RESOLVE_REQUIRED_CUSTOMER_STATUS = "Active"
@@ -95,9 +113,12 @@ MAX_AUTO_CREDIT_TOTAL_USD = 200.0
 CARD_NOT_PRESENT_CHANNELS = ("Web", "App")
 UNRECOGNIZED_ELIGIBLE_TYPES = ("Purchase",)
 DUPLICATE_ELIGIBLE_TYPES = ("Purchase", "Payment")
-# A duplicate settlement can post the next day, so the twin may be one day
-# apart. Two equal charges a week apart are two purchases, not a duplicate.
-DUPLICATE_WINDOW_DAYS = 1
+# A real duplicate (a double swipe, a processor retry) posts seconds to
+# minutes after the original; two equal taxi fares on consecutive days are two
+# rides. DESIGN ARGUMENT, not a measurement: the warehouse holds no pair of
+# same-customer, same-merchant, same-amount charges at any distance, so it
+# cannot size the window (docs/policy/duplicate-window.md).
+DUPLICATE_WINDOW_MINUTES = 10
 
 MAX_CLARIFICATION_ROUNDS = 2
 
@@ -127,6 +148,10 @@ DISPUTE_COMPLAINT_CATEGORY = "Transactions"
 # AD-6/AD-11 Row 5 (Milestone 3): a classifier prediction of this label is
 # ONE OR-condition that can force escalation — see evaluate_resolution()'s
 # docstring for the hard boundary on what this can and cannot do.
+# AD-15 keeps it as an escalation-only signal although its signal ceiling shows
+# no lift (macro-F1 0.2448 vs 0.2434 for shuffled labels, p = 0.45, MEASURED):
+# it can only send a case to a person, and it predicts Critical for few cases
+# (Critical recall 0.058 on its test split).
 CLASSIFIER_ESCALATION_LABEL = "Critical"
 
 # Milestone 9: the customer's own explanation of what happened. The LLM only
@@ -160,8 +185,8 @@ REASONS_REQUIRING_A_PERSON = {
         "correcto (un reintegro parcial no se automatiza)."
     ),
     DisputeReason.CARD_LOST_STOLEN: (
-        "El cliente reporta tarjeta perdida o robada: posible fraude. Bloquear la tarjeta y "
-        "revisar otros cargos recientes."
+        "El cliente reporta tarjeta perdida o robada: posible fraude. Revisar otros cargos "
+        "recientes."
     ),
 }
 
@@ -291,6 +316,9 @@ class DisputeContext:
     other_charges_at_merchant: int | None
     # Ids of this customer's charges that make this one a verifiable duplicate.
     duplicate_twins: tuple[str, ...]
+    # Ids of equal charges (same merchant, amount, currency, type, Approved)
+    # further apart than the window: separate purchases, the advisor's evidence.
+    repeat_charges: tuple[str, ...]
     # A charge of the duplicate pair was already credited by this system.
     duplicate_pair_credited: bool
     recent_unrecognized_credits: int
@@ -351,8 +379,10 @@ def screening_failures(txn: TransactionCandidate, ctx: DisputeContext) -> tuple[
         )
     if txn.transaction_status != AUTO_RESOLVE_REQUIRED_STATUS:
         reasons.append(f"transaction_status={txn.transaction_status!r}, not Approved")
-    if txn.fraud_score is None or txn.fraud_score >= AUTO_RESOLVE_MAX_FRAUD_SCORE:
-        reasons.append(f"fraud_score={txn.fraud_score} at/above the {AUTO_RESOLVE_MAX_FRAUD_SCORE} threshold")
+    if txn.fraud_score is None:
+        reasons.append("fraud_score missing: the charge cannot be screened for fraud")
+    elif fraud_score_flagged(txn.fraud_score):
+        reasons.append(f"fraud_score={txn.fraud_score} above the {AUTO_RESOLVE_MAX_FRAUD_SCORE} threshold")
     age_days = (ctx.as_of - _day(txn.transaction_date)).days
     if age_days < 0:
         reasons.append(f"charge is dated {-age_days} day(s) after the data as-of date {ctx.as_of}")
@@ -366,7 +396,10 @@ def screening_failures(txn: TransactionCandidate, ctx: DisputeContext) -> tuple[
             f"{ABUSE_GUARD_WINDOW_DAYS} days (abuse guard)"
         )
     if ctx.classifier_priority == CLASSIFIER_ESCALATION_LABEL:
-        reasons.append(f"priority classifier predicted {CLASSIFIER_ESCALATION_LABEL!r} (decision support only)")
+        reasons.append(
+            f"priority classifier predicted {CLASSIFIER_ESCALATION_LABEL!r} (decision support only; "
+            "no measured lift over shuffled labels, AD-15)"
+        )
     return tuple(reasons)
 
 
@@ -380,8 +413,8 @@ def _unrecognized_failures(txn: TransactionCandidate, ctx: DisputeContext) -> li
         reasons.append("merchant has no name: the customer's history with it cannot be checked")
     elif ctx.other_charges_at_merchant > 0:
         reasons.append(
-            f"customer has {ctx.other_charges_at_merchant} other charge(s) at {txn.merchant_name!r} "
-            "they do not dispute"
+            f"customer has {ctx.other_charges_at_merchant} other charge(s) at {txn.merchant_name!r}: "
+            "an existing relationship with the merchant contradicts never having used it"
         )
     if ctx.recent_unrecognized_credits >= MAX_UNRECOGNIZED_AUTO_CREDITS:
         reasons.append(
@@ -395,10 +428,15 @@ def _duplicate_failures(txn: TransactionCandidate, ctx: DisputeContext) -> list[
     reasons: list[str] = []
     if txn.transaction_type not in DUPLICATE_ELIGIBLE_TYPES:
         reasons.append(f"transaction_type={txn.transaction_type!r}: not a purchase or payment")
-    if not ctx.duplicate_twins:
+    if not ctx.duplicate_twins and ctx.repeat_charges:
+        reasons.append(
+            f"the other charge(s) at the same merchant and amount ({', '.join(ctx.repeat_charges)}) posted "
+            f"more than {DUPLICATE_WINDOW_MINUTES} minutes apart: separate purchases, not a duplicate"
+        )
+    elif not ctx.duplicate_twins:
         reasons.append(
             "customer reports a duplicate but no other charge at the same merchant and amount "
-            f"within {DUPLICATE_WINDOW_DAYS} day(s) was found"
+            f"within {DUPLICATE_WINDOW_MINUTES} minutes was found"
         )
     if ctx.duplicate_pair_credited:
         reasons.append("the other charge of the duplicate pair was already credited")
@@ -534,3 +572,77 @@ def _fact_matters(fact: StatementField, facts: Mapping[str, object]) -> bool:
     if fact == StatementField.CARD_LOSS:
         return facts.get(StatementField.CARD_POSSESSION) == Tristate.NO
     return True
+
+
+# -- Protective card block on a fraud escalation (AD-14) ---------------------
+
+
+class ProtectiveAction(StrEnum):
+    NONE = "none"
+    CARD_BLOCK = "card_block"
+
+
+class FraudSignal(StrEnum):
+    """Why an escalation is about fraud: the only causes that block the card."""
+
+    HIGH_FRAUD_SCORE = "high_fraud_score"
+    CARD_PRESENT_DENIED = "card_present_denied"
+    CARD_OUT_OF_HANDS = "card_out_of_hands"
+
+
+@dataclass(frozen=True)
+class ProtectiveDecision:
+    """A CARD_BLOCK always names its fraud signals; NONE never has any."""
+
+    action: ProtectiveAction
+    signals: tuple[FraudSignal, ...] = ()
+
+    def __post_init__(self) -> None:
+        if (self.action == ProtectiveAction.CARD_BLOCK) != bool(self.signals):
+            raise ValueError(f"ProtectiveDecision: {self.action} with signals {self.signals!r}")
+
+    @property
+    def blocks_card(self) -> bool:
+        return self.action == ProtectiveAction.CARD_BLOCK
+
+    @classmethod
+    def none(cls) -> ProtectiveDecision:
+        return cls(ProtectiveAction.NONE)
+
+
+def fraud_score_flagged(fraud_score: float | None) -> bool:
+    """A vendor score above the cost-justified threshold (AD-15). A missing
+    score is no signal here (screening already refuses it a credit).
+    """
+    return fraud_score is not None and fraud_score > AUTO_RESOLVE_MAX_FRAUD_SCORE
+
+
+def protective_action(
+    *, reason: DisputeReason | None, facts: Mapping[str, object], high_fraud_score: bool, channel: str | None,
+) -> ProtectiveDecision:
+    """Whether an escalation blocks the card before it reaches a person.
+
+    `reason`: the dispute reason the customer's explanation named, if any.
+    `facts`: the key facts of their statement (`StatementField` keys), empty
+    when no statement was taken. A claim (the customer denies the charge, or
+    the card is lost, stolen or not with them) blocks the card only together
+    with a fraud signal; a card out of the customer's hands is one by itself.
+    Without a claim nothing blocks: an amount cap, a merchant dispute, a
+    request for a person or a failure of the service is not about fraud.
+    """
+    denies = reason == DisputeReason.UNRECOGNIZED or facts.get(StatementField.DENIES_PURCHASE) == Tristate.YES
+    out_of_hands = (
+        reason == DisputeReason.CARD_LOST_STOLEN
+        or facts.get(StatementField.CARD_LOSS) in (CardLoss.LOST, CardLoss.STOLEN)
+        or facts.get(StatementField.CARD_POSSESSION) == Tristate.NO
+    )
+    signals: list[FraudSignal] = []
+    if (denies or out_of_hands) and high_fraud_score:
+        signals.append(FraudSignal.HIGH_FRAUD_SCORE)
+    if denies and channel is not None and channel not in CARD_NOT_PRESENT_CHANNELS:
+        signals.append(FraudSignal.CARD_PRESENT_DENIED)
+    if out_of_hands:
+        signals.append(FraudSignal.CARD_OUT_OF_HANDS)
+    if not signals:
+        return ProtectiveDecision.none()
+    return ProtectiveDecision(ProtectiveAction.CARD_BLOCK, tuple(signals))

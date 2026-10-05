@@ -24,11 +24,13 @@ from app.case_model import (
 from app.charge_search import iso_day
 from app.llm import ConfirmationAnswer
 from app.policy import (
+    AUTO_RESOLVE_MAX_FRAUD_SCORE,
     MATCH_DATE_TOLERANCE_DAYS,
     MAX_CASE_TURNS,
     ExplanationAssessment,
+    FraudSignal,
+    ProtectiveDecision,
     StatementField,
-    Tristate,
     known_fact,
     open_facts,
 )
@@ -89,6 +91,58 @@ def _yes_no(flag: bool) -> str:
     return "sí" if flag else "no"
 
 
+# Fraud figures in the advisor's verified facts (AD-15). The customer's own
+# session never receives them (`for_customer_session`).
+INTERNAL_FACTS = frozenset({
+    "fraud_score", "fraud_score_threshold", "fraud_risk_estimate", "fraud_risk_threshold", "fraud_model_version",
+})
+
+
+def for_customer_session(handoff: dict | None) -> dict | None:
+    """The handoff as `/api/case` sends it to the customer's own session. The
+    policy reasons name internal rules and fraud thresholds, and that endpoint
+    answers the customer's own session, so it sends only how many
+    there are (plan.md AD-3). A handoff stored before they had their own field
+    kept them in `open_questions`, so that field is not sent for it. The fraud
+    score and the model's estimate in the verified facts are for the advisor
+    only (AD-15), so they are dropped.
+    """
+    if handoff is None:
+        return None
+    facts = handoff.get("verified_facts")
+    if isinstance(facts, dict):
+        handoff = {**handoff, "verified_facts": {k: v for k, v in facts.items() if k not in INTERNAL_FACTS}}
+    if "policy_reasons" not in handoff:
+        return {k: v for k, v in handoff.items() if k != "open_questions"}
+    shown = {k: v for k, v in handoff.items() if k != "policy_reasons"}
+    return {**shown, "policy_reason_count": len(handoff["policy_reasons"])}
+
+
+def _percent(probability: float) -> str:
+    return f"{probability * 100:.4f} %"
+
+
+def _fraud_facts(charge: TransactionCandidate) -> dict[str, str]:
+    """The vendor score with the policy threshold, and the offline model's
+    estimate labelled as such: the model never decides (AD-15).
+    """
+    facts: dict[str, str] = {}
+    if charge.fraud_score is not None:
+        facts["fraud_score"] = str(charge.fraud_score)
+        facts["fraud_score_threshold"] = (
+            f"{AUTO_RESOLVE_MAX_FRAUD_SCORE} (umbral de la política: por encima, el caso va a una persona)"
+        )
+    estimate = charge.fraud_risk
+    if estimate is not None:
+        facts["fraud_risk_estimate"] = (
+            f"{_percent(estimate.risk)} (estimación del modelo, no un hecho verificado; apoyo a la decisión, "
+            "la política no la usa)"
+        )
+        facts["fraud_risk_threshold"] = f"{_percent(estimate.threshold)} (umbral de costo del modelo, referencia)"
+        facts["fraud_model_version"] = estimate.model_version
+    return facts
+
+
 def _verified_charge(charge: TransactionCandidate | None, *, confirmed: bool | None) -> dict[str, str]:
     if charge is None:
         return {}
@@ -102,7 +156,7 @@ def _verified_charge(charge: TransactionCandidate | None, *, confirmed: bool | N
         "status": charge.transaction_status,
         "category": charge.merchant_category,
     }
-    verified = {k: v for k, v in record.items() if v is not None}
+    verified = {**{k: v for k, v in record.items() if v is not None}, **_fraud_facts(charge)}
     if confirmed is None:
         return verified
     return {**verified, "charge_confirmed": _yes_no(confirmed)}
@@ -366,12 +420,18 @@ _STATEMENT_OPEN_QUESTIONS = {
         "Confirmar con el cliente si hay otros cargos o movimientos que no reconoce."
     ),
 }
-CARD_LOST_QUESTION = "Evaluar si corresponde bloquear la tarjeta: el cliente no la tiene consigo."
+CARD_BLOCKED_TASK = "Tarjeta bloqueada por el agente (simulado): confirmar con el cliente la reposición."
+CARD_BLOCKED_ACTION = "Tarjeta bloqueada preventivamente por el agente (simulado, sin movimiento de dinero)."
+
+_FRAUD_SIGNALS = {
+    FraudSignal.HIGH_FRAUD_SCORE: "puntaje de fraude sobre el umbral",
+    FraudSignal.CARD_PRESENT_DENIED: "el cliente niega una compra hecha con la tarjeta presente",
+    FraudSignal.CARD_OUT_OF_HANDS: "la tarjeta está perdida, robada o fuera del poder del cliente",
+}
 
 
 def _statement_open_questions(facts: dict[str, str | None]) -> tuple[str, ...]:
-    questions = tuple(_STATEMENT_OPEN_QUESTIONS[fact] for fact in open_facts(facts, _STATEMENT_OPEN_QUESTIONS))
-    return (*questions, CARD_LOST_QUESTION) if facts.get(StatementField.CARD_POSSESSION) == Tristate.NO else questions
+    return tuple(_STATEMENT_OPEN_QUESTIONS[fact] for fact in open_facts(facts, _STATEMENT_OPEN_QUESTIONS))
 
 
 def with_statement(
@@ -392,6 +452,24 @@ def with_statement(
         **handoff,
         "customer_reported": {**handoff["customer_reported"], **reported},
         "open_questions": [*handoff["open_questions"], *_statement_open_questions(facts)],
+    }
+
+
+def with_card_block(handoff: dict, protection: ProtectiveDecision) -> dict:
+    """A handoff whose escalation blocked the card (`policy.protective_action`):
+    the block is an action taken, and the advisor's task is the reissue, not
+    whether to block. A card the customer does not have always blocks
+    (`FraudSignal.CARD_OUT_OF_HANDS`), so no handoff asks whether to block it.
+    Why it blocked (the fraud signals) is a policy reason: the customer's
+    session sees `actions_taken` but only a count of the policy reasons
+    (`for_customer_session`), so no signal reaches them.
+    """
+    why = "; ".join(_FRAUD_SIGNALS[signal] for signal in protection.signals)
+    return {
+        **handoff,
+        "policy_reasons": [*handoff["policy_reasons"], f"Bloqueo preventivo de la tarjeta: {why}."],
+        "actions_taken": [*handoff["actions_taken"], CARD_BLOCKED_ACTION],
+        "open_questions": [*handoff["open_questions"], CARD_BLOCKED_TASK],
     }
 
 

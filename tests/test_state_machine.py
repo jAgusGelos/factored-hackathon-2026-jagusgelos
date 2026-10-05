@@ -15,7 +15,7 @@ silently.
   - app.transactions.get_case_history
   - app.transactions.count_prior_complaints
   - app.transactions.count_own_charges_at_merchant
-  - app.transactions.find_own_duplicate_twins
+  - app.transactions.find_own_duplicate_evidence
 """
 
 from __future__ import annotations
@@ -30,19 +30,25 @@ from app import cases, db
 from app import transactions as txns_module
 from app.auth import Session
 from app.case_model import NON_TERMINAL_STATES, OPEN_STATES, EscalationReason, ReportedCharge
-from app.policy import DisputeReason
+from app.policy import AUTO_RESOLVE_REQUIRED_STATUS, DUPLICATE_WINDOW_MINUTES, DisputeReason
 from app.state_machine import CaseState, evaluate_case, handle_message
 from app.transactions import (
     count_own_charges_at_merchant,
     count_prior_complaints,
-    find_own_duplicate_twins,
+    find_own_duplicate_evidence,
     get_case_history,
     get_customer_profile,
     get_own_transaction,
     list_own_charges,
     search_own_transactions,
 )
-from tests.support import assert_escalation_notice
+from tests.support import (
+    DUPLICATE_CHARGES,
+    REPEAT_FARE_CHARGES,
+    assert_escalation_notice,
+    demo_session,
+    requires_real_fixture,
+)
 
 CUSTOMER_DATA_FUNCTIONS = (
     search_own_transactions,
@@ -52,7 +58,7 @@ CUSTOMER_DATA_FUNCTIONS = (
     get_case_history,
     count_prior_complaints,
     count_own_charges_at_merchant,
-    find_own_duplicate_twins,
+    find_own_duplicate_evidence,
 )
 
 
@@ -373,3 +379,40 @@ def test_a_case_waiting_for_the_statement_is_open_but_only_the_statement_step_mo
     assert CaseState.AWAITING_STATEMENT in NON_TERMINAL_STATES
     assert CaseState.AWAITING_STATEMENT not in OPEN_STATES
     assert set(OPEN_STATES) == set(NON_TERMINAL_STATES) - {CaseState.AWAITING_STATEMENT}
+
+
+# -- AD-14: a duplicate twin is minutes apart, by full timestamp ---------------
+
+
+@requires_real_fixture
+def test_duplicate_evidence_separates_a_double_charge_from_a_next_day_repeat(real_fixture_app_db):
+    session = demo_session(real_fixture_app_db)
+    taxi = get_own_transaction(session, DUPLICATE_CHARGES[1])
+    ride = get_own_transaction(session, REPEAT_FARE_CHARGES[1])
+
+    def evidence(txn):
+        return find_own_duplicate_evidence(
+            session, txn, window_minutes=DUPLICATE_WINDOW_MINUTES, required_status=AUTO_RESOLVE_REQUIRED_STATUS,
+        )
+
+    taxi_evidence, ride_evidence = evidence(taxi), evidence(ride)
+
+    assert taxi_evidence.twins == (DUPLICATE_CHARGES[0],) and taxi_evidence.repeats == ()
+    assert ride_evidence.twins == () and ride_evidence.repeats == (REPEAT_FARE_CHARGES[0],)
+
+
+@requires_real_fixture
+def test_duplicate_evidence_reads_the_timestamps_from_the_fixture_not_from_the_snapshot(real_fixture_app_db):
+    """A charge rebuilt from a case snapshot only keeps the day (midnight):
+    measured on that, the 12:04 taxi charge would sit 12 hours from its 12:00
+    twin. The window must still be measured on the stored timestamps.
+    """
+    session = demo_session(real_fixture_app_db)
+    taxi = get_own_transaction(session, DUPLICATE_CHARGES[1])
+    day_only = type(taxi).from_snapshot(taxi.to_snapshot())
+
+    evidence = find_own_duplicate_evidence(
+        session, day_only, window_minutes=DUPLICATE_WINDOW_MINUTES, required_status=AUTO_RESOLVE_REQUIRED_STATUS,
+    )
+
+    assert evidence.twins == (DUPLICATE_CHARGES[0],) and evidence.repeats == ()

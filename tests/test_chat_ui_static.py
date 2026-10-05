@@ -220,7 +220,8 @@ def _handoff_field_keys() -> set[str]:
             build().to_dict(), status=handoffs.StatementStatus.GIVEN, summary="s", facts=_EVERY_STATEMENT_FACT,
         )
         keys |= set(handoff["verified_facts"]) | set(handoff["customer_reported"])
-    return keys
+    # AD-15: the fraud figures never reach the customer's session, so the chat never labels them.
+    return keys - handoffs.INTERNAL_FACTS
 
 
 @pytest.mark.parametrize("lang", ["es", "pt"])

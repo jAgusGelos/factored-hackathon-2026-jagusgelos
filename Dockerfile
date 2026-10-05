@@ -19,6 +19,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # These 3 files must exist locally before `docker build` — produce them with:
 #   python etl/extract.py && python etl/build_fixture.py && python etl/train_classifier.py
+# (build_fixture needs data/fraud_model.joblib and data/fraud_eval_report.json first:
+# python -m etl.train_fraud_model && python -m etl.evaluate_fraud_model, see DEPLOY.md;
+# the fraud model itself is never copied into the image.)
 # They are gitignored (data/) but not dockerignored (see .dockerignore's explicit
 # un-ignore), so `docker build` picks them up straight off local disk. Copied
 # before the app/static layers since they change far less often than app code.

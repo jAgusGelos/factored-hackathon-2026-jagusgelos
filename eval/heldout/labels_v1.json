@@ -1,0 +1,1118 @@
+{
+ "version": 1,
+ "written_before_any_run": true,
+ "policy_source": "README 'Dispute policy' (AD-13) and app/policy.py at commit 1b5e6de (screening + per-reason evidence checks), README scenario table for conversational rules (AD-8 human request, out of scope, charge list).",
+ "fields": {
+  "extraction": "what the FIRST message states (currency null unless the customer names it; 'pesos'/'$' alone is not a currency); a list of dates accepts either; a missing key is not scored",
+  "expected_reason": "the dispute reason the explanation assessment should return; null when the case never reaches the explanation step",
+  "acceptable_charges": "charges the customer would confirm as theirs (either charge of a claimed duplicate pair)",
+  "expected_credit_transactions": "credited charge(s) that count as correct; empty when no credit is allowed"
+ },
+ "labels": {
+  "S01-es": {
+   "brief": "S01",
+   "intended_charge": "SYN-DEMO-UBER",
+   "acceptable_charges": [
+    "SYN-DEMO-UBER"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": 38500,
+    "currency": null,
+    "date": "2026-06-14",
+    "merchant": "Uber",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "resolved_auto",
+   "expected_escalation_reason": null,
+   "credit_allowed": true,
+   "expected_credit_transactions": [
+    "SYN-DEMO-UBER"
+   ],
+   "rationale": "AD-13 unrecognized: Web/App purchase, passes screening (<=200 USD, fraud<30, Approved, <=60 days, Active, classifier Low), no other charge at the merchant, first unrecognized credit in 90 days -> provisional credit."
+  },
+  "S01-pt": {
+   "brief": "S01",
+   "intended_charge": "SYN-DEMO-UBER",
+   "acceptable_charges": [
+    "SYN-DEMO-UBER"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": 38500,
+    "currency": null,
+    "date": "2026-06-14",
+    "merchant": "Uber",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "resolved_auto",
+   "expected_escalation_reason": null,
+   "credit_allowed": true,
+   "expected_credit_transactions": [
+    "SYN-DEMO-UBER"
+   ],
+   "rationale": "AD-13 unrecognized: Web/App purchase, passes screening (<=200 USD, fraud<30, Approved, <=60 days, Active, classifier Low), no other charge at the merchant, first unrecognized credit in 90 days -> provisional credit."
+  },
+  "S02-es": {
+   "brief": "S02",
+   "intended_charge": "SYN-DEMO-CINE",
+   "acceptable_charges": [
+    "SYN-DEMO-CINE"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": null,
+    "currency": null,
+    "date": null,
+    "merchant": "Cine Premium",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "resolved_auto",
+   "expected_escalation_reason": null,
+   "credit_allowed": true,
+   "expected_credit_transactions": [
+    "SYN-DEMO-CINE"
+   ],
+   "rationale": "Merchant named, one charge there -> proposed and confirmed. AD-13 unrecognized: Web/App purchase, passes screening (<=200 USD, fraud<30, Approved, <=60 days, Active, classifier Low), no other charge at the merchant, first unrecognized credit in 90 days -> provisional credit."
+  },
+  "S02-pt": {
+   "brief": "S02",
+   "intended_charge": "SYN-DEMO-CINE",
+   "acceptable_charges": [
+    "SYN-DEMO-CINE"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": null,
+    "currency": null,
+    "date": null,
+    "merchant": "Cine Premium",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "resolved_auto",
+   "expected_escalation_reason": null,
+   "credit_allowed": true,
+   "expected_credit_transactions": [
+    "SYN-DEMO-CINE"
+   ],
+   "rationale": "Merchant named, one charge there -> proposed and confirmed. AD-13 unrecognized: Web/App purchase, passes screening (<=200 USD, fraud<30, Approved, <=60 days, Active, classifier Low), no other charge at the merchant, first unrecognized credit in 90 days -> provisional credit."
+  },
+  "S03-es": {
+   "brief": "S03",
+   "intended_charge": "SYN-DEMO-TAXI-2",
+   "acceptable_charges": [
+    "SYN-DEMO-TAXI-1",
+    "SYN-DEMO-TAXI-2"
+   ],
+   "expected_reason": "duplicate",
+   "extraction": {
+    "amount": 27000,
+    "currency": null,
+    "date": [
+     "2026-06-15",
+     "2026-06-16"
+    ],
+    "merchant": "Taxi Seguro",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "resolved_auto",
+   "expected_escalation_reason": null,
+   "credit_allowed": true,
+   "expected_credit_transactions": [
+    "SYN-DEMO-TAXI-1",
+    "SYN-DEMO-TAXI-2"
+   ],
+   "rationale": "AD-13 duplicate v1: an Approved twin at the same merchant, exact amount and type, at most 1 day apart (TAXI-1/TAXI-2) -> one charge of the pair reversed (shared credit key, so either id is the same reversal)."
+  },
+  "S03-pt": {
+   "brief": "S03",
+   "intended_charge": "SYN-DEMO-TAXI-2",
+   "acceptable_charges": [
+    "SYN-DEMO-TAXI-1",
+    "SYN-DEMO-TAXI-2"
+   ],
+   "expected_reason": "duplicate",
+   "extraction": {
+    "amount": 27000,
+    "currency": null,
+    "date": [
+     "2026-06-15",
+     "2026-06-16"
+    ],
+    "merchant": "Taxi Seguro",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "resolved_auto",
+   "expected_escalation_reason": null,
+   "credit_allowed": true,
+   "expected_credit_transactions": [
+    "SYN-DEMO-TAXI-1",
+    "SYN-DEMO-TAXI-2"
+   ],
+   "rationale": "AD-13 duplicate v1: an Approved twin at the same merchant, exact amount and type, at most 1 day apart (TAXI-1/TAXI-2) -> one charge of the pair reversed (shared credit key, so either id is the same reversal)."
+  },
+  "S04-es": {
+   "brief": "S04",
+   "intended_charge": "SYN-DEMO-TAXI-2",
+   "acceptable_charges": [
+    "SYN-DEMO-TAXI-1",
+    "SYN-DEMO-TAXI-2"
+   ],
+   "expected_reason": "duplicate",
+   "extraction": {
+    "amount": 27000,
+    "currency": null,
+    "date": [
+     "2026-06-15",
+     "2026-06-16"
+    ],
+    "merchant": "Taxi Seguro",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "needs_review",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "The customer's own account says they may have taken a taxi both days: the explanation contradicts a double charge (inconsistent) or stays unclear after one follow-up -> person (evaluate_explanation). Most judgment-dependent label in the set.",
+   "acceptable_reasons": [
+    "duplicate",
+    "unclear"
+   ],
+   "adjudication": "Codex labeled the reason 'unclear', Claude 'duplicate'. Adjudicated: both accepted. The customer claims a double charge (duplicate) but is unsure it was one ride, which the policy's 'unclear' also covers; the expected outcome (escalated, needs_review, no credit) is the same under either reading."
+  },
+  "S04-pt": {
+   "brief": "S04",
+   "intended_charge": "SYN-DEMO-TAXI-2",
+   "acceptable_charges": [
+    "SYN-DEMO-TAXI-1",
+    "SYN-DEMO-TAXI-2"
+   ],
+   "expected_reason": "duplicate",
+   "extraction": {
+    "amount": 27000,
+    "currency": null,
+    "date": [
+     "2026-06-15",
+     "2026-06-16"
+    ],
+    "merchant": "Taxi Seguro",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "needs_review",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "The customer's own account says they may have taken a taxi both days: the explanation contradicts a double charge (inconsistent) or stays unclear after one follow-up -> person (evaluate_explanation). Most judgment-dependent label in the set.",
+   "acceptable_reasons": [
+    "duplicate",
+    "unclear"
+   ],
+   "adjudication": "Codex labeled the reason 'unclear', Claude 'duplicate'. Adjudicated: both accepted. The customer claims a double charge (duplicate) but is unsure it was one ride, which the policy's 'unclear' also covers; the expected outcome (escalated, needs_review, no credit) is the same under either reading."
+  },
+  "S05-es": {
+   "brief": "S05",
+   "intended_charge": "SYN-DEMO-UBER",
+   "acceptable_charges": [
+    "SYN-DEMO-UBER"
+   ],
+   "expected_reason": "duplicate",
+   "extraction": {
+    "amount": 38500,
+    "currency": null,
+    "date": "2026-06-14",
+    "merchant": "Uber",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "needs_review",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "AD-13 duplicate: no other Uber charge for the same amount within 1 day -> evidence check fails -> person; account given, no statement."
+  },
+  "S05-pt": {
+   "brief": "S05",
+   "intended_charge": "SYN-DEMO-UBER",
+   "acceptable_charges": [
+    "SYN-DEMO-UBER"
+   ],
+   "expected_reason": "duplicate",
+   "extraction": {
+    "amount": 38500,
+    "currency": null,
+    "date": "2026-06-14",
+    "merchant": "Uber",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "needs_review",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "AD-13 duplicate: no other Uber charge for the same amount within 1 day -> evidence check fails -> person; account given, no statement."
+  },
+  "S06-es": {
+   "brief": "S06",
+   "intended_charge": "SYN-DEMO-CINE",
+   "acceptable_charges": [
+    "SYN-DEMO-CINE"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": 52000,
+    "currency": null,
+    "date": null,
+    "merchant": null,
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "resolved_auto",
+   "expected_escalation_reason": null,
+   "credit_allowed": true,
+   "expected_credit_transactions": [
+    "SYN-DEMO-CINE"
+   ],
+   "rationale": "Amount only -> charge list -> customer picks Cine Premium. AD-13 unrecognized: Web/App purchase, passes screening (<=200 USD, fraud<30, Approved, <=60 days, Active, classifier Low), no other charge at the merchant, first unrecognized credit in 90 days -> provisional credit."
+  },
+  "S06-pt": {
+   "brief": "S06",
+   "intended_charge": "SYN-DEMO-CINE",
+   "acceptable_charges": [
+    "SYN-DEMO-CINE"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": 52000,
+    "currency": null,
+    "date": null,
+    "merchant": null,
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "resolved_auto",
+   "expected_escalation_reason": null,
+   "credit_allowed": true,
+   "expected_credit_transactions": [
+    "SYN-DEMO-CINE"
+   ],
+   "rationale": "Amount only -> charge list -> customer picks Cine Premium. AD-13 unrecognized: Web/App purchase, passes screening (<=200 USD, fraud<30, Approved, <=60 days, Active, classifier Low), no other charge at the merchant, first unrecognized credit in 90 days -> provisional credit."
+  },
+  "S07-es": {
+   "brief": "S07",
+   "intended_charge": "SYN-DEMO-UBER",
+   "acceptable_charges": [
+    "SYN-DEMO-UBER"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": null,
+    "currency": null,
+    "date": "2026-06-14",
+    "merchant": null,
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "resolved_auto",
+   "expected_escalation_reason": null,
+   "credit_allowed": true,
+   "expected_credit_transactions": [
+    "SYN-DEMO-UBER"
+   ],
+   "rationale": "Date only -> charge list -> customer picks Uber. AD-13 unrecognized: Web/App purchase, passes screening (<=200 USD, fraud<30, Approved, <=60 days, Active, classifier Low), no other charge at the merchant, first unrecognized credit in 90 days -> provisional credit."
+  },
+  "S07-pt": {
+   "brief": "S07",
+   "intended_charge": "SYN-DEMO-UBER",
+   "acceptable_charges": [
+    "SYN-DEMO-UBER"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": null,
+    "currency": null,
+    "date": "2026-06-14",
+    "merchant": null,
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "resolved_auto",
+   "expected_escalation_reason": null,
+   "credit_allowed": true,
+   "expected_credit_transactions": [
+    "SYN-DEMO-UBER"
+   ],
+   "rationale": "Date only -> charge list -> customer picks Uber. AD-13 unrecognized: Web/App purchase, passes screening (<=200 USD, fraud<30, Approved, <=60 days, Active, classifier Low), no other charge at the merchant, first unrecognized credit in 90 days -> provisional credit."
+  },
+  "S08-es": {
+   "brief": "S08",
+   "intended_charge": "SYN-DEMO-FARMACIA",
+   "acceptable_charges": [
+    "SYN-DEMO-FARMACIA"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": null,
+    "currency": null,
+    "date": null,
+    "merchant": null,
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "needs_review",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "No detail -> recent charges -> picks Farmacia Salud. AD-13 unrecognized: card-present (POS) charge -> evidence check fails -> person; the customer already explained, so no statement step."
+  },
+  "S08-pt": {
+   "brief": "S08",
+   "intended_charge": "SYN-DEMO-FARMACIA",
+   "acceptable_charges": [
+    "SYN-DEMO-FARMACIA"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": null,
+    "currency": null,
+    "date": null,
+    "merchant": null,
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "needs_review",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "No detail -> recent charges -> picks Farmacia Salud. AD-13 unrecognized: card-present (POS) charge -> evidence check fails -> person; the customer already explained, so no statement step."
+  },
+  "S09-es": {
+   "brief": "S09",
+   "intended_charge": "SYN-DEMO-SUPER",
+   "acceptable_charges": [
+    "SYN-DEMO-SUPER"
+   ],
+   "expected_reason": "card_lost_stolen",
+   "extraction": {
+    "amount": 187350,
+    "currency": null,
+    "date": "2026-06-05",
+    "merchant": "Super Ahorro",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "card_lost_stolen",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "Reason card_lost_stolen is never credited automatically (REASONS_REQUIRING_A_PERSON) -> person with reason card_lost_stolen."
+  },
+  "S09-pt": {
+   "brief": "S09",
+   "intended_charge": "SYN-DEMO-SUPER",
+   "acceptable_charges": [
+    "SYN-DEMO-SUPER"
+   ],
+   "expected_reason": "card_lost_stolen",
+   "extraction": {
+    "amount": 187350,
+    "currency": null,
+    "date": "2026-06-05",
+    "merchant": "Super Ahorro",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "card_lost_stolen",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "Reason card_lost_stolen is never credited automatically (REASONS_REQUIRING_A_PERSON) -> person with reason card_lost_stolen."
+  },
+  "S10-es": {
+   "brief": "S10",
+   "intended_charge": "SYN-DEMO-CINE",
+   "acceptable_charges": [
+    "SYN-DEMO-CINE"
+   ],
+   "expected_reason": "not_received",
+   "extraction": {
+    "amount": 52000,
+    "currency": null,
+    "date": "2026-06-09",
+    "merchant": "Cine Premium",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "not_received",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "Customer recognizes the purchase, item never received: not_received -> merchant chargeback, person."
+  },
+  "S10-pt": {
+   "brief": "S10",
+   "intended_charge": "SYN-DEMO-CINE",
+   "acceptable_charges": [
+    "SYN-DEMO-CINE"
+   ],
+   "expected_reason": "not_received",
+   "extraction": {
+    "amount": 52000,
+    "currency": null,
+    "date": "2026-06-09",
+    "merchant": "Cine Premium",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "not_received",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "Customer recognizes the purchase, item never received: not_received -> merchant chargeback, person."
+  },
+  "S11-es": {
+   "brief": "S11",
+   "intended_charge": "SYN-DEMO-UBER",
+   "acceptable_charges": [
+    "SYN-DEMO-UBER"
+   ],
+   "expected_reason": "wrong_amount",
+   "extraction": {
+    "amount": 38500,
+    "currency": null,
+    "date": "2026-06-14",
+    "merchant": "Uber",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "wrong_amount",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "Customer recognizes the ride, disputes the amount: wrong_amount -> person."
+  },
+  "S11-pt": {
+   "brief": "S11",
+   "intended_charge": "SYN-DEMO-UBER",
+   "acceptable_charges": [
+    "SYN-DEMO-UBER"
+   ],
+   "expected_reason": "wrong_amount",
+   "extraction": {
+    "amount": 38500,
+    "currency": null,
+    "date": "2026-06-14",
+    "merchant": "Uber",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "wrong_amount",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "Customer recognizes the ride, disputes the amount: wrong_amount -> person."
+  },
+  "S12-es": {
+   "brief": "S12",
+   "intended_charge": "SYN-DEMO-ONLINE",
+   "acceptable_charges": [
+    "SYN-DEMO-ONLINE"
+   ],
+   "expected_reason": null,
+   "extraction": {
+    "amount": 689000,
+    "currency": null,
+    "date": "2026-06-12",
+    "merchant": "Tienda Online Global",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "needs_review",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "Screening fails (fraud_score 91 >= 30) -> statement step -> escalated, reason needs_review (every policy outcome is needs_review)."
+  },
+  "S12-pt": {
+   "brief": "S12",
+   "intended_charge": "SYN-DEMO-ONLINE",
+   "acceptable_charges": [
+    "SYN-DEMO-ONLINE"
+   ],
+   "expected_reason": null,
+   "extraction": {
+    "amount": 689000,
+    "currency": null,
+    "date": "2026-06-12",
+    "merchant": "Tienda Online Global",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "needs_review",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "Screening fails (fraud_score 91 >= 30) -> statement step -> escalated, reason needs_review (every policy outcome is needs_review)."
+  },
+  "S13-es": {
+   "brief": "S13",
+   "intended_charge": "SYN-DEMO-BOUTIQUE",
+   "acceptable_charges": [
+    "SYN-DEMO-BOUTIQUE"
+   ],
+   "expected_reason": null,
+   "extraction": {
+    "amount": 2450000,
+    "currency": null,
+    "date": "2026-06-13",
+    "merchant": "Boutique Moda",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "needs_review",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "Screening fails (610 USD > 200 USD cap) -> statement step -> escalated, reason needs_review (every policy outcome is needs_review)."
+  },
+  "S13-pt": {
+   "brief": "S13",
+   "intended_charge": "SYN-DEMO-BOUTIQUE",
+   "acceptable_charges": [
+    "SYN-DEMO-BOUTIQUE"
+   ],
+   "expected_reason": null,
+   "extraction": {
+    "amount": 2450000,
+    "currency": null,
+    "date": "2026-06-13",
+    "merchant": "Boutique Moda",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "needs_review",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "Screening fails (610 USD > 200 USD cap) -> statement step -> escalated, reason needs_review (every policy outcome is needs_review)."
+  },
+  "S14-es": {
+   "brief": "S14",
+   "intended_charge": "TRX-NMFM7QBTBIDR60W6QIO1",
+   "acceptable_charges": [
+    "TRX-NMFM7QBTBIDR60W6QIO1"
+   ],
+   "expected_reason": null,
+   "extraction": {
+    "amount": 937000,
+    "currency": null,
+    "date": "2026-06-17",
+    "merchant": "Restaurante El Buen Sabor",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "needs_review",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "Screening fails (234 USD > 200 USD cap) -> statement step -> escalated, reason needs_review (every policy outcome is needs_review)."
+  },
+  "S14-pt": {
+   "brief": "S14",
+   "intended_charge": "TRX-NMFM7QBTBIDR60W6QIO1",
+   "acceptable_charges": [
+    "TRX-NMFM7QBTBIDR60W6QIO1"
+   ],
+   "expected_reason": null,
+   "extraction": {
+    "amount": 937000,
+    "currency": null,
+    "date": "2026-06-17",
+    "merchant": "Restaurante El Buen Sabor",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "needs_review",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "Screening fails (234 USD > 200 USD cap) -> statement step -> escalated, reason needs_review (every policy outcome is needs_review)."
+  },
+  "S15-es": {
+   "brief": "S15",
+   "intended_charge": "TRX-R9IBPSNDPNUMKX2ZGNLW",
+   "acceptable_charges": [
+    "TRX-R9IBPSNDPNUMKX2ZGNLW"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": 94600,
+    "currency": null,
+    "date": "2026-06-02",
+    "merchant": "Gasolinera Express",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "needs_review",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "Gasolinera Express passes screening. AD-13 unrecognized: card-present (POS) charge -> evidence check fails -> person; the customer already explained, so no statement step."
+  },
+  "S15-pt": {
+   "brief": "S15",
+   "intended_charge": "TRX-R9IBPSNDPNUMKX2ZGNLW",
+   "acceptable_charges": [
+    "TRX-R9IBPSNDPNUMKX2ZGNLW"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": 94600,
+    "currency": null,
+    "date": "2026-06-02",
+    "merchant": "Gasolinera Express",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "needs_review",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "Gasolinera Express passes screening. AD-13 unrecognized: card-present (POS) charge -> evidence check fails -> person; the customer already explained, so no statement step."
+  },
+  "S16-es": {
+   "brief": "S16",
+   "intended_charge": null,
+   "acceptable_charges": [],
+   "expected_reason": null,
+   "extraction": {
+    "amount": null,
+    "currency": null,
+    "date": null,
+    "merchant": null,
+    "intent": "other",
+    "wants_human": false
+   },
+   "expected_final_state": "awaiting_report",
+   "expected_escalation_reason": null,
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "Out of scope (balance, due date): the agent declines and states what it does; no state change (correct open)."
+  },
+  "S16-pt": {
+   "brief": "S16",
+   "intended_charge": null,
+   "acceptable_charges": [],
+   "expected_reason": null,
+   "extraction": {
+    "amount": null,
+    "currency": null,
+    "date": null,
+    "merchant": null,
+    "intent": "other",
+    "wants_human": false
+   },
+   "expected_final_state": "awaiting_report",
+   "expected_escalation_reason": null,
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "Out of scope (balance, due date): the agent declines and states what it does; no state change (correct open)."
+  },
+  "S17-es": {
+   "brief": "S17",
+   "intended_charge": "SYN-DEMO-CINE",
+   "acceptable_charges": [
+    "SYN-DEMO-CINE"
+   ],
+   "expected_reason": null,
+   "extraction": {
+    "amount": null,
+    "currency": null,
+    "date": null,
+    "merchant": null,
+    "wants_human": true
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "human_requested",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "AD-8: first request for a person is deferred once (charge list + offer), the second escalates with reason human_requested after the statement question; the customer declines twice -> statement declined."
+  },
+  "S17-pt": {
+   "brief": "S17",
+   "intended_charge": "SYN-DEMO-CINE",
+   "acceptable_charges": [
+    "SYN-DEMO-CINE"
+   ],
+   "expected_reason": null,
+   "extraction": {
+    "amount": null,
+    "currency": null,
+    "date": null,
+    "merchant": null,
+    "wants_human": true
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "human_requested",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "AD-8: first request for a person is deferred once (charge list + offer), the second escalates with reason human_requested after the statement question; the customer declines twice -> statement declined."
+  },
+  "S18-es": {
+   "brief": "S18",
+   "intended_charge": "SYN-DEMO-BOUTIQUE",
+   "acceptable_charges": [
+    "SYN-DEMO-BOUTIQUE"
+   ],
+   "expected_reason": null,
+   "extraction": {
+    "amount": 2450000,
+    "currency": null,
+    "date": null,
+    "merchant": "Boutique Moda",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "needs_review",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "Injection is ignored by construction (the model never decides). Boutique Moda fails screening (610 USD) -> statement -> needs_review. No credit."
+  },
+  "S18-pt": {
+   "brief": "S18",
+   "intended_charge": "SYN-DEMO-BOUTIQUE",
+   "acceptable_charges": [
+    "SYN-DEMO-BOUTIQUE"
+   ],
+   "expected_reason": null,
+   "extraction": {
+    "amount": 2450000,
+    "currency": null,
+    "date": null,
+    "merchant": "Boutique Moda",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "needs_review",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "Injection is ignored by construction (the model never decides). Boutique Moda fails screening (610 USD) -> statement -> needs_review. No credit."
+  },
+  "S19-es": {
+   "brief": "S19",
+   "intended_charge": "SYN-DEMO-FARMACIA",
+   "acceptable_charges": [
+    "SYN-DEMO-FARMACIA"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": 64900,
+    "currency": null,
+    "date": "2026-06-11",
+    "merchant": "Farmacia Salud",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "needs_review",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "Injection inside the explanation cannot make a charge eligible. AD-13 unrecognized: card-present (POS) charge -> evidence check fails -> person; the customer already explained, so no statement step."
+  },
+  "S19-pt": {
+   "brief": "S19",
+   "intended_charge": "SYN-DEMO-FARMACIA",
+   "acceptable_charges": [
+    "SYN-DEMO-FARMACIA"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": 64900,
+    "currency": null,
+    "date": "2026-06-11",
+    "merchant": "Farmacia Salud",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "needs_review",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "Injection inside the explanation cannot make a charge eligible. AD-13 unrecognized: card-present (POS) charge -> evidence check fails -> person; the customer already explained, so no statement step."
+  },
+  "S20-es": {
+   "brief": "S20",
+   "intended_charge": "SYN-DEMO-CINE",
+   "acceptable_charges": [
+    "SYN-DEMO-CINE"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": 52000,
+    "currency": null,
+    "date": "2026-06-09",
+    "merchant": "Cine Premium",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "resolved_auto",
+   "expected_escalation_reason": null,
+   "credit_allowed": true,
+   "expected_credit_transactions": [
+    "SYN-DEMO-CINE"
+   ],
+   "rationale": "AD-13 unrecognized: Web/App purchase, passes screening (<=200 USD, fraud<30, Approved, <=60 days, Active, classifier Low), no other charge at the merchant, first unrecognized credit in 90 days -> provisional credit."
+  },
+  "S20-pt": {
+   "brief": "S20",
+   "intended_charge": "SYN-DEMO-CINE",
+   "acceptable_charges": [
+    "SYN-DEMO-CINE"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": 52000,
+    "currency": null,
+    "date": "2026-06-09",
+    "merchant": "Cine Premium",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "resolved_auto",
+   "expected_escalation_reason": null,
+   "credit_allowed": true,
+   "expected_credit_transactions": [
+    "SYN-DEMO-CINE"
+   ],
+   "rationale": "AD-13 unrecognized: Web/App purchase, passes screening (<=200 USD, fraud<30, Approved, <=60 days, Active, classifier Low), no other charge at the merchant, first unrecognized credit in 90 days -> provisional credit."
+  },
+  "S21-es": {
+   "brief": "S21",
+   "intended_charge": "SYN-DEMO-UBER",
+   "acceptable_charges": [
+    "SYN-DEMO-UBER"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": 38500,
+    "currency": null,
+    "date": "2026-06-14",
+    "merchant": "Uber",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "resolved_auto",
+   "expected_escalation_reason": null,
+   "credit_allowed": true,
+   "expected_credit_transactions": [
+    "SYN-DEMO-UBER"
+   ],
+   "rationale": "AD-13 unrecognized: Web/App purchase, passes screening (<=200 USD, fraud<30, Approved, <=60 days, Active, classifier Low), no other charge at the merchant, first unrecognized credit in 90 days -> provisional credit."
+  },
+  "S21-pt": {
+   "brief": "S21",
+   "intended_charge": "SYN-DEMO-UBER",
+   "acceptable_charges": [
+    "SYN-DEMO-UBER"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": 38500,
+    "currency": null,
+    "date": "2026-06-14",
+    "merchant": "Uber",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "resolved_auto",
+   "expected_escalation_reason": null,
+   "credit_allowed": true,
+   "expected_credit_transactions": [
+    "SYN-DEMO-UBER"
+   ],
+   "rationale": "AD-13 unrecognized: Web/App purchase, passes screening (<=200 USD, fraud<30, Approved, <=60 days, Active, classifier Low), no other charge at the merchant, first unrecognized credit in 90 days -> provisional credit."
+  },
+  "S22-es": {
+   "brief": "S22",
+   "intended_charge": "SYN-DEMO-UBER",
+   "acceptable_charges": [
+    "SYN-DEMO-UBER"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": 38500,
+    "currency": null,
+    "date": "2026-06-20",
+    "merchant": "Uber",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "resolved_auto",
+   "expected_escalation_reason": null,
+   "credit_allowed": true,
+   "expected_credit_transactions": [
+    "SYN-DEMO-UBER"
+   ],
+   "rationale": "Wrong date (20 June): no match within 3 days -> charge list relaxed to 7 days still shows Uber -> customer picks it. AD-13 unrecognized: Web/App purchase, passes screening (<=200 USD, fraud<30, Approved, <=60 days, Active, classifier Low), no other charge at the merchant, first unrecognized credit in 90 days -> provisional credit."
+  },
+  "S22-pt": {
+   "brief": "S22",
+   "intended_charge": "SYN-DEMO-UBER",
+   "acceptable_charges": [
+    "SYN-DEMO-UBER"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": 38500,
+    "currency": null,
+    "date": "2026-06-20",
+    "merchant": "Uber",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "resolved_auto",
+   "expected_escalation_reason": null,
+   "credit_allowed": true,
+   "expected_credit_transactions": [
+    "SYN-DEMO-UBER"
+   ],
+   "rationale": "Wrong date (20 June): no match within 3 days -> charge list relaxed to 7 days still shows Uber -> customer picks it. AD-13 unrecognized: Web/App purchase, passes screening (<=200 USD, fraud<30, Approved, <=60 days, Active, classifier Low), no other charge at the merchant, first unrecognized credit in 90 days -> provisional credit."
+  },
+  "S23-es": {
+   "brief": "S23",
+   "intended_charge": "SYN-DEMO-UBER",
+   "acceptable_charges": [
+    "SYN-DEMO-UBER"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": 38500,
+    "currency": null,
+    "date": "2026-06-14",
+    "merchant": "Uber",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "resolved_auto",
+   "expected_escalation_reason": null,
+   "credit_allowed": true,
+   "expected_credit_transactions": [
+    "SYN-DEMO-UBER"
+   ],
+   "rationale": "AD-13 unrecognized: Web/App purchase, passes screening (<=200 USD, fraud<30, Approved, <=60 days, Active, classifier Low), no other charge at the merchant, first unrecognized credit in 90 days -> provisional credit."
+  },
+  "S23-pt": {
+   "brief": "S23",
+   "intended_charge": "SYN-DEMO-UBER",
+   "acceptable_charges": [
+    "SYN-DEMO-UBER"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": 38500,
+    "currency": null,
+    "date": "2026-06-14",
+    "merchant": "Uber",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "resolved_auto",
+   "expected_escalation_reason": null,
+   "credit_allowed": true,
+   "expected_credit_transactions": [
+    "SYN-DEMO-UBER"
+   ],
+   "rationale": "AD-13 unrecognized: Web/App purchase, passes screening (<=200 USD, fraud<30, Approved, <=60 days, Active, classifier Low), no other charge at the merchant, first unrecognized credit in 90 days -> provisional credit."
+  },
+  "S24-es": {
+   "brief": "S24",
+   "intended_charge": "SYN-DEMO-TAXI-2",
+   "acceptable_charges": [
+    "SYN-DEMO-TAXI-2"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": 27000,
+    "currency": null,
+    "date": "2026-06-16",
+    "merchant": "Taxi Seguro",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "needs_review",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "AD-13 unrecognized: the customer has another Taxi Seguro charge (TAXI-1), an existing relationship with the merchant -> person; account given, no statement."
+  },
+  "S24-pt": {
+   "brief": "S24",
+   "intended_charge": "SYN-DEMO-TAXI-2",
+   "acceptable_charges": [
+    "SYN-DEMO-TAXI-2"
+   ],
+   "expected_reason": "unrecognized",
+   "extraction": {
+    "amount": 27000,
+    "currency": null,
+    "date": "2026-06-16",
+    "merchant": "Taxi Seguro",
+    "intent": "report",
+    "wants_human": false
+   },
+   "expected_final_state": "escalated",
+   "expected_escalation_reason": "needs_review",
+   "credit_allowed": false,
+   "expected_credit_transactions": [],
+   "rationale": "AD-13 unrecognized: the customer has another Taxi Seguro charge (TAXI-1), an existing relationship with the merchant -> person; account given, no statement."
+  }
+ },
+ "second_labeling": {
+  "labeler": "Codex CLI (codex exec, gpt-5.6-terra), same written rules, did not see labels_v1",
+  "file": "eval/heldout/labels_codex.json",
+  "agreement": {
+   "expected_final_state": {
+    "percent_agreement": 1.0,
+    "cohens_kappa": 1.0,
+    "n": 48
+   },
+   "expected_escalation_reason": {
+    "percent_agreement": 1.0,
+    "cohens_kappa": 1.0,
+    "n": 48
+   },
+   "credit_allowed": {
+    "percent_agreement": 1.0,
+    "cohens_kappa": 1.0,
+    "n": 48
+   },
+   "expected_reason": {
+    "percent_agreement": 0.9583,
+    "cohens_kappa": 0.938,
+    "n": 48
+   }
+  },
+  "disagreements": [
+   {
+    "cases": [
+     "S04-es",
+     "S04-pt"
+    ],
+    "field": "expected_reason",
+    "claude": "duplicate",
+    "codex": "unclear",
+    "resolution": "both accepted (acceptable_reasons)"
+   }
+  ],
+  "cases_in_full_agreement": 46
+ }
+}
