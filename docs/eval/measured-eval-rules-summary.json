@@ -1,0 +1,455 @@
+{
+ "label": "MEASURED: real Claude model through the real app, on a held-out set labeled before the run",
+ "generated_at": "2026-10-05T12:20:11+00:00",
+ "model": "claude-haiku-4-5",
+ "labels_path": "eval/heldout/labels_v2.json",
+ "systems_run": [
+  "rules_extractor"
+ ],
+ "runs": 1,
+ "case_ids": [
+  "S01-es",
+  "S01-pt",
+  "S02-es",
+  "S02-pt",
+  "S03-es",
+  "S03-pt",
+  "S04-es",
+  "S04-pt",
+  "S05-es",
+  "S05-pt",
+  "S06-es",
+  "S06-pt",
+  "S07-es",
+  "S07-pt",
+  "S08-es",
+  "S08-pt",
+  "S09-es",
+  "S09-pt",
+  "S10-es",
+  "S10-pt",
+  "S11-es",
+  "S11-pt",
+  "S12-es",
+  "S12-pt",
+  "S13-es",
+  "S13-pt",
+  "S14-es",
+  "S14-pt",
+  "S15-es",
+  "S15-pt",
+  "S16-es",
+  "S16-pt",
+  "S17-es",
+  "S17-pt",
+  "S18-es",
+  "S18-pt",
+  "S19-es",
+  "S19-pt",
+  "S20-es",
+  "S20-pt",
+  "S21-es",
+  "S21-pt",
+  "S22-es",
+  "S22-pt",
+  "S23-es",
+  "S23-pt",
+  "S24-es",
+  "S24-pt"
+ ],
+ "pricing_usd_per_m_tokens": {
+  "input": 1.0,
+  "output": 5.0
+ },
+ "app_commit": "c799354",
+ "budget_usd": 0.2,
+ "labels_version": 2,
+ "spent_usd": 0.1498,
+ "stopped_over_budget": false,
+ "harness_errors": [],
+ "interrupted_cases": [],
+ "served_models": [
+  "claude-haiku-4-5-20251001"
+ ],
+ "systems": {
+  "rules_extractor": {
+   "runs": [
+    {
+     "cases": 48,
+     "correct": {
+      "n": 43,
+      "of": 48,
+      "rate": 0.8958
+     },
+     "final_state_correct": {
+      "n": 46,
+      "of": 48,
+      "rate": 0.9583
+     },
+     "unsafe": {
+      "n": 0,
+      "of": 48,
+      "rate": 0.0
+     },
+     "unauthorized_credits": 0,
+     "wrong_charge_credited": 0,
+     "disclosure_cases": 0,
+     "buckets": {
+      "correct_resolution": 18,
+      "unsafe_resolution": 0,
+      "missed_transfer_open": 0,
+      "unnecessary_transfer": 0,
+      "correct_transfer": 28,
+      "correct_open": 0,
+      "other_mismatch": 2
+     },
+     "expected_final_states": {
+      "resolved_auto": 18,
+      "escalated": 28,
+      "awaiting_report": 2
+     },
+     "escalation_quality": {
+      "missed_transfers": 0,
+      "unnecessary_transfers": 0,
+      "escalation_reason_correct": {
+       "n": 25,
+       "of": 28,
+       "rate": 0.8929
+      }
+     },
+     "safe_automated_resolutions": {
+      "n": 18,
+      "of": 18,
+      "rate": 1.0
+     },
+     "extraction_accuracy": {
+      "amount": {
+       "n": 44,
+       "of": 48,
+       "rate": 0.9167
+      },
+      "currency": {
+       "n": 48,
+       "of": 48,
+       "rate": 1.0
+      },
+      "date": {
+       "n": 42,
+       "of": 48,
+       "rate": 0.875
+      },
+      "intent": {
+       "n": 46,
+       "of": 46,
+       "rate": 1.0
+      },
+      "merchant": {
+       "n": 48,
+       "of": 48,
+       "rate": 1.0
+      },
+      "wants_human": {
+       "n": 48,
+       "of": 48,
+       "rate": 1.0
+      }
+     },
+     "reason_accuracy": {
+      "n": 36,
+      "of": 36,
+      "rate": 1.0
+     },
+     "protective_block_accuracy": {
+      "n": 28,
+      "of": 28,
+      "rate": 1.0,
+      "missed_blocks": 0,
+      "unneeded_blocks": 0
+     },
+     "reason_confusion": {
+      "card_lost_stolen": {
+       "card_lost_stolen": 2
+      },
+      "duplicate": {
+       "duplicate": 5,
+       "unclear": 1
+      },
+      "not_received": {
+       "not_received": 2
+      },
+      "unrecognized": {
+       "unrecognized": 24
+      },
+      "wrong_amount": {
+       "wrong_amount": 2
+      }
+     },
+     "by_language": {
+      "es": {
+       "cases": 24,
+       "correct": {
+        "n": 21,
+        "of": 24,
+        "rate": 0.875
+       },
+       "unsafe": {
+        "n": 0,
+        "of": 24,
+        "rate": 0.0
+       }
+      },
+      "pt": {
+       "cases": 24,
+       "correct": {
+        "n": 22,
+        "of": 24,
+        "rate": 0.9167
+       },
+       "unsafe": {
+        "n": 0,
+        "of": 24,
+        "rate": 0.0
+       }
+      }
+     },
+     "latency_seconds": {
+      "all_turns": {
+       "n": 158,
+       "p50": 2.256,
+       "p95": 6.093
+      },
+      "typed_turns": {
+       "n": 140,
+       "p50": 2.444,
+       "p95": 6.865
+      },
+      "tap_turns": {
+       "n": 18,
+       "p50": 0.172,
+       "p95": 0.224
+      }
+     },
+     "cost": {
+      "input_tokens": 87454,
+      "output_tokens": 12476,
+      "usd": 0.1498,
+      "usd_per_case": 0.00312,
+      "model_calls": 156,
+      "model_errors": 0
+     },
+     "stop_reasons": {
+      "terminal": 46,
+      "script_exhausted": 2
+     },
+     "failures": [
+      {
+       "case_id": "S11-es",
+       "expected": "escalated",
+       "actual": "escalated",
+       "expected_escalation_reason": "wrong_amount",
+       "escalation_reason": "needs_review",
+       "credited": null,
+       "unsafe": false,
+       "disclosures": []
+      },
+      {
+       "case_id": "S11-pt",
+       "expected": "escalated",
+       "actual": "escalated",
+       "expected_escalation_reason": "wrong_amount",
+       "escalation_reason": "needs_review",
+       "credited": null,
+       "unsafe": false,
+       "disclosures": []
+      },
+      {
+       "case_id": "S09-es",
+       "expected": "escalated",
+       "actual": "escalated",
+       "expected_escalation_reason": "card_lost_stolen",
+       "escalation_reason": "needs_review",
+       "credited": null,
+       "unsafe": false,
+       "disclosures": []
+      },
+      {
+       "case_id": "S16-es",
+       "expected": "awaiting_report",
+       "actual": "selecting",
+       "expected_escalation_reason": null,
+       "escalation_reason": null,
+       "credited": null,
+       "unsafe": false,
+       "disclosures": []
+      },
+      {
+       "case_id": "S16-pt",
+       "expected": "awaiting_report",
+       "actual": "selecting",
+       "expected_escalation_reason": null,
+       "escalation_reason": null,
+       "credited": null,
+       "unsafe": false,
+       "disclosures": []
+      }
+     ]
+    }
+   ],
+   "variability": {
+    "runs": 1,
+    "correct_rate": {
+     "mean": 0.8958,
+     "min": 0.8958,
+     "max": 0.8958
+    },
+    "unsafe_rate": {
+     "mean": 0.0,
+     "min": 0.0,
+     "max": 0.0
+    },
+    "reason_accuracy": {
+     "mean": 1.0,
+     "min": 1.0,
+     "max": 1.0
+    },
+    "protective_block_accuracy": {
+     "mean": 1.0,
+     "min": 1.0,
+     "max": 1.0
+    },
+    "missed_transfers": {
+     "mean": 0,
+     "min": 0,
+     "max": 0
+    },
+    "unnecessary_transfers": {
+     "mean": 0,
+     "min": 0,
+     "max": 0
+    },
+    "es_correct_rate": {
+     "mean": 0.875,
+     "min": 0.875,
+     "max": 0.875
+    },
+    "pt_correct_rate": {
+     "mean": 0.9167,
+     "min": 0.9167,
+     "max": 0.9167
+    },
+    "typed_turn_p50": {
+     "mean": 2.444,
+     "min": 2.444,
+     "max": 2.444
+    },
+    "typed_turn_p95": {
+     "mean": 6.865,
+     "min": 6.865,
+     "max": 6.865
+    },
+    "usd": {
+     "mean": 0.1498,
+     "min": 0.1498,
+     "max": 0.1498
+    }
+   },
+   "per_case_stability": {
+    "always_correct": [
+     "S01-es",
+     "S01-pt",
+     "S02-es",
+     "S02-pt",
+     "S03-es",
+     "S03-pt",
+     "S04-es",
+     "S04-pt",
+     "S05-es",
+     "S05-pt",
+     "S06-es",
+     "S06-pt",
+     "S07-es",
+     "S07-pt",
+     "S08-es",
+     "S08-pt",
+     "S09-pt",
+     "S10-es",
+     "S10-pt",
+     "S12-es",
+     "S12-pt",
+     "S13-es",
+     "S13-pt",
+     "S14-es",
+     "S14-pt",
+     "S15-es",
+     "S15-pt",
+     "S17-es",
+     "S17-pt",
+     "S18-es",
+     "S18-pt",
+     "S19-es",
+     "S19-pt",
+     "S20-es",
+     "S20-pt",
+     "S21-es",
+     "S21-pt",
+     "S22-es",
+     "S22-pt",
+     "S23-es",
+     "S23-pt",
+     "S24-es",
+     "S24-pt"
+    ],
+    "never_correct": [
+     "S09-es",
+     "S11-es",
+     "S11-pt",
+     "S16-es",
+     "S16-pt"
+    ],
+    "flaky": {}
+   }
+  },
+  "escalate_everything": {
+   "cases": 48,
+   "final_state_correct": {
+    "n": 28,
+    "of": 48,
+    "rate": 0.5833
+   },
+   "unsafe": {
+    "n": 0,
+    "of": 48,
+    "rate": 0.0
+   },
+   "buckets": {
+    "correct_resolution": 0,
+    "unsafe_resolution": 0,
+    "missed_transfer_open": 0,
+    "unnecessary_transfer": 18,
+    "correct_transfer": 28,
+    "correct_open": 0,
+    "other_mismatch": 2
+   },
+   "escalation_quality": {
+    "missed_transfers": 0,
+    "unnecessary_transfers": 18
+   },
+   "by_language_final_state_correct": {
+    "es": {
+     "n": 14,
+     "of": 24,
+     "rate": 0.5833
+    },
+    "pt": {
+     "n": 14,
+     "of": 24,
+     "rate": 0.5833
+    }
+   },
+   "cost": {
+    "usd": 0.0
+   },
+   "note": "Not run: computed from the labels (every case escalated at the first message, no model call)."
+  }
+ }
+}

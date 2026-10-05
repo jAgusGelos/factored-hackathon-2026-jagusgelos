@@ -820,8 +820,10 @@ The held-out evaluation against the real model (`eval/measured_eval.py`, `eval/h
 
 ### AD-4: Measured on the shipped policy, labels versioned
 
-- **Decision:** the runs measure the policy on `main` at `1b5e6de` with labels v1; a policy change
-  gets a new label version derived from the rules, never from observed outputs, and a rerun.
-- **Why:** the dependent policy features were not merged before the submission deadline, and a
-  label tuned to outputs would make the evaluation circular.
+- **Decision:** a policy change gets a new label version derived from the rules, never from observed
+  outputs, committed before its run. v1 measured the policy at `1b5e6de`; after banking-policy and
+  fraud-integration merged, labels v2 (every verdict recomputed, unchanged, plus the expected
+  protective card block) were committed in `c799354` and the set was rerun on `2252284`.
+- **Why:** a label tuned to outputs would make the evaluation circular, and the result has to
+  describe the policy that ships.
 - **Source:** `.workspace/features/measured-eval/decisions.md`.
