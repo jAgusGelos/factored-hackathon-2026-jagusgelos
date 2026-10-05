@@ -194,7 +194,7 @@ def test_get_case_never_sends_the_policy_reasons_to_the_customer_session(client)
 
     _login(client)
     case_id = client.post("/api/chat", json={"message": "hola"}).json()["case_id"]
-    reasons = ["fraud_score=91.0 at/above the 30.0 threshold", "amount_usd=900.0 exceeds the 500.0 auto-resolve cap"]
+    reasons = ["fraud_score=91.0 above the 30.0 threshold", "amount_usd=900.0 exceeds the 500.0 auto-resolve cap"]
     stored = {
         "request_summary": "El cliente disputa un cargo.", "verified_facts": {}, "customer_reported": {},
         "policy_reasons": reasons, "actions_taken": ["x"], "evidence": [], "open_questions": ["y"],
@@ -216,9 +216,59 @@ def test_get_case_never_sends_the_open_questions_of_a_handoff_stored_before_poli
     case_id = client.post("/api/chat", json={"message": "hola"}).json()["case_id"]
     stored = {
         "facts": {"reported_merchant": "Tienda Online Global"}, "actions_taken": ["x"], "evidence": [],
-        "open_questions": ["fraud_score=91.0 at/above the 30.0 threshold"],
+        "open_questions": ["fraud_score=91.0 above the 30.0 threshold"],
     }
     cases.update_case(case_id, state="escalated", handoff=stored)
 
     handoff = client.get(f"/api/case/{case_id}").json()["handoff"]
     assert handoff == {"facts": stored["facts"], "actions_taken": ["x"], "evidence": []}
+
+
+def test_get_case_never_shows_the_customer_why_the_card_was_blocked(client):
+    """AD-14: the block is an action the customer may see; the fraud signals
+    behind it are policy reasons, which the customer's session only counts.
+    """
+    from app import cases, handoffs
+    from app.policy import FraudSignal, ProtectiveAction, ProtectiveDecision
+
+    _login(client)
+    case_id = client.post("/api/chat", json={"message": "hola"}).json()["case_id"]
+    stored = {
+        "request_summary": "El cliente disputa un cargo.", "verified_facts": {}, "customer_reported": {},
+        "policy_reasons": [], "actions_taken": ["x"], "evidence": [], "open_questions": [],
+    }
+    signals = (FraudSignal.HIGH_FRAUD_SCORE, FraudSignal.CARD_PRESENT_DENIED)
+    blocked = handoffs.with_card_block(stored, ProtectiveDecision(ProtectiveAction.CARD_BLOCK, signals))
+    cases.update_case(case_id, state="escalated", handoff=blocked)
+
+    handoff = client.get(f"/api/case/{case_id}").json()["handoff"]
+    assert handoffs.CARD_BLOCKED_ACTION in handoff["actions_taken"]
+    assert handoff["policy_reason_count"] == 1
+    text = json.dumps(handoff, ensure_ascii=False).lower()
+    assert not any(word in text for word in ("fraude", "umbral", "puntaje", "fraud", "score", "tarjeta presente"))
+
+
+def test_get_case_never_sends_the_fraud_score_or_the_model_estimate_to_the_customer_session(client):
+    """AD-15: the advisor's verified facts carry the vendor score and the
+    model's estimate; the customer's own session receives the charge record only.
+    """
+    from app import cases, handoffs
+    from app.case_model import ReportedCharge
+    from app.transactions import FraudRiskEstimate
+    from tests.support import clean_txn
+
+    _login(client)
+    case_id = client.post("/api/chat", json={"message": "hola"}).json()["case_id"]
+    estimate = FraudRiskEstimate(risk=0.9, threshold=0.0035, model_version="logistic_stacked-d7c46aeb")
+    evaluation = handoffs.ineligible_match(
+        ReportedCharge(amount=None, date=None, currency=None), clean_txn(fraud_score=91.0, fraud_risk=estimate), ("r",),
+        how_identified=handoffs.ChargeIdentification.PICK,
+    )
+    cases.update_case(case_id, state="escalated", handoff=evaluation.handoff.to_dict())
+
+    facts = client.get(f"/api/case/{case_id}").json()["handoff"]["verified_facts"]
+    assert facts["transaction_id"] == "TRX-1" and not set(facts) & handoffs.INTERNAL_FACTS
+    text = json.dumps(facts, ensure_ascii=False).lower()
+    assert not any(word in text for word in ("fraud", "modelo", "umbral", "91.0", "logistic"))
+    stored = cases.get_case(case_id).handoff["verified_facts"]
+    assert handoffs.INTERNAL_FACTS <= set(stored)

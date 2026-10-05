@@ -293,15 +293,27 @@ _ESCALATION_REASON = {
     },
 }
 
+# AD-14: the escalation blocked the card (simulated) for a fraud reason.
+CARD_BLOCKED_NOTICE = {
+    Language.ES: (
+        "Por su seguridad bloqueamos su tarjeta para evitar nuevos cargos; cuando le contactemos, "
+        "coordinaremos con usted el envío de una tarjeta nueva."
+    ),
+    Language.PT: (
+        "Para sua segurança bloqueamos seu cartão para evitar novas cobranças; quando entrarmos em "
+        "contato, combinaremos com você o envio de um cartão novo."
+    ),
+}
+
 _ESCALATION_NOTICE = {
     Language.ES: (
-        "Derivé su caso a una persona del equipo de disputas.{charge} Motivo: {reason}. Su número "
+        "Derivé su caso a una persona del equipo de disputas.{charge} Motivo: {reason}.{block} Su número "
         "de caso es {case_number}. Le contactaremos en un plazo de hasta {days} días hábiles. Este "
         "chat ya no agrega información al caso: si tiene algo más para contar, podrá hacerlo cuando "
         "le contacten."
     ),
     Language.PT: (
-        "Encaminhei seu caso para uma pessoa da equipe de contestações.{charge} Motivo: {reason}. O "
+        "Encaminhei seu caso para uma pessoa da equipe de contestações.{charge} Motivo: {reason}.{block} O "
         "número do seu caso é {case_number}. Entraremos em contato em até {days} dias úteis. Este "
         "chat não adiciona mais informações ao caso: se tiver algo mais a contar, poderá fazer isso "
         "quando entrarmos em contato."
@@ -423,15 +435,18 @@ def escalation_summary(
 
 def escalation_notice(
     case_number: str, reason: EscalationReason, *, charge: TransactionCandidate | None, language: Language,
+    card_blocked: bool = False,
 ) -> tuple[str, EscalationNotice]:
     """The message a case gets when it goes to a person, always this template
     (never the model): the charge when the customer identified it, the reason,
-    the case number and the contact deadline.
+    the protective card block when the escalation blocked it (AD-14), the case
+    number and the contact deadline.
     """
     notice = escalation_summary(case_number, reason, charge=charge, language=language)
     text = _ESCALATION_NOTICE[language].format(
         charge=_ESCALATION_CHARGE[language].format(charge=charge_summary(charge, language)) if charge is not None else "",
-        reason=notice["reason"], case_number=case_number, days=notice["contact_business_days"],
+        reason=notice["reason"], block=f" {CARD_BLOCKED_NOTICE[language]}" if card_blocked else "",
+        case_number=case_number, days=notice["contact_business_days"],
     )
     return text, notice
 

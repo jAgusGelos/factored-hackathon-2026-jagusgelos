@@ -15,11 +15,17 @@ from app import handoffs
 from app.case_model import EscalationReason, ReportedCharge
 from app.cases import Case
 from app.llm import ConfirmationAnswer
+from app.policy import FraudSignal, ProtectiveAction, ProtectiveDecision
+from app.transactions import FraudRiskEstimate
 from tests.support import HANDOFF_KEYS, clean_assessment, clean_txn
+
+CHARGE_RECORD_KEYS = (
+    "transaction_id", "merchant", "amount", "currency", "date", "channel", "status", "category", "charge_confirmed",
+)
 
 CHARGE = clean_txn(transaction_id="TRX-9", merchant_name="Uber", amount=38500.0, currency="COP", channel="App")
 SAID = ReportedCharge(amount=38500.0, date=date(2026, 6, 14), currency=None, merchant="Uber")
-POLICY_REASON = "fraud_score=91.0 at/above the 30.0 threshold"
+POLICY_REASON = "fraud_score=91.0 above the 30.0 threshold"
 CUSTOMER_TEXT = "No reconozco un cargo de 38.500 pesos del 14 de junio"
 
 
@@ -81,10 +87,39 @@ def test_a_policy_escalation_carries_the_charge_record_and_its_reasons():
     handoff = PRODUCERS["ineligible_match"]()
     assert handoff.verified_facts == {
         "transaction_id": "TRX-9", "merchant": "Uber", "amount": "38500.0", "currency": "COP",
-        "date": "2026-06-09", "channel": "App", "status": "Approved", "category": "Retail", "charge_confirmed": "sí",
+        "date": "2026-06-09", "channel": "App", "status": "Approved", "category": "Retail",
+        "fraud_score": "5.0",
+        "fraud_score_threshold": "30.0 (umbral de la política: por encima, el caso va a una persona)",
+        "charge_confirmed": "sí",
     }
     assert handoff.policy_reasons == (POLICY_REASON,)
     assert handoff.open_questions == (handoffs.POLICY_REVIEW_QUESTION,)
+
+
+def test_the_advisor_sees_the_model_estimate_labelled_as_an_estimate_with_its_version():
+    """AD-15: the precomputed fraud-risk estimate and its cost threshold reach
+    the advisor as a model estimate (never as a verified fact) with the model
+    version that produced it.
+    """
+    estimate = FraudRiskEstimate(risk=0.999376, threshold=0.003527, model_version="logistic_stacked-d7c46aeb")
+    charge = clean_txn(fraud_score=91.0, fraud_risk=estimate)
+    handoff = handoffs.ineligible_match(
+        SAID, charge, (POLICY_REASON,), how_identified=handoffs.ChargeIdentification.PICK,
+    ).handoff
+    facts = handoff.verified_facts
+    assert facts["fraud_score"] == "91.0"
+    assert facts["fraud_risk_estimate"].startswith("99.9376 % (estimación del modelo, no un hecho verificado")
+    assert "la política no la usa" in facts["fraud_risk_estimate"]
+    assert facts["fraud_risk_threshold"].startswith("0.3527 %")
+    assert facts["fraud_model_version"] == "logistic_stacked-d7c46aeb"
+    assert set(facts) - set(CHARGE_RECORD_KEYS) <= handoffs.INTERNAL_FACTS
+
+
+def test_a_charge_without_scores_carries_no_fraud_facts():
+    handoff = handoffs.ineligible_match(
+        SAID, clean_txn(fraud_score=None), (POLICY_REASON,), how_identified=handoffs.ChargeIdentification.PICK,
+    ).handoff
+    assert not set(handoff.verified_facts) & handoffs.INTERNAL_FACTS
 
 
 def test_what_the_customer_said_stays_apart_from_the_record():
@@ -202,7 +237,7 @@ def test_a_statement_keeps_the_seven_parts_and_only_adds_to_reported_and_questio
     assert list(handoff["open_questions"][: len(pending["open_questions"])]) == list(pending["open_questions"])
 
 
-def test_each_unknown_key_fact_becomes_one_advisor_task_and_a_missing_card_is_flagged():
+def test_each_unknown_key_fact_becomes_one_advisor_task():
     pending, handoff = _with_statement("ineligible_match")
 
     added = handoff["open_questions"][len(pending["open_questions"]):]
@@ -211,21 +246,14 @@ def test_each_unknown_key_fact_becomes_one_advisor_task_and_a_missing_card_is_fl
         "Confirmar con el cliente si conoce el comercio o lo usó alguna vez.",
         "Confirmar con el cliente si perdió la tarjeta o se la robaron.",
         "Confirmar con el cliente si hay otros cargos o movimientos que no reconoce.",
-        handoffs.CARD_LOST_QUESTION,
     ]
 
 
-def test_a_known_loss_is_reported_and_leaves_only_the_card_block_task():
+def test_a_known_loss_is_reported_and_is_no_longer_a_task():
     _, handoff = _with_statement("ineligible_match", facts={**STATEMENT_FACTS, "card_loss": "stolen"})
 
     assert handoff["customer_reported"]["card_loss"] == "stolen"
     assert "Confirmar con el cliente si perdió la tarjeta o se la robaron." not in handoff["open_questions"]
-    assert handoffs.CARD_LOST_QUESTION in handoff["open_questions"]
-
-
-def test_the_lost_card_task_only_when_the_customer_says_they_do_not_have_it():
-    _, handoff = _with_statement("ineligible_match", facts={**STATEMENT_FACTS, "card_possession": "yes"})
-    assert handoffs.CARD_LOST_QUESTION not in handoff["open_questions"]
 
 
 def test_card_possession_is_not_a_task_when_the_customer_made_the_purchase():
@@ -251,3 +279,25 @@ def test_the_raw_statement_never_reaches_the_handoff():
 
     assert raw not in serialized and "12345678" not in serialized
     assert not set(_STATEMENT_KEYS) & set(handoff["verified_facts"])
+
+
+def test_a_card_block_is_an_action_taken_and_the_advisor_confirms_the_reissue():
+    """AD-14: the agent already blocked the card, so the advisor is not asked
+    whether to block it. The action carries no fraud signal (the customer's
+    session shows actions taken); the signals are a policy reason.
+    """
+    _, handoff = _with_statement("ineligible_match", facts={**STATEMENT_FACTS, "card_possession": "no"})
+    protection = ProtectiveDecision(ProtectiveAction.CARD_BLOCK, (FraudSignal.CARD_OUT_OF_HANDS,))
+
+    blocked = handoffs.with_card_block(handoff, protection)
+
+    assert blocked["open_questions"] == [*handoff["open_questions"], handoffs.CARD_BLOCKED_TASK]
+    assert blocked["open_questions"][-1] == handoffs.CARD_BLOCKED_TASK
+    assert blocked["actions_taken"] == [*handoff["actions_taken"], handoffs.CARD_BLOCKED_ACTION]
+    assert "fraude" not in handoffs.CARD_BLOCKED_ACTION and "umbral" not in handoffs.CARD_BLOCKED_ACTION
+    assert blocked["policy_reasons"][:-1] == list(handoff["policy_reasons"])
+    assert "fuera del poder del cliente" in blocked["policy_reasons"][-1]
+    changed = ("open_questions", "actions_taken", "policy_reasons")
+    assert {k: v for k, v in blocked.items() if k not in changed} == {
+        k: v for k, v in handoff.items() if k not in changed
+    }

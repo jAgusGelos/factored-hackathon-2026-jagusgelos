@@ -13,7 +13,7 @@ sections below keep those numbers, namespaced by feature.
 - A citation that names its feature (`usability-s2 AD-1`, `statement-before-handoff AD-4`) points
   to that feature's section below.
 - A bare `AD-n` belongs to the feature named in the module's docstring or in the comment around
-  it. When neither names a feature, it is a **dispute-agent** decision: AD-1 to AD-13 are the core
+  it. When neither names a feature, it is a **dispute-agent** decision: AD-1 to AD-15 are the core
   product decisions, and most citations in `app/` and `tests/` mean those.
 - "plan.md AD-x" in a code comment refers to the local planning record of the feature that
   module belongs to; the matching entry here holds the same decision.
@@ -244,6 +244,97 @@ after Milestone 6. AD-13 was decided on 2026-09-30 without a plan section (see i
   and the system-level comparison's `ablation_no_evidence_check` shows what this check stops on
   those cases.
 - **Source:** commit 21794ae (2026-09-30); README.md "Dispute policy: the evidence decides, not the claim (AD-13)"; CONFORMANCE.md row 15; the thresholds in `app/policy.py`.
+
+### AD-14: Duplicates by minutes, and a protective card block when a case escalates for fraud
+
+- **Status:** Accepted, implemented (branch `feat/banking-policy`). Supersedes AD-13's duplicate
+  row ("at most 1 day apart"); the rest of AD-13 stands.
+- **Date:** 2026-10-04
+- **Context:** two holes a banker would spot in AD-13. (1) A duplicate twin could be up to one day
+  apart, so two legitimate equal taxi fares on consecutive days got one reversed on the customer's
+  word; real duplicates (a double swipe, a processor retry) post minutes apart. (2) The most
+  obviously fraudulent cases got the weakest treatment: a denied charge with fraud score 91, or a
+  lost or stolen card, went to a person in up to 3 business days with no protective action, and
+  blocking the card was only an advisor task.
+- **Options:** keep the 1-day window; size the window from the data; set it by design. For the
+  fraud cases: leave blocking to the advisor; block on any escalation; block only on an
+  escalation the customer's own claim and a fraud signal both support.
+- **Decision:**
+  - **Duplicate window:** `DUPLICATE_WINDOW_MINUTES = 10`, compared on full timestamps read from
+    the fixture by id. MEASURED: the warehouse holds 0 same-customer, same-merchant, same-amount
+    charge pairs at any distance (130,690 transactions), so the data cannot size the window. The
+    10 minutes are a DESIGN ARGUMENT: retries post within minutes, repeat purchases hours apart
+    (`docs/policy/duplicate-window.md`). Equal charges further apart are separate purchases: they
+    go to a person with both charges named as evidence, never reversed automatically.
+  - **Protective block:** `policy.protective_action` is a pure function returning a closed
+    `ProtectiveDecision` (`ProtectiveAction` plus `FraudSignal`s). The card is blocked (SIMULATED,
+    logged as `simulated_card_block` with `trigger: escalation`) when the customer denies the
+    charge (reason `unrecognized` or statement `denies_purchase=yes`) or the card is out of their
+    hands (reason `card_lost_stolen`, statement `card_loss` lost or stolen, or `card_possession=no`),
+    and there is a fraud signal: fraud score at or above 30, a card-present charge they deny, or the
+    card out of their hands. Never on an amount cap the customer does not deny, a merchant dispute,
+    a request for a person without a denial or a technical failure. No money moves.
+- **Consequences:** the escalation path (`case_turn.finish_escalated` with an account, and
+  `finish_pending_escalation` after the statement) applies the decision, logs the block only after
+  the escalating compare-and-set is claimed, adds it to the handoff's actions taken (its fraud
+  signals go to the policy reasons, which the customer's session only counts), replaces the
+  advisor's "should we block" question with "confirm the reissue", and tells the customer in the
+  ES and PT notice ("usted" register). The eval adds a `protective_block` group (3 cases that must
+  block, 4 that must not) and a `repeat_fare_next_day` abuse case; the ablation without the
+  evidence check now credits 6 cases instead of 4 (`repeat_fare_next_day` and the protective
+  group's `card_present_denied`).
+- **Source:** `.workspace/features/banking-policy/decisions.md` (D1 to D14, local planning record,
+  not in the repo); in the repo: `app/policy.py` (`DUPLICATE_WINDOW_MINUTES`, `protective_action`)
+  and `docs/policy/duplicate-window.md`.
+
+### AD-15: A cost-justified fraud gate on fraud_score; the fraud-risk model only informs the advisor
+
+- **Status:** Accepted, implemented (branch `feat/fraud-integration`). Replaces the hackathon
+  default `fraud_score >= 30` of AD-11 and AD-13 with `fraud_score > 30`; amends AD-14's
+  "fraud score at or above 30" signal to "above 30"; keeps AD-6's classifier.
+- **Date:** 2026-10-05
+- **Context:** `AUTO_RESOLVE_MAX_FRAUD_SCORE = 30` had no justification, and the fraud-model
+  feature (`docs/ml/fraud-model.md`) built a per-charge fraud-risk model and a cost model to
+  choose the operating point. Its result: the model does not beat `fraud_score` (test PR-AUC
+  0.707 vs 0.720, paired 95% CI of the difference [-0.024, -0.005], MEASURED). The same feature
+  measured the priority classifier's signal ceiling: macro-F1 0.2448 against 0.2434 for shuffled
+  labels, permutation p = 0.45 (MEASURED).
+- **Options:** gate on the model's risk at its own cost threshold; gate on `fraud_score` at its
+  cost-justified threshold and add the model as an extra escalation signal; gate on `fraud_score`
+  and give the model's estimate to the advisor only. For the classifier: retire it from the
+  policy, or keep it as an escalation-only signal.
+- **Decision:**
+  - **Gate:** escalate when `fraud_score > 30` (auto-resolve only at or below 30). Chosen on the
+    validation fold by expected cost (USD 1.18 per escalation, 425 s MEASURED handle time at an
+    ASSUMED USD 10/h, against a missed fraud's amount plus an ASSUMED USD 25), the optimum
+    (30.0, 30.06] is the same rule in all nine sensitivity settings. On the test fold's proxy
+    population (84,269 charges, 71 frauds, MEASURED): 48 escalations and 48 frauds caught (USD
+    38.13 per 1,000 charges), against 66 and 48 (USD 38.38) for the old `>= 30`, and 166 and 48
+    (USD 39.78) for the model's own gate. `policy.fraud_score_flagged` is the single comparison
+    used by screening and by AD-14's protective block.
+  - **Model estimate:** precomputed offline into every fixture charge by `etl/build_fixture.py`
+    (`fraud_risk`, `fraud_risk_threshold`, `fraud_model_version`; synthetic charges are scored
+    from their attributes, never hard-coded); no model runs in the request path. It is not a
+    policy input, not even an escalation-only one, because on test it adds 118 escalations and no
+    fraud. The handoff's verified facts carry it as "estimación del modelo, no un hecho
+    verificado" with its version and reference threshold, next to `fraud_score` and the policy
+    threshold; the customer's own `/api/case` view drops all five (`handoffs.INTERNAL_FACTS`).
+  - **Classifier:** kept as an escalation-only signal, its reason now saying it has no measured
+    lift. It can never credit, it predicts Critical rarely (Critical recall 0.058, MEASURED), and retiring
+    it would change AD-6, the image and the live features on submission day for no safety gain.
+    Retiring it is the documented next step.
+- **Consequences:** `tests/test_policy_not_overridden.py` proves over the full gating domain that
+  a score above 30 only adds one reason and always escalates, that the estimate never changes a
+  verdict, and (structurally, by AST) that no policy function names it; only
+  the fixture reads (`app/fixture_db.py`, `app/transactions.py`) and `app/handoffs.py` touch it. The eval reports a `fraud_gate` section
+  (the three gates on the measured test fold and on the fixture) and checks on every case that
+  the customer's view carries no fraud figure. On the demo fixture all three gates flag the same
+  single charge (`SYN-DEMO-ONLINE`), so the conversation suite cannot tell them apart; the
+  measured fold is the evidence. Limits: synthetic data (no legitimate charge scores above 30),
+  partly ASSUMED costs, a transaction-level proxy for the disputed population.
+- **Source:** `.workspace/features/fraud-integration/decisions.md` (D1 to D10, local planning
+  record, not in the repo); in the repo: `app/policy.py` (`AUTO_RESOLVE_MAX_FRAUD_SCORE`,
+  `fraud_score_flagged`), `etl/build_fixture.py`, `docs/ml/fraud-model.md`.
 
 ## usability-s1-flujo
 
@@ -657,3 +748,82 @@ the branch `feat/system-baseline-adrs`.
   record; code comments are not edited.
 - **Why:** the docs are what readers open first, and this file's note covers the code comments.
 - **Source:** `.workspace/features/system-baseline-adrs/plan.md`, AD-8 (line 183).
+
+## fraud-model
+
+A per-charge fraud-risk model measured against the dataset's `fraud_score`, offline only.
+Decided 2026-10-04 in --auto mode on the branch `feat/fraud-model`; the decisions log is
+`.workspace/features/fraud-model/decisions.md`. Model card: `docs/ml/fraud-model.md`.
+
+### AD-1: Two-year extraction into a separate warehouse
+
+- **Decision:** `transactions` 2024-06-17 to 2026-06-17 into `data/fraud_warehouse.duckdb`; the
+  app's `data/warehouse.duckdb` is never touched.
+- **Why:** the 30-day window has 92 scored frauds; two years give 2,809 frauds and 494 in a
+  4.5-month chronological test fold.
+- **Source:** `.workspace/features/fraud-model/decisions.md`, extraction window.
+
+### AD-2: fraud_score is the baseline, never one of our features
+
+- **Decision:** "ours" models use only authorization-time behavior; a separate "stacked" variant
+  adds `fraud_score`; `transaction_status`, `response_code` and customer snapshots are excluded.
+- **Why:** the question is whether behavior adds anything to the bank's score; the excluded
+  columns are outcomes of the authorization or snapshots that can encode the label.
+- **Source:** `.workspace/features/fraud-model/decisions.md`; `etl/fraud_features.py` docstring.
+
+### AD-3: Honest result, the threshold on fraud_score is the deliverable
+
+- **Decision:** the model is not proposed as a policy input; the deliverable is the
+  cost-justified rule "escalate when `fraud_score > 30`".
+- **Why:** our features are at chance (test PR-AUC 0.0009) and stacking lowers PR-AUC
+  (paired 95% CI [-0.024, -0.005]); the rule keeps every fraud the current `>= 30` catches with
+  18 fewer escalations on test.
+- **Source:** `docs/ml/fraud-model.md`; `data/fraud_eval_report.json`.
+
+### AD-4: JSONL experiment log and sklearn gradient boosting
+
+- **Decision:** every fit is a line in `docs/ml/experiments.jsonl`; gradient boosting is
+  `HistGradientBoostingClassifier`.
+- **Why:** no new heavy dependency (MLflow, LightGBM) in a shared environment the day before the
+  deadline, and a committed log is visible to reviewers, unlike a gitignored `mlruns/`.
+- **Source:** `.workspace/features/fraud-model/decisions.md`, tracking and model family.
+
+## measured-eval
+
+The held-out evaluation against the real model (`eval/measured_eval.py`, `eval/heldout/`, report in
+[`docs/eval/measured-eval.md`](eval/measured-eval.md)).
+
+### AD-1: Pre-registered, blind-written held-out set
+
+- **Decision:** 48 state-keyed customer scripts (24 situations x Spanish and Portuguese) written by
+  a subagent that saw only the customer's charge list and a situation brief, labeled from the
+  written policy and committed (`c41ab0a`) before the first run, with an independent Codex labeling.
+- **Why:** the constructed suite is written by the policy author; a held-out set the author could
+  not tune to, with agreement reported (kappa 0.94 to 1.0), is what the brief asks for.
+- **Source:** `.workspace/features/measured-eval/decisions.md`.
+
+### AD-2: Real app, real model, measured cost
+
+- **Decision:** each case runs through the FastAPI app (`TestClient`) against the real Anthropic API
+  in its own app database; cost comes from the API's token usage, priced at list price.
+- **Why:** latency, cost and model behavior are the quantities the mocked suite cannot measure.
+- **Source:** `.workspace/features/measured-eval/decisions.md`.
+
+### AD-3: Two baselines, one of them computed
+
+- **Decision:** a rules extractor replacing only the entity extraction is run like the hybrid; the
+  escalate-everything anchor is scored from the labels, since it makes no model call and its
+  outcome is fixed.
+- **Why:** it isolates what the model's extraction adds, and spends the budget only where a run
+  can change the result.
+- **Source:** `.workspace/features/measured-eval/decisions.md`.
+
+### AD-4: Measured on the shipped policy, labels versioned
+
+- **Decision:** a policy change gets a new label version derived from the rules, never from observed
+  outputs, committed before its run. v1 measured the policy at `1b5e6de`; after banking-policy and
+  fraud-integration merged, labels v2 (every verdict recomputed, unchanged, plus the expected
+  protective card block) were committed in `c799354` and the set was rerun on `2252284`.
+- **Why:** a label tuned to outputs would make the evaluation circular, and the result has to
+  describe the policy that ships.
+- **Source:** `.workspace/features/measured-eval/decisions.md`.

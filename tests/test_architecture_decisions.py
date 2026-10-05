@@ -1,6 +1,6 @@
 """The versioned decisions record, docs/architecture-decisions.md
 (system-baseline-adrs AD-7): every feature's decisions are there, traceable to
-their source, and the core product's AD-1..AD-13 carry a status.
+their source, and the core product's AD-1..AD-15 carry a status.
 """
 
 from __future__ import annotations
@@ -17,9 +17,10 @@ DECISIONS_PATH = REPO_ROOT / "docs" / "architecture-decisions.md"
 FEATURES = (
     "dispute-agent", "usability-s1-flujo", "usability-s2-tono-escalamiento", "usability-s3-handoff-idiomas",
     "statement-before-handoff", "ad13-quality-refactor", "demand-analysis", "system-baseline-adrs",
+    "fraud-model", "measured-eval",
 )
 CORE_FEATURE = "dispute-agent"
-CORE_DECISION_COUNT = 13
+CORE_DECISION_COUNT = 15
 AD_HEADING = re.compile(r"^### (AD-\d+):", re.MULTILINE)
 
 # The planning record is gitignored and only exists on the author's machine.
@@ -53,7 +54,7 @@ def test_every_feature_has_a_section():
     assert set(FEATURES) <= set(_sections())
 
 
-def test_the_core_product_has_ad1_to_ad13_each_with_a_status():
+def test_the_core_product_has_ad1_to_ad15_each_with_a_status():
     entries = _entries(_sections()[CORE_FEATURE])
     assert list(entries) == [f"AD-{n}" for n in range(1, CORE_DECISION_COUNT + 1)]
     assert all("**Status:**" in entry for entry in entries.values())
