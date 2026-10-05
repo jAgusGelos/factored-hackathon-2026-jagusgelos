@@ -660,6 +660,13 @@ def build_report(records: list[dict], labels_doc: dict, *, spent: float, over_bu
     return report
 
 
+def _write_summary(report: dict, path: Path) -> None:
+    """The report without its per-case records (transcripts stay under data/)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    summary = {key: value for key, value in report.items() if key != "records"}
+    path.write_text(json.dumps(summary, ensure_ascii=False, indent=1, default=str) + "\n")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--cases", help="comma-separated case ids (default: all)")
@@ -669,7 +676,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--budget-usd", type=float, default=5.0)
     parser.add_argument("--labels", type=Path, default=None, help="labels file (default: the latest version)")
     parser.add_argument("--out", type=Path, default=DEFAULT_REPORT_PATH)
+    parser.add_argument("--summary-out", type=Path, default=None,
+                        help="also write the report without per-case records (the committed copy)")
+    parser.add_argument("--summarize", type=Path, default=None, metavar="REPORT",
+                        help="write --summary-out from an existing report, with no model call")
     args = parser.parse_args(argv)
+    if args.summarize is not None:
+        if args.summary_out is None:
+            parser.error("--summarize needs --summary-out")
+        _write_summary(json.loads(args.summarize.read_text()), args.summary_out)
+        return 0
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     from app import config
@@ -702,6 +718,8 @@ def main(argv: list[str] | None = None) -> int:
     report = build_report(records, labels_doc, spent=spent, over_budget=over_budget, meta=meta)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, ensure_ascii=False, indent=1, default=str))
+    if args.summary_out is not None:
+        _write_summary(report, args.summary_out)
     print(f"report: {args.out} (spent ${spent:.3f}{', STOPPED OVER BUDGET' if over_budget else ''})")
     return 0
 

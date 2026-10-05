@@ -787,3 +787,41 @@ Decided 2026-10-04 in --auto mode on the branch `feat/fraud-model`; the decision
 - **Why:** no new heavy dependency (MLflow, LightGBM) in a shared environment the day before the
   deadline, and a committed log is visible to reviewers, unlike a gitignored `mlruns/`.
 - **Source:** `.workspace/features/fraud-model/decisions.md`, tracking and model family.
+
+## measured-eval
+
+The held-out evaluation against the real model (`eval/measured_eval.py`, `eval/heldout/`, report in
+[`docs/eval/measured-eval.md`](eval/measured-eval.md)).
+
+### AD-1: Pre-registered, blind-written held-out set
+
+- **Decision:** 48 state-keyed customer scripts (24 situations x Spanish and Portuguese) written by
+  a subagent that saw only the customer's charge list and a situation brief, labeled from the
+  written policy and committed (`c41ab0a`) before the first run, with an independent Codex labeling.
+- **Why:** the constructed suite is written by the policy author; a held-out set the author could
+  not tune to, with agreement reported (kappa 0.94 to 1.0), is what the brief asks for.
+- **Source:** `.workspace/features/measured-eval/decisions.md`.
+
+### AD-2: Real app, real model, measured cost
+
+- **Decision:** each case runs through the FastAPI app (`TestClient`) against the real Anthropic API
+  in its own app database; cost comes from the API's token usage, priced at list price.
+- **Why:** latency, cost and model behavior are the quantities the mocked suite cannot measure.
+- **Source:** `.workspace/features/measured-eval/decisions.md`.
+
+### AD-3: Two baselines, one of them computed
+
+- **Decision:** a rules extractor replacing only the entity extraction is run like the hybrid; the
+  escalate-everything anchor is scored from the labels, since it makes no model call and its
+  outcome is fixed.
+- **Why:** it isolates what the model's extraction adds, and spends the budget only where a run
+  can change the result.
+- **Source:** `.workspace/features/measured-eval/decisions.md`.
+
+### AD-4: Measured on the shipped policy, labels versioned
+
+- **Decision:** the runs measure the policy on `main` at `1b5e6de` with labels v1; a policy change
+  gets a new label version derived from the rules, never from observed outputs, and a rerun.
+- **Why:** the dependent policy features were not merged before the submission deadline, and a
+  label tuned to outputs would make the evaluation circular.
+- **Source:** `.workspace/features/measured-eval/decisions.md`.

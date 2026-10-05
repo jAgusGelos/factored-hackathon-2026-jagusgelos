@@ -264,3 +264,11 @@ def test_play_case_drives_the_app_to_a_credit_and_counts_tokens(monkeypatch):
     assert record["input_tokens"] == 100 * sum(len(t["model_calls"]) for t in record["turns"]) > 0
     assert record["first_extraction"]["amount"] == 38_500
     assert score_case(record, label)["correct"]
+
+
+def test_summary_drops_the_per_case_records(tmp_path):
+    report = tmp_path / "report.json"
+    report.write_text(json.dumps({"label": "MEASURED", "systems": {}, "records": [{"turns": ["transcript"]}]}))
+    summary = tmp_path / "summary.json"
+    assert measured_eval.main(["--summarize", str(report), "--summary-out", str(summary)]) == 0
+    assert json.loads(summary.read_text()) == {"label": "MEASURED", "systems": {}}
