@@ -6,8 +6,9 @@
     "studio": "remotion studio src/index.ts",
     "record": "node scripts/record.mjs",
     "still": "remotion still src/index.ts Launch",
-    "render": "remotion render src/index.ts Launch out/launch.mp4 --codec h264 --crf 20",
-    "typecheck": "tsc --noEmit"
+    "render": "remotion render src/index.ts Launch out/launch-raw.mp4 --codec h264 --crf 16",
+    "typecheck": "tsc --noEmit",
+    "master": "bash scripts/master.sh"
   },
   "dependencies": {
     "@remotion/cli": "4.0.532",
