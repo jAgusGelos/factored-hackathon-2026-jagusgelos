@@ -15,24 +15,32 @@ automate.
 **What.** A chat agent, in Spanish and Portuguese, that ends every dispute in one of three ways:
 
 - **Resolves it in the conversation.** It finds the charge in the customer's own transactions,
-  confirms it with them, checks the evidence and grants a provisional credit with a reference. The
-  resolving turn took 1.3–6.6 s against Claude Haiku 4.5 (measured, manual runs).
+  confirms it with them, checks the evidence and grants a provisional credit with a reference. A
+  typed turn takes 3.0 s at the median against Claude Haiku 4.5 (p95 7.7 s; measured over the
+  held-out evaluation below).
 - **Asks when the report is ambiguous.** It shows the customer their own recent charges to pick
   from, instead of guessing.
 - **Knows when not to act.** Risky or unprovable claims go to a person with a structured, verified
-  case file and the customer's own statement, so the advisor starts with the facts.
+  case file and the customer's own statement, so the advisor starts with the facts. When the case
+  points to fraud, it blocks the card first (simulated) so no new charge lands while a person reviews it.
 
 **How.** *The model reads, the code decides.* The LLM only turns free text into structured fields
 and phrases replies; permissions, the dispute policy and every credit decision live in code and are
 enforced again in the database (details below).
 
-**Proof.** 0 unsafe outcomes in 40 offline scenarios, including prompt injection and policy abuse
-with the model mocked as fully persuaded (SIMULATED); without the evidence check the same suite would
-have paid 4 abusive claims. A priority classifier beats its baseline on a held-out chronological split
-(+0.0786 macro-F1). 990 automated tests. Estimated model cost about $0.0016 per attempted case.
+**Proof.** On 48 held-out conversations (Spanish and Portuguese, written and labeled before the
+first run) against the real Claude Haiku 4.5, 3 runs: **0 unsafe outcomes in every run**, all 18
+resolvable cases resolved, 43 of 48 fully correct, $0.004 per case (MEASURED,
+[`docs/eval/measured-eval.md`](docs/eval/measured-eval.md); a small set, so the 95% upper bound on the
+unsafe rate is about 7%). An offline suite of 40 attacks with the model mocked as fully persuaded also
+ends with 0 unsafe outcomes (SIMULATED). A priority classifier beats its baseline on a held-out
+chronological split (+0.0786 macro-F1); a fraud-risk model trained on two years of transactions does
+**not** beat the bank's own fraud score, so the shipped gate is the cost-justified `fraud_score > 30`
+([`docs/ml/fraud-model.md`](docs/ml/fraud-model.md)). 1,121 automated tests.
 
-**Try it:** [live demo](https://factored-hackaton-latest.onrender.com/) ·
-[pitch deck](docs/pitch/) · [video pitch](docs/pitch/VIDEO.md) ·
+**Try it:** [live demo](https://factored-hackaton-latest.onrender.com/) (press "Autocompletar" to
+sign in as the synthetic demo customer) · [video pitch (2:11)](docs/pitch/video/launch.mp4) ·
+[20 s teaser](docs/pitch/video/teaser.mp4) · [pitch deck (PDF)](docs/pitch/deck.pdf) ·
 [releases](https://github.com/jAgusGelos/factored-hackathon-2026-jagusgelos/releases)
 
 ## The system in detail
@@ -239,10 +247,13 @@ and no deeper (`etl/extract.py`, row counts in `data/extraction_manifest.json`):
 
 The window is a parameter (`--start-date` / `--end-date`), pulled with Hive-partition pruning and
 proven by `tests/test_etl_freshness.py`, so a wider pull is one flag away. The **deployed app reads
-an even smaller set on purpose**: a fixture with one real customer (6 real charges) plus 8 labeled
+an even smaller set on purpose**: a fixture with one real customer (6 real charges) plus 10 labeled
 synthetic charges (see "The required scenarios"). That keeps customer data and AWS credentials out of
 the runtime (AD-2), makes every demo and eval run reproducible, and fits a free-plan deploy. The
-cost is stated in "Known limitations": the demo customer's history is partly synthetic.
+cost is stated in "Known limitations": the demo customer's history is partly synthetic. The one
+offline exception is the fraud-risk model, which needs enough frauds to measure: it was trained on two
+years of transactions (2,951,642 rows) in a separate store, and only its per-charge estimate reaches
+the fixture ([`docs/ml/fraud-model.md`](docs/ml/fraud-model.md)).
 
 ## Setup
 
@@ -335,6 +346,15 @@ shows "No se pudo obtener respuesta" with a "Reintentar" button that re-sends th
 
 ## Evaluation results
 
+**Measured held-out evaluation (real model).** 48 conversations (24 situations, each in Spanish and
+Portuguese) written by a subagent that never saw the prompts or the policy, labeled before the first
+run and second-labeled by Codex (agreement 100% on outcomes), run through the real app against Claude
+Haiku 4.5, 3 times: 0 / 48 unsafe outcomes in every run, 18 / 18 safe automated resolutions, 0.896
+correct (43 / 48), protective card block 26 / 26, typed turn p50 3.0 s / p95 7.7 s, $0.0040 per case.
+The same 5 cases fail in every run and none moved money. Method, baselines (a rules extractor and
+escalate-everything), failure analysis and limits: [`docs/eval/measured-eval.md`](docs/eval/measured-eval.md).
+The offline harness below is the SIMULATED complement: constructed cases with the model mocked.
+
 `data/eval_report.json` (regenerate with `python -m eval.run_eval`) and `data/classifier_eval_report.json`
 (regenerate with `python -m etl.evaluate_classifier`) hold the full reports. Headline numbers as
 last generated in this environment:
@@ -394,7 +414,8 @@ Each scenario runs against its own app database:
   report took 1.3-1.6 s), and the statement turn, with its one model call, took 1.8-16.7 s (median
   3.7 s over the 8 runs; one Portuguese run hit 16.7 s, inside the 20 s budget).
 - Estimated cost (Haiku 4.5 list pricing, not measured billing): ~$0.0016/attempted case,
-  ~$0.0106/successful resolution.
+  ~$0.0106/successful resolution. The held-out run measured $0.0040 per case from the API's own
+  token counts (`docs/eval/measured-eval.md`).
 
 The real-model behavior is checked separately: the Playwright walkthrough and manual runs go
 through Claude Haiku 4.5 end to end, and bugs they surfaced (fenced JSON, a currency lost between
@@ -460,18 +481,24 @@ rates.
 
 ## Known limitations (disclosed, not hidden)
 
-- **The system eval is simulated; real-model quality is checked by hand, not measured.** The app
-  runs against Claude Haiku 4.5, and the walkthrough plus manual sessions exercise it end to end,
-  but `eval/run_eval.py` uses a mocked client for reproducibility, so its latency/cost figures
-  exclude the real model. Without a key the app still degrades gracefully: every LLM failure
-  forces escalation with the deterministic escalation notice, whose reason is a technical problem
-  (verified live, not just in tests).
-- **The system-level comparison is not a held-out evaluation.** The brief asks for a baseline vs.
-  the proposed system on the same workload; the comparison above does that on the constructed
-  40-case suite, but an independently labeled, held-out system-level workload remains unfulfilled.
-  The only held-out evaluation in this repo is the classifier's chronological split.
-- **The demo customer's history is partly synthetic.** 6 of the 14 charges are real dataset rows;
-  8 are team-generated to cover every scenario and are labeled as such in the fixture
+- **The real-model evaluation is small and its customers are simulated.** The measured run
+  ([`docs/eval/measured-eval.md`](docs/eval/measured-eval.md)) has 48 cases on one customer, written by
+  a language model rather than taken from real traffic, so 0 unsafe outcomes bounds the unsafe rate at
+  about 7% (95%), not at zero. The offline harness (`eval/run_eval.py`) uses a mocked client for
+  reproducibility, so its latency/cost figures exclude the real model. Without a key the app still
+  degrades gracefully: every LLM failure forces escalation with the deterministic escalation notice,
+  whose reason is a technical problem (verified live, not just in tests).
+- **The live demo has one shared demo customer.** Everyone who presses "Autocompletar" signs in as
+  the same synthetic customer, and the policy remembers credits it already granted: once someone has
+  been credited for the Uber charge, the next visitor's Uber claim goes to a person instead of
+  resolving. The free plan wipes `data/app.db` on every restart (after about 15 minutes idle), which
+  resets it; the duplicated taxi and Tienda Online Global flows show the other outcomes meanwhile.
+- **The offline system-level comparison is not a held-out evaluation.** The comparison above runs on
+  the constructed 40-case suite. The held-out, independently labeled comparison (the shipped hybrid vs
+  a rules extractor vs escalate-everything, real model) is the measured evaluation in
+  [`docs/eval/measured-eval.md`](docs/eval/measured-eval.md), within the limits stated there.
+- **The demo customer's history is partly synthetic.** 6 of the 16 charges are real dataset rows;
+  10 are team-generated to cover every scenario and are labeled as such in the fixture
   (`_is_synthetic`, `_source_file = 'synthetic'`). The dataset window is a snapshot ending
   2026-06-17, so relative dates ("ayer") are resolved against `DATA_AS_OF` (2026-06-18), not the
   wall clock.
@@ -571,5 +598,6 @@ handoff, `v0.14.0` live on Render). The submission is `v1.0.0`.
 - [x] Public GitHub repo named `factored-hackathon-2026-jagusgelos`
 - [x] Deployed tool link: <https://factored-hackaton-latest.onrender.com/> (Render, free plan, prebuilt image from a private Docker Hub
       repository; see `DEPLOY.md` for what was verified there and what the free plan gives up).
-- [ ] 4-6 slide presentation: [`docs/pitch/`](docs/pitch/)
-- [ ] Short mandatory video pitch demonstrating the working solution: [`docs/pitch/VIDEO.md`](docs/pitch/VIDEO.md)
+- [x] 4-6 slide presentation: [`docs/pitch/deck.pdf`](docs/pitch/deck.pdf) (source in [`docs/pitch/deck/`](docs/pitch/deck/))
+- [x] Short mandatory video pitch demonstrating the working solution: [`docs/pitch/video/launch.mp4`](docs/pitch/video/launch.mp4)
+      (how it was made: [`docs/pitch/VIDEO.md`](docs/pitch/VIDEO.md); 20 s vertical teaser: [`docs/pitch/video/teaser.mp4`](docs/pitch/video/teaser.mp4))
