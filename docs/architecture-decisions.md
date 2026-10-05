@@ -326,7 +326,7 @@ after Milestone 6. AD-13 was decided on 2026-09-30 without a plan section (see i
 - **Consequences:** `tests/test_policy_not_overridden.py` proves over the full gating domain that
   a score above 30 only adds one reason and always escalates, that the estimate never changes a
   verdict, and (structurally, by AST) that no policy function names it; only
-  `app/transactions.py` and `app/handoffs.py` read it. The eval reports a `fraud_gate` section
+  the fixture reads (`app/fixture_db.py`, `app/transactions.py`) and `app/handoffs.py` touch it. The eval reports a `fraud_gate` section
   (the three gates on the measured test fold and on the fixture) and checks on every case that
   the customer's view carries no fraud figure. On the demo fixture all three gates flag the same
   single charge (`SYN-DEMO-ONLINE`), so the conversation suite cannot tell them apart; the

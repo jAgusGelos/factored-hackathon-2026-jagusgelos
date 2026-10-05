@@ -92,10 +92,30 @@ def _yes_no(flag: bool) -> str:
 
 
 # Fraud figures in the advisor's verified facts (AD-15). The customer's own
-# session never receives them (`app/main.py::handoff_for_customer_session`).
+# session never receives them (`for_customer_session`).
 INTERNAL_FACTS = frozenset({
     "fraud_score", "fraud_score_threshold", "fraud_risk_estimate", "fraud_risk_threshold", "fraud_model_version",
 })
+
+
+def for_customer_session(handoff: dict | None) -> dict | None:
+    """The handoff as `/api/case` sends it to the customer's own session. The
+    policy reasons name internal rules and fraud thresholds, and that endpoint
+    answers the customer's own session, so it sends only how many
+    there are (plan.md AD-3). A handoff stored before they had their own field
+    kept them in `open_questions`, so that field is not sent for it. The fraud
+    score and the model's estimate in the verified facts are for the advisor
+    only (AD-15), so they are dropped.
+    """
+    if handoff is None:
+        return None
+    facts = handoff.get("verified_facts")
+    if isinstance(facts, dict):
+        handoff = {**handoff, "verified_facts": {k: v for k, v in facts.items() if k not in INTERNAL_FACTS}}
+    if "policy_reasons" not in handoff:
+        return {k: v for k, v in handoff.items() if k != "open_questions"}
+    shown = {k: v for k, v in handoff.items() if k != "policy_reasons"}
+    return {**shown, "policy_reason_count": len(handoff["policy_reasons"])}
 
 
 def _percent(probability: float) -> str:
@@ -442,7 +462,7 @@ def with_card_block(handoff: dict, protection: ProtectiveDecision) -> dict:
     (`FraudSignal.CARD_OUT_OF_HANDS`), so no handoff asks whether to block it.
     Why it blocked (the fraud signals) is a policy reason: the customer's
     session sees `actions_taken` but only a count of the policy reasons
-    (`app/main.py::handoff_for_customer_session`), so no signal reaches them.
+    (`for_customer_session`), so no signal reaches them.
     """
     why = "; ".join(_FRAUD_SIGNALS[signal] for signal in protection.signals)
     return {

@@ -202,6 +202,7 @@ def test_the_model_and_its_report_must_come_from_the_same_run(tmp_path, monkeypa
     monkeypatch.setattr(build_fixture, "load_model_bundle", lambda path: {"selected": "m", "run_group": "A"})
     report = tmp_path / "report.json"
     report.write_text('{"run_group": "B", "thresholds": {"scores": {"m": {"threshold_chosen_on_val": 0.1}}}}')
+    (tmp_path / "model.joblib").touch()
     with pytest.raises(RuntimeError, match="does not describe"):
         FraudModel.load(tmp_path / "model.joblib", report)
 
@@ -227,3 +228,17 @@ def test_the_real_fixture_scenarios_hold_under_the_model_estimate():
     for charge in SYNTHETIC_CHARGES:
         if charge.scenario in ("auto_resolve", "duplicate_pair", "repeat_purchase"):
             assert by_id[charge.transaction_id][0] < threshold, charge.transaction_id
+
+
+def test_a_missing_model_says_how_to_build_it(tmp_path):
+    with pytest.raises(FileNotFoundError, match="etl.train_fraud_model"):
+        FraudModel.load(tmp_path / "fraud_model.joblib", tmp_path / "fraud_eval_report.json")
+
+
+def test_a_charge_the_model_cannot_score_stops_the_build(warehouse, tmp_path, monkeypatch):
+    _customer(warehouse, "CLI-DEMO")
+    _purchase(warehouse, "REAL-1", "CLI-DEMO")
+    monkeypatch.setattr(build_fixture, "score_transactions", lambda frame, path: frame["fraud_score"] * float("nan"))
+    model = FraudModel(model_path=tmp_path / "unused.joblib", version="v", threshold=0.0035)
+    with pytest.raises(RuntimeError, match="no score for fixture charge"):
+        build_fixture_db(warehouse, tmp_path / "fixture.duckdb", "CLI-DEMO", model, history_warehouse=None)

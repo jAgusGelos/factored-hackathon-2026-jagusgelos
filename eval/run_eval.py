@@ -57,9 +57,8 @@ import anthropic
 
 from app import cases, config, db, fixture_db
 from app.case_model import TERMINAL_STATES, EscalationReason
-from app.handoffs import INTERNAL_FACTS, StatementStatus
+from app.handoffs import INTERNAL_FACTS, StatementStatus, for_customer_session
 from app.llm import Language
-from app.main import handoff_for_customer_session
 from app.policy import (
     AUTO_CREDITABLE_REASONS,
     AUTO_RESOLVE_MAX_FRAUD_SCORE,
@@ -371,10 +370,16 @@ def _final_outcome_fields(
 
 def _customer_view_shows_fraud_figures(case: cases.Case) -> bool:
     """AD-15: the customer's own `/api/case` view never carries the fraud
-    score or the model's estimate. Checked on every case, so a leak is unsafe.
+    score or the model's estimate. Checked on every case by value, not with
+    the filter's own key list: no internal fact's key or stored text may
+    appear anywhere in what the customer's session receives.
     """
-    shown = handoff_for_customer_session(case.handoff) or {}
-    return bool(set(shown.get("verified_facts", {})) & INTERNAL_FACTS)
+    stored = (case.handoff or {}).get("verified_facts", {})
+    internal = {key: value for key, value in stored.items() if key in INTERNAL_FACTS}
+    shown = json.dumps(for_customer_session(case.handoff) or {}, ensure_ascii=False)
+    # The bare score is a short number that can occur in other fields; its key cannot.
+    distinctive = [value for key, value in internal.items() if key != "fraud_score"]
+    return any(key in shown for key in INTERNAL_FACTS) or any(value in shown for value in distinctive)
 
 
 # Long enough to be the customer's own words rather than a button label.
@@ -662,11 +667,13 @@ def _pick_with_statement(transaction_id: str, statement: dict | None = None) -> 
     ]
 
 
-def _protective_case(case_key: str, steps: list[Step], *, blocked: bool, **kwargs) -> Callable[[Path], CaseOutcome]:
+def _protective_case(
+    case_key: str, steps: list[Step], *, blocked: bool, also_expect: dict[str, object] | None = None, **kwargs,
+) -> Callable[[Path], CaseOutcome]:
     def run(app_db_path: Path) -> CaseOutcome:
         return _run_script(
             GROUP_PROTECTIVE_BLOCK, case_key, steps, expected_state=CaseState.ESCALATED,
-            app_db_path=app_db_path, expect={"card_blocked": blocked}, **kwargs,
+            app_db_path=app_db_path, expect={"card_blocked": blocked, **(also_expect or {})}, **kwargs,
         )
     return run
 
@@ -681,7 +688,10 @@ _CARD_LOST = {
 
 PROTECTIVE_BLOCK_SCENARIOS: tuple[Callable[[Path], CaseOutcome], ...] = (
     # Fraud escalations the customer denies or a lost card: blocked.
-    _protective_case("fraud_score_denied", _pick_with_statement(FRAUD_SCORE_CHARGE), blocked=True),
+    _protective_case(
+        "fraud_score_denied", _pick_with_statement(FRAUD_SCORE_CHARGE), blocked=True,
+        also_expect={"model_estimate_in_handoff": True},
+    ),
     _protective_case("card_present_denied", _pick_and_explain(CARD_PRESENT_CHARGE), blocked=True),
     _protective_case("card_lost_over_cap", _pick_with_statement(OVER_LIMIT_CHARGE, _CARD_LOST), blocked=True),
     # Escalations unrelated to fraud: never blocked.
@@ -827,12 +837,26 @@ def _previous_default(fraud_report: dict) -> dict:
     return fraud_report["thresholds"]["scores"]["fraud_score"]["test_current_policy_30"]
 
 
+def _shipped_rule_was_measured(fraud_score_thresholds: dict) -> bool:
+    """The report measures its validation optimum; every threshold in
+    [cost_equivalent_lower_bound, optimum) escalates the same charges, so the
+    measured row describes the shipped `> AUTO_RESOLVE_MAX_FRAUD_SCORE` rule
+    only when the constant lies in that interval.
+    """
+    lower = fraud_score_thresholds["cost_equivalent_lower_bound"]
+    return lower <= AUTO_RESOLVE_MAX_FRAUD_SCORE < fraud_score_thresholds["threshold_chosen_on_val"]
+
+
 def _measured_gates(fraud_report: dict) -> dict:
     """The three candidate gates on the fraud model's chronological test fold
     (MEASURED by `python -m etl.evaluate_fraud_model`, transaction-level proxy population).
     """
     thresholds = fraud_report["thresholds"]
     scores = thresholds["scores"]
+    if not _shipped_rule_was_measured(scores["fraud_score"]):
+        raise ValueError(
+            f"{FRAUD_REPORT_PATH}: its fraud_score optimum does not cover the shipped rule {SHIPPED_FRAUD_GATE}"
+        )
     model = fraud_report["selected_on_validation"]
     model_threshold = scores[model]["threshold_chosen_on_val"]
     previous = _previous_default(fraud_report)
@@ -854,6 +878,8 @@ def _fixture_gates(previous_max_fraud_score: float) -> dict:
     """How the same gates read the demo fixture's charges (model estimate precomputed offline)."""
     con = fixture_db.get_connection(REAL_FIXTURE_PATH)
     try:
+        if not fixture_db.fraud_risk_is_stored(con):
+            return {"label": "SIMULATED", "charges": None, "note": "fixture built before the fraud-risk estimate"}
         rows = con.execute(
             "SELECT transaction_id, CAST(fraud_score AS DOUBLE), CAST(fraud_risk AS DOUBLE), "
             "CAST(fraud_risk_threshold AS DOUBLE) FROM transactions ORDER BY transaction_id"

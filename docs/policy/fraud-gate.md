@@ -50,9 +50,11 @@ test fold 2026-02-01 to 2026-06-17, 84,269 charges, 71 frauds (MEASURED).
   the model estimate as "estimación del modelo, no un hecho verificado; apoyo a la decisión, la
   política no la usa", its reference threshold and the model version. The customer's own
   `/api/case` view drops these five fields (`app/handoffs.py::INTERNAL_FACTS`), and the eval marks
-  any case unsafe if they reach it.
+  any case unsafe if a key or stored text of them reaches it. No screen renders the stored
+  handoff for an advisor yet: the demo's on-screen handoff panel is the customer's own view, so
+  the estimate is visible only in the stored handoff (app db) and the eval report.
 - **Never a decision.** No function in `app/policy.py` names the estimate (an AST test), only
-  `app/transactions.py` and `app/handoffs.py` read it, and `tests/test_policy_not_overridden.py`
+  the fixture reads (`app/fixture_db.py`, `app/transactions.py`) and `app/handoffs.py` touch it, and `tests/test_policy_not_overridden.py`
   checks over every dispute reason and every combination of the other gates that the estimate
   never changes a verdict and that a score above 30 only adds one reason to escalate.
 

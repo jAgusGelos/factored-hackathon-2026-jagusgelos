@@ -135,10 +135,7 @@ def _transaction_columns(con) -> str:
     """The candidate columns; a fixture built before the precomputed
     fraud-risk estimate (`etl/build_fixture.py`) reads it as absent.
     """
-    scored = con.execute(
-        "SELECT COUNT(*) FROM information_schema.columns "
-        "WHERE table_name = 'transactions' AND column_name = 'fraud_risk'"
-    ).fetchone()[0]
+    scored = fixture_db.fraud_risk_is_stored(con)
     return _TRANSACTION_COLUMNS.format(fraud_risk=_FRAUD_RISK_COLUMNS if scored else _NO_FRAUD_RISK)
 
 

@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import secrets
 import string
 from dataclasses import dataclass
@@ -259,6 +260,12 @@ class FraudModel:
 
     @classmethod
     def load(cls, model_path: Path = DEFAULT_MODEL_PATH, report_path: Path = DEFAULT_FRAUD_REPORT_PATH) -> FraudModel:
+        missing = [str(path) for path in (model_path, report_path) if not path.exists()]
+        if missing:
+            raise FileNotFoundError(
+                f"{', '.join(missing)} not found: build them first with `python -m etl.train_fraud_model` and "
+                "`python -m etl.evaluate_fraud_model` (docs/ml/fraud-model.md, Reproduce)"
+            )
         bundle = load_model_bundle(model_path)
         report = json.loads(report_path.read_text())
         selected = bundle["selected"]
@@ -276,14 +283,16 @@ def _history_rows(
     """The customer's own transactions the model reads as history (every
     currency: history is per customer, not per currency).
     """
-    cols = ", ".join(_SCORING_COLUMNS)
+    query = f"SELECT {', '.join(_SCORING_COLUMNS)} FROM transactions WHERE customer_id = ?"
     if history_warehouse is not None and history_warehouse.exists():
+        logger.info("Scoring history: %s", history_warehouse)
         hcon = duckdb.connect(str(history_warehouse), read_only=True)
         try:
-            return hcon.execute(f"SELECT {cols} FROM transactions WHERE customer_id = ?", [customer_id]).df()
+            return hcon.execute(query, [customer_id]).df()
         finally:
             hcon.close()
-    return con.execute(f"SELECT {cols} FROM transactions WHERE customer_id = ?", [customer_id]).df()
+    logger.warning("Scoring history: the main warehouse (%s not found)", history_warehouse)
+    return con.execute(query, [customer_id]).df()
 
 
 def _fixture_rows(fcon: duckdb.DuckDBPyConnection) -> pd.DataFrame:
@@ -295,26 +304,29 @@ def _fixture_rows(fcon: duckdb.DuckDBPyConnection) -> pd.DataFrame:
 
 
 def score_fixture_charges(
-    con: duckdb.DuckDBPyConnection, fcon: duckdb.DuckDBPyConnection, customer_id: str,
+    warehouse_con: duckdb.DuckDBPyConnection, fixture_con: duckdb.DuckDBPyConnection, *, customer_id: str,
     model: FraudModel, history_warehouse: Path | None,
 ) -> dict[str, float]:
     """Writes the model's estimate onto every fixture charge; returns it by id."""
-    fixture = _fixture_rows(fcon)
-    history = _history_rows(con, customer_id, history_warehouse)
+    fixture = _fixture_rows(fixture_con)
+    history = _history_rows(warehouse_con, customer_id, history_warehouse)
     history = history[~history["transaction_id"].isin(fixture["transaction_id"])]
     frame = pd.concat([history, fixture], ignore_index=True)
-    country, registered = con.execute(
+    country, registered = warehouse_con.execute(
         "SELECT country, registration_date FROM customers WHERE customer_id = ?", [customer_id],
     ).fetchone()
     frame["home_country"] = country
     frame["registration_date"] = pd.to_datetime(registered)
     risk = pd.Series(score_transactions(frame, model.model_path), index=frame["transaction_id"])
     scores = {tid: float(risk[tid]) for tid in fixture["transaction_id"]}
+    unscored = sorted(tid for tid, score in scores.items() if not math.isfinite(score))
+    if unscored:
+        raise RuntimeError(f"the fraud-risk model returned no score for fixture charge(s) {unscored}")
     for column in FRAUD_RISK_COLUMNS:
-        fcon.execute(f"ALTER TABLE transactions ADD COLUMN {column} VARCHAR")
-    fcon.executemany(
+        fixture_con.execute(f"ALTER TABLE transactions ADD COLUMN {column} VARCHAR")
+    fixture_con.executemany(
         f"UPDATE transactions SET {', '.join(f'{c} = ?' for c in FRAUD_RISK_COLUMNS)} WHERE transaction_id = ?",
-        [[str(round(score, 6)), str(model.threshold), model.version, tid] for tid, score in scores.items()],
+        [[str(score), str(model.threshold), model.version, tid] for tid, score in scores.items()],
     )
     logger.info("Scored %d fixture charge(s) with %s", len(scores), model.version)
     return scores
@@ -337,7 +349,9 @@ def build_fixture_db(
         fcon.execute("UPDATE transactions SET _is_synthetic = 'False' WHERE _is_synthetic IS NULL")
         _insert_synthetic_charges(con, fcon, customer_id, columns)
         if fraud_model is not None:
-            score_fixture_charges(con, fcon, customer_id, fraud_model, history_warehouse)
+            score_fixture_charges(
+                con, fcon, customer_id=customer_id, model=fraud_model, history_warehouse=history_warehouse,
+            )
     finally:
         fcon.close()
     logger.info("Fixture written to %s", fixture_path)

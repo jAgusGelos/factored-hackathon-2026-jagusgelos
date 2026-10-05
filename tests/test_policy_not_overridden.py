@@ -255,12 +255,12 @@ def _names_in(path: Path) -> set[str]:
 def test_no_policy_function_can_read_the_model_estimate():
     """The structural half: `app/policy.py` never names the estimate, no
     policy entry point takes it as a parameter, and the only app modules that
-    touch it are the fixture read (`app/transactions.py`) and the advisor's
-    handoff (`app/handoffs.py`). A future change that routes it into a
+    touch it are the fixture reads (`app/fixture_db.py`, `app/transactions.py`)
+    and the advisor's handoff (`app/handoffs.py`). A future change that routes it into a
     decision has to edit this test.
     """
     assert not {"fraud_risk", "FraudRiskEstimate"} & _names_in(APP_DIR / "policy.py")
     for function in (policy.evaluate_resolution, policy.screening_failures, policy.protective_action):
         assert not any("risk" in name for name in inspect.signature(function).parameters)
     readers = {path.name for path in APP_DIR.glob("*.py") if "fraud_risk" in _names_in(path)}
-    assert readers == {"transactions.py", "handoffs.py"}
+    assert readers == {"fixture_db.py", "transactions.py", "handoffs.py"}

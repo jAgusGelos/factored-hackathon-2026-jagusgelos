@@ -379,7 +379,9 @@ def screening_failures(txn: TransactionCandidate, ctx: DisputeContext) -> tuple[
         )
     if txn.transaction_status != AUTO_RESOLVE_REQUIRED_STATUS:
         reasons.append(f"transaction_status={txn.transaction_status!r}, not Approved")
-    if txn.fraud_score is None or fraud_score_flagged(txn.fraud_score):
+    if txn.fraud_score is None:
+        reasons.append("fraud_score missing: the charge cannot be screened for fraud")
+    elif fraud_score_flagged(txn.fraud_score):
         reasons.append(f"fraud_score={txn.fraud_score} above the {AUTO_RESOLVE_MAX_FRAUD_SCORE} threshold")
     age_days = (ctx.as_of - _day(txn.transaction_date)).days
     if age_days < 0:
