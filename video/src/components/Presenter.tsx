@@ -18,6 +18,12 @@ export const PRESENTER_BUBBLE: Box = { x: 160, y: 790, w: 240, h: 240 };
 
 const FADE = 6;
 
+// The cut-out is cropped from a landscape take into a portrait slot, so the body meets the slot's
+// sides in a straight line; fading the sides and the bottom hides that cut.
+const CUTOUT_EDGE_MASK =
+  'linear-gradient(to right, transparent 0%, black 16%, black 84%, transparent 100%), linear-gradient(to top, transparent 0%, black 14%)';
+
+
 /**
  * The builder on camera for a run of lines. Each line shows its own ingested take (cut out in
  * full mode, the plain take in the bubble), held on its first frame before it speaks and on its
@@ -78,7 +84,13 @@ const Take: React.FC<{ line: TimedLine; mode: PresenterMode; offset: number }> =
   const matte = mode === 'full' ? presenter.matte : undefined;
   const takeFrame = Math.min(Math.max(frame - offset, 0), line.frames - 1);
   return (
-    <AbsoluteFill style={matte ? undefined : { borderRadius: mode === 'full' ? 18 : undefined, overflow: 'hidden' }}>
+    <AbsoluteFill
+      style={
+        matte
+          ? { maskImage: CUTOUT_EDGE_MASK, WebkitMaskImage: CUTOUT_EDGE_MASK, maskComposite: 'intersect', WebkitMaskComposite: 'source-in' }
+          : { borderRadius: mode === 'full' ? 18 : undefined, overflow: 'hidden' }
+      }
+    >
       <Freeze frame={takeFrame}>
         <OffthreadVideo
           src={staticFile(matte ?? presenter.plain)}
