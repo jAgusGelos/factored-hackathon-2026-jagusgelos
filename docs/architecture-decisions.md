@@ -320,7 +320,7 @@ after Milestone 6. AD-13 was decided on 2026-09-30 without a plan section (see i
     verificado" with its version and reference threshold, next to `fraud_score` and the policy
     threshold; the customer's own `/api/case` view drops all five (`handoffs.INTERNAL_FACTS`).
   - **Classifier:** kept as an escalation-only signal, its reason now saying it has no measured
-    lift. It can never credit, it predicts Critical rarely (Critical recall 0.058), and retiring
+    lift. It can never credit, it predicts Critical rarely (Critical recall 0.058, MEASURED), and retiring
     it would change AD-6, the image and the live features on submission day for no safety gain.
     Retiring it is the documented next step.
 - **Consequences:** `tests/test_policy_not_overridden.py` proves over the full gating domain that
