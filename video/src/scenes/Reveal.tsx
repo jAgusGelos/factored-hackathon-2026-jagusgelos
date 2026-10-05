@@ -14,7 +14,6 @@ const reveal2 = lineOf(scene, 'reveal2');
 const titleAt = wordFrame(reveal2, 'Dispute');
 const fadeClamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 
-/** The product name as a launch-event title: a light sweep runs across the letters. */
 export const ProductTitle: React.FC<{ at: number; x: number; y: number; size?: number }> = ({ at, x, y, size = 150 }) => {
   const frame = useCurrentFrame();
   const sweep = interpolate(frame, [at, at + 36], [-30, 130], fadeClamp);

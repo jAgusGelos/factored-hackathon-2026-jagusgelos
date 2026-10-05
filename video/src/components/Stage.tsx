@@ -10,7 +10,6 @@ const GRAIN_FRAMES = 12;
 /** React ids carry colons, which break `url(#id)` references in some renderers. */
 export const useSvgId = (): string => `s${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
 
-/** Graph paper on deep navy: minor and major lines, a slow drift, a glow where the action is. */
 export const GridPaper: React.FC<{ glow: { x: number; y: number } }> = ({ glow }) => {
   const frame = useCurrentFrame();
   const id = useSvgId();
@@ -38,7 +37,6 @@ export const GridPaper: React.FC<{ glow: { x: number; y: number } }> = ({ glow }
   );
 };
 
-/** The post layer over everything: vignette and animated film grain. */
 export const Post: React.FC = () => {
   const frame = useCurrentFrame();
   const id = useSvgId();

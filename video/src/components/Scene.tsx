@@ -12,7 +12,6 @@ export const SceneFade: React.FC<{ frames: number; children: React.ReactNode }> 
   return <AbsoluteFill style={{ opacity }}>{children}</AbsoluteFill>;
 };
 
-/** Each line's audio (the TTS placeholder or the presenter's take) at its slot. */
 export const VoiceTrack: React.FC<{ scene: TimedScene }> = ({ scene }) => (
   <>
     {scene.lines.map((line) => (

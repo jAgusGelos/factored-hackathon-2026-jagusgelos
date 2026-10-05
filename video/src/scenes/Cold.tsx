@@ -95,7 +95,6 @@ export const Cold: React.FC = () => {
   );
 };
 
-/** A ring sweeps while the hour counter races to the measured median. */
 const WaitClock: React.FC = () => {
   const frame = useCurrentFrame();
   if (frame < cold3.from - 10) return null;

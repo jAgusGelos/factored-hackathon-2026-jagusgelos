@@ -59,7 +59,6 @@ function activeCaption(clip: CaptionedClip, frame: number): CaptionCue | undefin
   return undefined;
 }
 
-/** One footage clip in the laptop with its English captions, visible from `from` to `until`. */
 export const ClipOnLaptop: React.FC<{ clip: CaptionedClip }> = ({ clip }) => {
   const frame = useCurrentFrame();
   const opacity = interpolate(frame, [clip.from, clip.from + 8, clip.until - 8, clip.until], [0, 1, 1, 0], {
@@ -92,7 +91,6 @@ export const BubblePresenter: React.FC<{ lines: TimedLine[]; until: number }> = 
 
 export const tapCues = (clip: Clip): Cue[] => clipTaps(clip).map((tap) => ({ at: clipEventFrame(clip, tap.name), sfx: 'click_003', volume: 0.5 }));
 
-/** A product moment: chapter, the clip in the laptop, a result under the chapter, the presenter bubble. */
 export const MomentScene: React.FC<{
   scene: TimedScene;
   chapter: { number: string; title: string; subtitle: string };

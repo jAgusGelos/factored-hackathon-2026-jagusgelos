@@ -55,10 +55,6 @@ const KaraokeWord: React.FC<{ display: string; t: number; word: Word; emphasis: 
   );
 };
 
-/**
- * The line as karaoke: unsaid words are hairline outlines, the word being said wipes in the
- * signal colour with a glow, said words settle to bone. `emphasis` words stay signal once said.
- */
 export const Karaoke: React.FC<{ line: TimedLine; size: number; width: number; emphasis?: string[] }> = ({ line, size, width, emphasis = [] }) => {
   const frame = useCurrentFrame();
   const t = (frame - line.from) / FPS;
@@ -86,7 +82,6 @@ export const Karaoke: React.FC<{ line: TimedLine; size: number; width: number; e
   );
 };
 
-/** A narration line as karaoke at a fixed spot, shown while it is the current line. */
 export const LineKaraoke: React.FC<{
   line: TimedLine;
   until: number;
@@ -145,7 +140,6 @@ export const FactChip: React.FC<{ fact: Fact; long?: boolean; size?: number }> =
   <Chip kind={fact.label} text={long ? fact.source : fact.short} size={size} />
 );
 
-/** English translation of what the Spanish/Portuguese UI shows, timed to the footage. */
 export const Caption: React.FC<{ original?: string; english: string; style?: React.CSSProperties }> = ({ original, english, style }) => (
   <div
     style={{

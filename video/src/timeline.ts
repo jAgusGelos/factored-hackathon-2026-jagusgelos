@@ -23,8 +23,7 @@ export interface VoLine {
   presenter?: { plain: string; matte?: string };
 }
 
-/** Silence before each line (s). Cuts sit in these pauses; longer ones are the story's beats. */
-const LEAD_S = {
+const LEAD_SECONDS_BY_LINE = {
   cold1: 0.5, cold2: 0.5, cold3: 0.9,
   reveal1: 1.1, reveal2: 0.6,
   m1a: 0.6, m1b: 0.4,
@@ -34,10 +33,9 @@ const LEAD_S = {
   close1: 0.8, close2: 0.5,
 } as const;
 
-/** Silence after a scene's last line before the next scene starts (s). */
-const TAIL_S: Record<SceneId, number> = { cold: 1.2, reveal: 1.8, m1: 1.0, m2: 0.9, m3: 1.9, how: 1.0, close: 4.5 };
+const TAIL_SECONDS_BY_SCENE: Record<SceneId, number> = { cold: 1.2, reveal: 1.8, m1: 1.0, m2: 0.9, m3: 1.9, how: 1.0, close: 4.5 };
 
-const SCENES = Object.keys(TAIL_S) as SceneId[];
+const SCENES: readonly SceneId[] = ['cold', 'reveal', 'm1', 'm2', 'm3', 'how', 'close'];
 
 export interface TimedLine extends VoLine {
   from: number;
@@ -56,8 +54,8 @@ const toFrames = (s: number) => Math.round(s * FPS);
 function validLines(raw: unknown[]): VoLine[] {
   return raw.map((entry) => {
     const line = entry as VoLine;
-    if (!(line.scene in TAIL_S)) throw new Error(`vo.json line ${line.id}: unknown scene "${line.scene}"`);
-    if (!(line.id in LEAD_S)) throw new Error(`vo.json line ${line.id}: no lead in timeline.ts`);
+    if (!(line.scene in TAIL_SECONDS_BY_SCENE)) throw new Error(`vo.json line ${line.id}: unknown scene "${line.scene}"`);
+    if (!(line.id in LEAD_SECONDS_BY_LINE)) throw new Error(`vo.json line ${line.id}: no lead in timeline.ts`);
     if (!line.words?.length) throw new Error(`vo.json line ${line.id}: no word timings`);
     return line;
   });
@@ -71,12 +69,12 @@ function buildTimeline(): TimedScene[] {
     const sceneFrom = cursor;
     const timed: TimedLine[] = [];
     for (const line of lines.filter((l) => l.scene === id)) {
-      cursor += toFrames(LEAD_S[line.id as keyof typeof LEAD_S]);
+      cursor += toFrames(LEAD_SECONDS_BY_LINE[line.id as keyof typeof LEAD_SECONDS_BY_LINE]);
       timed.push({ ...line, from: cursor - sceneFrom, frames: toFrames(line.duration) });
       cursor += toFrames(line.duration);
     }
     if (!timed.length) throw new Error(`scene ${id} has no lines`);
-    cursor += toFrames(TAIL_S[id]);
+    cursor += toFrames(TAIL_SECONDS_BY_SCENE[id]);
     scenes.push({ id, from: sceneFrom, frames: cursor - sceneFrom, lines: timed });
   }
   return scenes;

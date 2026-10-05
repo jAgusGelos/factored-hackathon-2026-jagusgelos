@@ -4,10 +4,6 @@ import { Easing, interpolate, useCurrentFrame } from 'remotion';
 import { COLOR, alpha } from '../theme';
 import { useSvgId } from './Stage';
 
-/**
- * A stroke laid down by the plotter pen between `from` and `to` (frames), with the spark at the
- * pen's head while it draws. Pure function of the frame, like the kit's Plot.
- */
 export const PenPath: React.FC<{
   d: string;
   from: number;

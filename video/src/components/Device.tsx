@@ -34,7 +34,6 @@ export function asFootage(json: unknown): FootageMeta {
   return meta;
 }
 
-/** Scene frame where a footage event lands on screen. */
 export function clipEventFrame(clip: Clip, name: string): number {
   const event = clip.meta.events.find((e) => e.name === name);
   if (!event) throw new Error(`no event ${name} in ${clip.meta.clip}`);
@@ -47,7 +46,6 @@ export function clipTaps(clip: Clip): FootageEvent[] {
 
 const BEZEL = 18;
 
-/** A laptop around real app footage; taps in the footage's metadata get a ripple at the tapped spot. */
 export const Laptop: React.FC<{ clip: Clip; screenWidth: number }> = ({ clip, screenWidth }) => {
   const { meta } = clip;
   const screenHeight = (screenWidth * meta.height) / meta.width;
