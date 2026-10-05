@@ -30,7 +30,7 @@ from app import cases, db
 from app import transactions as txns_module
 from app.auth import Session
 from app.case_model import NON_TERMINAL_STATES, OPEN_STATES, EscalationReason, ReportedCharge
-from app.policy import DisputeReason
+from app.policy import AUTO_RESOLVE_REQUIRED_STATUS, DUPLICATE_WINDOW_MINUTES, DisputeReason
 from app.state_machine import CaseState, evaluate_case, handle_message
 from app.transactions import (
     count_own_charges_at_merchant,
@@ -390,8 +390,12 @@ def test_duplicate_evidence_separates_a_double_charge_from_a_next_day_repeat(rea
     taxi = get_own_transaction(session, DUPLICATE_CHARGES[1])
     ride = get_own_transaction(session, REPEAT_FARE_CHARGES[1])
 
-    taxi_evidence = find_own_duplicate_evidence(session, taxi, window_minutes=10, required_status="Approved")
-    ride_evidence = find_own_duplicate_evidence(session, ride, window_minutes=10, required_status="Approved")
+    def evidence(txn):
+        return find_own_duplicate_evidence(
+            session, txn, window_minutes=DUPLICATE_WINDOW_MINUTES, required_status=AUTO_RESOLVE_REQUIRED_STATUS,
+        )
+
+    taxi_evidence, ride_evidence = evidence(taxi), evidence(ride)
 
     assert taxi_evidence.twins == (DUPLICATE_CHARGES[0],) and taxi_evidence.repeats == ()
     assert ride_evidence.twins == () and ride_evidence.repeats == (REPEAT_FARE_CHARGES[0],)
@@ -399,13 +403,16 @@ def test_duplicate_evidence_separates_a_double_charge_from_a_next_day_repeat(rea
 
 @requires_real_fixture
 def test_duplicate_evidence_reads_the_timestamps_from_the_fixture_not_from_the_snapshot(real_fixture_app_db):
-    """A charge rebuilt from a case snapshot only keeps the day: the window
-    must still be measured on the stored timestamps.
+    """A charge rebuilt from a case snapshot only keeps the day (midnight):
+    measured on that, the 12:04 taxi charge would sit 12 hours from its 12:00
+    twin. The window must still be measured on the stored timestamps.
     """
     session = demo_session(real_fixture_app_db)
-    ride = get_own_transaction(session, REPEAT_FARE_CHARGES[1])
-    day_only = type(ride).from_snapshot(ride.to_snapshot())
+    taxi = get_own_transaction(session, DUPLICATE_CHARGES[1])
+    day_only = type(taxi).from_snapshot(taxi.to_snapshot())
 
-    evidence = find_own_duplicate_evidence(session, day_only, window_minutes=10, required_status="Approved")
+    evidence = find_own_duplicate_evidence(
+        session, day_only, window_minutes=DUPLICATE_WINDOW_MINUTES, required_status=AUTO_RESOLVE_REQUIRED_STATUS,
+    )
 
-    assert evidence.twins == ()
+    assert evidence.twins == (DUPLICATE_CHARGES[0],) and evidence.repeats == ()

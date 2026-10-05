@@ -60,4 +60,4 @@ because a charge rebuilt from a case snapshot only keeps the day.
   reversed once, as before.
 - `SYN-DEMO-RIDE-1/2`: Cabify, 18,500 COP, 2026-06-03 08:10 and 2026-06-04 08:12 (the same fare on
   the next day): never reversed as a duplicate (`tests/test_conversation_flows.py`,
-  `eval/run_eval.py` case `repeat_fare_next_day`).
+  `tests/test_state_machine.py`).
