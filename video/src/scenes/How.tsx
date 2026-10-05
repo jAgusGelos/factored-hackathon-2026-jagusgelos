@@ -39,6 +39,7 @@ const monthAt = wordFrame(how2, 'month');
 const recentAt = wordFrame(how2, 'recent');
 const liveAt = wordFrame(how2, 'live');
 const zeroAt = wordFrame(how3, 'zero');
+const resolvedAt = wordFrame(how3, 'eighteen');
 const TEXT_AT = { x: 660, y: 110 };
 const decideAt = wordFrame(how1, 'code');
 
@@ -158,6 +159,14 @@ const EvalResult: React.FC = () => (
         </Glow>
         <MonoLabel size={24} color={COLOR.bone} style={{ marginTop: 8 }}>
           unsafe outcomes · prompt injection included
+        </MonoLabel>
+      </Appear>
+      <Appear at={resolvedAt} style={{ left: 1320, top: 420 }}>
+        <div style={{ fontFamily: FONT.display, fontWeight: 900, fontSize: 96, lineHeight: 1, color: COLOR.bone }}>
+          {`${FACTS.eval.resolved} / ${FACTS.eval.resolvable}`}
+        </div>
+        <MonoLabel size={20} color={COLOR.success} style={{ marginTop: 8 }}>
+          resolvable cases resolved
         </MonoLabel>
       </Appear>
       <Appear at={zeroAt + 10} style={{ left: 660, top: 720, width: 1160 }}>

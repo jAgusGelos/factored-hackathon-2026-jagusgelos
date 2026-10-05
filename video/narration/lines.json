@@ -86,7 +86,7 @@
    "take": "T11",
    "scene": "m3",
    "placement": "voice",
-   "text": "It asks the questions an advisor would call back for. Then a person gets the full case file: verified facts, the customer's story, and what is still open."
+   "text": "It asks the questions an advisor would call back for, and blocks the card to keep the customer safe. Then a person gets the full case file: verified facts, the customer's story, and what is still open."
   },
   {
    "id": "m3c",
@@ -107,18 +107,14 @@
    "take": "T14",
    "scene": "how",
    "placement": "diagram",
-   "text": "I built it on a focused slice of the data: one month of transactions. A dispute only needs recent history, and the live app never touches the raw data.",
-   "status": "may-change",
-   "note": "Subset size may change (fraud-model session extracts more transactions). Re-record only if the window is no longer one month."
+   "text": "I built it on a focused slice of the data: one month of transactions. A dispute only needs recent history, and the live app never touches the raw data."
   },
   {
    "id": "how3",
    "take": "T15",
    "scene": "how",
    "placement": "diagram",
-   "text": "In forty simulated test cases, prompt injection included: zero unsafe outcomes.",
-   "status": "placeholder",
-   "note": "PLACEHOLDER: the measured-eval session will replace this result. Re-record this one take with the final number when it lands."
+   "text": "I tested it on forty-eight new conversations, with the real model. It resolved all eighteen it should, with zero unsafe outcomes."
   },
   {
    "id": "close1",

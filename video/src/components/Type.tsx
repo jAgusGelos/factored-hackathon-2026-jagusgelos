@@ -141,12 +141,8 @@ const Chip: React.FC<{ kind: Honesty; text: string; size: number }> = ({ kind, t
   </div>
 );
 
-/** A fact's honesty label with its source; a pending fact also says it is being re-measured. */
 export const FactChip: React.FC<{ fact: Fact; long?: boolean; size?: number }> = ({ fact, long = false, size = 16 }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-    <Chip kind={fact.label} text={long ? fact.source : fact.short} size={size} />
-    {fact.pending ? <Chip kind="PLACEHOLDER" text="re-measured before release" size={size - 2} /> : null}
-  </div>
+  <Chip kind={fact.label} text={long ? fact.source : fact.short} size={size} />
 );
 
 /** English translation of what the Spanish/Portuguese UI shows, timed to the footage. */

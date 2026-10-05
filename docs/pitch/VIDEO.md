@@ -1,6 +1,6 @@
 # Launch video
 
-A 2:10 launch-style pitch for the LATAM Bank Dispute Agent: Why (the 37 h wait), What (three
+A 2:16 launch-style pitch for the LATAM Bank Dispute Agent: Why (the 37 h wait), What (three
 moments of the real product), How (one trust beat), and the promise. Narration and shot list:
 [`video-script.md`](video-script.md). Recording guide for the presenter: [`RECORDING.md`](RECORDING.md).
 
@@ -43,7 +43,7 @@ presenter's takes replace the placeholder voice, the whole edit re-times itself.
 | The phone notification in the cold open | **Illustrative** (labelled on screen). The merchant and amount are the demo fixture's. |
 | The 37 h clock | Motion graphic of a **MEASURED** number (demand report). |
 | The trust diagram, the data slice | Motion graphics of the architecture (AD-2, AD-3, AD-11/13) and of the extraction manifest. |
-| 0 / 40 unsafe outcomes | **SIMULATED** (offline harness, mocked model, constructed suite, not held-out). |
+| 0 / 48 unsafe outcomes, 18 / 18 resolved | **MEASURED** on a held-out set written before the first run, against the real Claude Haiku 4.5, 3 runs (`docs/eval/measured-eval.md`). Small set: the 95% upper bound on the unsafe rate is about 7%. |
 | Presenter | The builder on camera. Until the takes are recorded, a placeholder silhouette holds the slot. |
 
 Every number on screen comes from `video/src/facts.ts`, which names its source and label.

@@ -1,12 +1,16 @@
 1
-00:00:00,105 --> 00:00:02,197
-In forty simulated test cases
+00:00:00,105 --> 00:00:02,776
+I tested it on forty-eight new conversations
 
 2
-00:00:02,395 --> 00:00:04,079
-prompt injection included
+00:00:03,000 --> 00:00:03,987
+with the real model
 
 3
-00:00:04,526 --> 00:00:06,105
-zero unsafe outcomes
+00:00:04,421 --> 00:00:06,395
+It resolved all eighteen it should
+
+4
+00:00:06,697 --> 00:00:08,487
+with zero unsafe outcomes
 

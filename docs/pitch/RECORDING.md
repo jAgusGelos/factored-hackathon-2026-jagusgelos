@@ -87,8 +87,7 @@ Then tell Claude "the takes are in". The ingest step (`video/scripts/ingest_take
 room tone as the noise profile, levels it to about -15 LUFS, cuts you out of the background,
 and re-times the whole video to your delivery.
 
-## Lines that may change
+## If a line needs a redo
 
-- **T15** (the evaluation result) is a placeholder: the evaluation is being re-run. Record it now;
-  if the number changes, re-record only that line as a new take (`T15_<n>`).
-- **T14** mentions "one month of transactions". If the data window changes, re-record that line.
+Every line is final. If one take comes out badly, re-record only that line as a new take
+(for example `T15_<n>`) and run the ingest for it alone (`--takes T15`).

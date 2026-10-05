@@ -37,10 +37,10 @@ export const MomentResolve: React.FC = () => (
     result={
       <>
         <Glow radius={12} strength={0.5}>
-          <div style={{ fontFamily: FONT.display, fontWeight: 900, fontSize: 64, color: COLOR.success }}>{FACTS.resolvingTurn.text}</div>
+          <div style={{ fontFamily: FONT.display, fontWeight: 900, fontSize: 64, color: COLOR.success }}>{FACTS.typedReply.text}</div>
         </Glow>
-        <MonoLabel style={{ margin: '6px 0 14px' }}>for the resolving turn</MonoLabel>
-        <FactChip fact={FACTS.resolvingTurn} size={14} />
+        <MonoLabel style={{ margin: '6px 0 14px' }}>median reply, real model</MonoLabel>
+        <FactChip fact={FACTS.typedReply} size={14} />
       </>
     }
   />
@@ -100,7 +100,7 @@ const m3Clip: CaptionedClip = {
     { from: 'statement_1', english: 'I never bought there. I have my card. I saw it yesterday in an app alert.' },
     { from: 'statement_reply_1', english: 'A few short questions for the reviewer: other charges you don’t recognize?' },
     { from: 'statement_2', english: 'No, nothing else.' },
-    { from: 'escalated', english: `Handed to a person. Case number, contact ${FACTS.contactDeadline.text}.` },
+    { from: 'escalated', english: `Card blocked for your safety. Handed to a person, contact ${FACTS.contactDeadline.text}.` },
   ],
 };
 const escalatedAt = clipEventFrame(m3Clip, 'escalated');
@@ -118,14 +118,14 @@ const ptClip: CaptionedClip = {
 };
 
 /** Rows (px in the 2x still) where each part of the advisor's case file starts. */
-const HANDOFF_SCROLL = { top: 0, verified: 380, story: 1080, open: 2338 };
+const HANDOFF_SCROLL = { top: 0, verified: 380, story: 1080, open: 2664 };
 const HANDOFF_IMG_W = 542;
 const HANDOFF_SCALE = 0.96;
 
 const HANDOFF_SECTIONS = [
   { at: verifiedAt, title: 'Verified facts', note: 'from the charge record', color: COLOR.success },
   { at: storyAt, title: 'The customer’s story', note: 'unverified, model summary labelled', color: COLOR.warning },
-  { at: openAt, title: 'What is still open', note: 'the decisions a person makes', color: COLOR.signal },
+  { at: openAt, title: 'What is still open', note: 'card blocked (simulated) · what a person decides', color: COLOR.signal },
 ];
 
 const HandoffFile: React.FC = () => {

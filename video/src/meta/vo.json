@@ -857,9 +857,9 @@
    "take": "T11",
    "scene": "m3",
    "placement": "voice",
-   "text": "It asks the questions an advisor would call back for. Then a person gets the full case file: verified facts, the customer's story, and what is still open.",
+   "text": "It asks the questions an advisor would call back for, and blocks the card to keep the customer safe. Then a person gets the full case file: verified facts, the customer's story, and what is still open.",
    "file": "vo/m3b.mp3",
-   "duration": 9.912,
+   "duration": 12.6,
    "words": [
     {
      "text": "It",
@@ -869,137 +869,182 @@
     {
      "text": "asks",
      "start": 0.211,
-     "end": 0.553
+     "end": 0.539
     },
     {
      "text": "the",
-     "start": 0.566,
-     "end": 0.671
+     "start": 0.553,
+     "end": 0.658
     },
     {
      "text": "questions",
-     "start": 0.684,
-     "end": 1.197
+     "start": 0.671,
+     "end": 1.184
     },
     {
      "text": "an",
-     "start": 1.211,
-     "end": 1.303
+     "start": 1.197,
+     "end": 1.29
     },
     {
      "text": "advisor",
-     "start": 1.316,
-     "end": 1.789
+     "start": 1.303,
+     "end": 1.816
     },
     {
      "text": "would",
-     "start": 1.803,
-     "end": 1.934
+     "start": 1.829,
+     "end": 1.974
     },
     {
      "text": "call",
-     "start": 1.947,
-     "end": 2.158
+     "start": 1.987,
+     "end": 2.224
     },
     {
      "text": "back",
-     "start": 2.171,
-     "end": 2.46
+     "start": 2.237,
+     "end": 2.526
     },
     {
      "text": "for",
-     "start": 2.474,
-     "end": 2.868
-    },
-    {
-     "text": "Then",
-     "start": 3.316,
-     "end": 3.421
-    },
-    {
-     "text": "a",
-     "start": 3.434,
-     "end": 3.487
-    },
-    {
-     "text": "person",
-     "start": 3.5,
-     "end": 3.908
-    },
-    {
-     "text": "gets",
-     "start": 3.921,
-     "end": 4.158
-    },
-    {
-     "text": "the",
-     "start": 4.171,
-     "end": 4.263
-    },
-    {
-     "text": "full",
-     "start": 4.276,
-     "end": 4.632
-    },
-    {
-     "text": "case",
-     "start": 4.645,
-     "end": 4.974
-    },
-    {
-     "text": "file",
-     "start": 4.987,
-     "end": 5.382
-    },
-    {
-     "text": "verified",
-     "start": 5.816,
-     "end": 6.303
-    },
-    {
-     "text": "facts",
-     "start": 6.316,
-     "end": 6.934
-    },
-    {
-     "text": "the",
-     "start": 7.145,
-     "end": 7.25
-    },
-    {
-     "text": "customer's",
-     "start": 7.263,
-     "end": 7.737
-    },
-    {
-     "text": "story",
-     "start": 7.75,
-     "end": 8.224
+     "start": 2.539,
+     "end": 2.921
     },
     {
      "text": "and",
-     "start": 8.513,
-     "end": 8.632
+     "start": 3.25,
+     "end": 3.329
+    },
+    {
+     "text": "blocks",
+     "start": 3.342,
+     "end": 3.724
+    },
+    {
+     "text": "the",
+     "start": 3.737,
+     "end": 3.829
+    },
+    {
+     "text": "card",
+     "start": 3.842,
+     "end": 4.197
+    },
+    {
+     "text": "to",
+     "start": 4.211,
+     "end": 4.276
+    },
+    {
+     "text": "keep",
+     "start": 4.289,
+     "end": 4.526
+    },
+    {
+     "text": "the",
+     "start": 4.539,
+     "end": 4.618
+    },
+    {
+     "text": "customer",
+     "start": 4.632,
+     "end": 5.053
+    },
+    {
+     "text": "safe",
+     "start": 5.066,
+     "end": 5.553
+    },
+    {
+     "text": "Then",
+     "start": 6.0,
+     "end": 6.105
+    },
+    {
+     "text": "a",
+     "start": 6.118,
+     "end": 6.171
+    },
+    {
+     "text": "person",
+     "start": 6.184,
+     "end": 6.592
+    },
+    {
+     "text": "gets",
+     "start": 6.605,
+     "end": 6.842
+    },
+    {
+     "text": "the",
+     "start": 6.855,
+     "end": 6.947
+    },
+    {
+     "text": "full",
+     "start": 6.961,
+     "end": 7.316
+    },
+    {
+     "text": "case",
+     "start": 7.329,
+     "end": 7.658
+    },
+    {
+     "text": "file",
+     "start": 7.671,
+     "end": 8.066
+    },
+    {
+     "text": "verified",
+     "start": 8.5,
+     "end": 8.987
+    },
+    {
+     "text": "facts",
+     "start": 9.0,
+     "end": 9.618
+    },
+    {
+     "text": "the",
+     "start": 9.829,
+     "end": 9.934
+    },
+    {
+     "text": "customer's",
+     "start": 9.947,
+     "end": 10.421
+    },
+    {
+     "text": "story",
+     "start": 10.434,
+     "end": 10.908
+    },
+    {
+     "text": "and",
+     "start": 11.197,
+     "end": 11.316
     },
     {
      "text": "what",
-     "start": 8.645,
-     "end": 8.816
+     "start": 11.329,
+     "end": 11.5
     },
     {
      "text": "is",
-     "start": 8.829,
-     "end": 8.934
+     "start": 11.513,
+     "end": 11.618
     },
     {
      "text": "still",
-     "start": 8.947,
-     "end": 9.237
+     "start": 11.632,
+     "end": 11.921
     },
     {
      "text": "open",
-     "start": 9.25,
-     "end": 9.526
+     "start": 11.934,
+     "end": 12.211
     }
    ]
   },
@@ -1196,8 +1241,6 @@
    "scene": "how",
    "placement": "diagram",
    "text": "I built it on a focused slice of the data: one month of transactions. A dispute only needs recent history, and the live app never touches the raw data.",
-   "status": "may-change",
-   "note": "Subset size may change (fraud-model session extracts more transactions). Re-record only if the window is no longer one month.",
    "file": "vo/how2.mp3",
    "duration": 9.96,
    "words": [
@@ -1353,66 +1396,114 @@
    "take": "T15",
    "scene": "how",
    "placement": "diagram",
-   "text": "In forty simulated test cases, prompt injection included: zero unsafe outcomes.",
-   "status": "placeholder",
-   "note": "PLACEHOLDER: the measured-eval session will replace this result. Re-record this one take with the final number when it lands.",
+   "text": "I tested it on forty-eight new conversations, with the real model. It resolved all eighteen it should, with zero unsafe outcomes.",
    "file": "vo/how3.mp3",
-   "duration": 6.504,
+   "duration": 8.88,
    "words": [
     {
-     "text": "In",
+     "text": "I",
      "start": 0.105,
-     "end": 0.21
+     "end": 0.171
     },
     {
-     "text": "forty",
-     "start": 0.224,
-     "end": 0.645
+     "text": "tested",
+     "start": 0.184,
+     "end": 0.579
     },
     {
-     "text": "simulated",
-     "start": 0.658,
-     "end": 1.276
+     "text": "it",
+     "start": 0.592,
+     "end": 0.684
     },
     {
-     "text": "test",
-     "start": 1.289,
-     "end": 1.605
+     "text": "on",
+     "start": 0.697,
+     "end": 0.842
     },
     {
-     "text": "cases",
-     "start": 1.618,
-     "end": 2.197
+     "text": "forty-eight",
+     "start": 0.855,
+     "end": 1.539
     },
     {
-     "text": "prompt",
-     "start": 2.395,
+     "text": "new",
+     "start": 1.553,
+     "end": 1.776
+    },
+    {
+     "text": "conversations",
+     "start": 1.789,
      "end": 2.776
     },
     {
-     "text": "injection",
-     "start": 2.789,
-     "end": 3.408
+     "text": "with",
+     "start": 3.0,
+     "end": 3.132
     },
     {
-     "text": "included",
-     "start": 3.487,
-     "end": 4.079
+     "text": "the",
+     "start": 3.145,
+     "end": 3.237
+    },
+    {
+     "text": "real",
+     "start": 3.25,
+     "end": 3.553
+    },
+    {
+     "text": "model",
+     "start": 3.566,
+     "end": 3.987
+    },
+    {
+     "text": "It",
+     "start": 4.421,
+     "end": 4.526
+    },
+    {
+     "text": "resolved",
+     "start": 4.539,
+     "end": 5.013
+    },
+    {
+     "text": "all",
+     "start": 5.145,
+     "end": 5.421
+    },
+    {
+     "text": "eighteen",
+     "start": 5.434,
+     "end": 5.829
+    },
+    {
+     "text": "it",
+     "start": 5.842,
+     "end": 5.934
+    },
+    {
+     "text": "should",
+     "start": 5.947,
+     "end": 6.395
+    },
+    {
+     "text": "with",
+     "start": 6.697,
+     "end": 6.842
     },
     {
      "text": "zero",
-     "start": 4.526,
-     "end": 4.961
+     "start": 6.855,
+     "end": 7.342
     },
     {
      "text": "unsafe",
-     "start": 4.974,
-     "end": 5.447
+     "start": 7.355,
+     "end": 7.829
     },
     {
      "text": "outcomes",
-     "start": 5.461,
-     "end": 6.105
+     "start": 7.842,
+     "end": 8.487
     }
    ]
   },
