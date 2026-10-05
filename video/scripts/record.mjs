@@ -6,6 +6,7 @@
 // APP_PYTHON pointing at a Python with requirements.txt installed (default: <repo>/.venv).
 // Each clip gets a fresh app server with an empty data/app.db, because the policy
 // remembers credits across cases (a second take of m1 would otherwise go to a person).
+// An existing data/app.db is set aside as app.db.before-record and put back when the run ends.
 //
 // Frames come from Chromium's screencast (sharp JPEGs at 2x scale, not Playwright's
 // low-bitrate video). The model's waiting time is cut down to WAIT_KEEP_S in the output:
@@ -44,8 +45,24 @@ const STATEMENT_ANSWERS = [
   'No.',
 ];
 
+const DB_FILES = ['', '-wal', '-shm'].map((suffix) => path.join(REPO, 'data', `app.db${suffix}`));
+const DB_BACKUP_SUFFIX = '.before-record';
+
+function setAsideDatabase() {
+  const leftover = DB_FILES.map((file) => file + DB_BACKUP_SUFFIX).find((backup) => fs.existsSync(backup));
+  if (leftover) throw new Error(`${leftover} is left from an earlier run; restore or delete it first`);
+  for (const file of DB_FILES) if (fs.existsSync(file)) fs.renameSync(file, file + DB_BACKUP_SUFFIX);
+}
+
+function restoreDatabase() {
+  for (const file of DB_FILES) {
+    fs.rmSync(file, { force: true });
+    if (fs.existsSync(file + DB_BACKUP_SUFFIX)) fs.renameSync(file + DB_BACKUP_SUFFIX, file);
+  }
+}
+
 async function startServer() {
-  for (const suffix of ['', '-wal', '-shm']) fs.rmSync(path.join(REPO, 'data', `app.db${suffix}`), { force: true });
+  for (const file of DB_FILES) fs.rmSync(file, { force: true });
   const server = spawn(PYTHON, ['-m', 'uvicorn', 'app.main:app', '--port', String(PORT)], {
     cwd: REPO,
     stdio: ['ignore', 'ignore', 'inherit'],
@@ -297,12 +314,17 @@ async function recordClip(browser, clip) {
 
 const requested = process.argv.slice(2);
 const clips = requested.length ? requested : Object.keys(CLIPS);
-const browser = await chromium.launch();
+for (const clip of clips) {
+  if (!Object.hasOwn(CLIPS, clip)) throw new Error(`unknown clip ${clip}; known: ${Object.keys(CLIPS).join(', ')}`);
+}
+setAsideDatabase();
 try {
-  for (const clip of clips) {
-    if (!Object.hasOwn(CLIPS, clip)) throw new Error(`unknown clip ${clip}; known: ${Object.keys(CLIPS).join(', ')}`);
-    await recordClip(browser, clip);
+  const browser = await chromium.launch();
+  try {
+    for (const clip of clips) await recordClip(browser, clip);
+  } finally {
+    await browser.close();
   }
 } finally {
-  await browser.close();
+  restoreDatabase();
 }
