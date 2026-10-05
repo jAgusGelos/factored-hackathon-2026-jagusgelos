@@ -8,90 +8,96 @@
    "scene": "cold",
    "placement": "presenter",
    "text": "It's late. You open your bank app, and there it is. A charge you don't recognize.",
-   "file": "vo/cold1.mp3",
-   "duration": 5.16,
+   "source": "presenter",
+   "take_file": "T01_1.mkv",
+   "file": "voice/cold1.m4a",
+   "duration": 6.55,
    "words": [
     {
      "text": "It's",
-     "start": 0.105,
-     "end": 0.224
+     "start": 0.25,
+     "end": 0.45
     },
     {
      "text": "late",
-     "start": 0.237,
-     "end": 0.553
+     "start": 0.45,
+     "end": 0.82
     },
     {
      "text": "You",
-     "start": 0.987,
-     "end": 1.118
+     "start": 1.25,
+     "end": 1.35
     },
     {
      "text": "open",
-     "start": 1.132,
-     "end": 1.329
+     "start": 1.35,
+     "end": 1.59
     },
     {
      "text": "your",
-     "start": 1.342,
-     "end": 1.461
+     "start": 1.59,
+     "end": 1.73
     },
     {
      "text": "bank",
-     "start": 1.474,
-     "end": 1.763
+     "start": 1.73,
+     "end": 2.07
     },
     {
      "text": "app",
-     "start": 1.776,
-     "end": 2.026
+     "start": 2.07,
+     "end": 2.47
     },
     {
      "text": "and",
-     "start": 2.289,
-     "end": 2.355
+     "start": 2.55,
+     "end": 2.97
     },
     {
      "text": "there",
-     "start": 2.368,
-     "end": 2.539
+     "start": 2.97,
+     "end": 3.17
     },
     {
      "text": "it",
-     "start": 2.553,
-     "end": 2.618
+     "start": 3.17,
+     "end": 3.33
     },
     {
      "text": "is",
-     "start": 2.632,
-     "end": 2.934
+     "start": 3.33,
+     "end": 3.73
     },
     {
      "text": "A",
-     "start": 3.368,
-     "end": 3.408
+     "start": 4.05,
+     "end": 4.13
     },
     {
      "text": "charge",
-     "start": 3.421,
-     "end": 3.737
+     "start": 4.13,
+     "end": 4.35
     },
     {
      "text": "you",
-     "start": 3.75,
-     "end": 3.829
+     "start": 4.35,
+     "end": 4.51
     },
     {
      "text": "don't",
-     "start": 3.842,
-     "end": 4.066
+     "start": 4.51,
+     "end": 4.71
     },
     {
      "text": "recognize",
-     "start": 4.079,
-     "end": 4.776
+     "start": 4.71,
+     "end": 6.2
     }
-   ]
+   ],
+   "presenter": {
+    "plain": "presenter/cold1.mp4",
+    "matte": "presenter/cold1.webm"
+   }
   },
   {
    "id": "cold2",
@@ -99,45 +105,51 @@
    "scene": "cold",
    "placement": "presenter",
    "text": "You report it. And then, you wait.",
-   "file": "vo/cold2.mp3",
-   "duration": 2.664,
+   "source": "presenter",
+   "take_file": "T02_1.mkv",
+   "file": "voice/cold2.m4a",
+   "duration": 3.13,
    "words": [
     {
      "text": "You",
-     "start": 0.105,
-     "end": 0.197
+     "start": 0.25,
+     "end": 0.43
     },
     {
      "text": "report",
-     "start": 0.211,
-     "end": 0.566
+     "start": 0.43,
+     "end": 0.79
     },
     {
      "text": "it",
-     "start": 0.579,
-     "end": 0.724
+     "start": 0.79,
+     "end": 1.1
     },
     {
      "text": "And",
-     "start": 1.158,
-     "end": 1.25
+     "start": 1.29,
+     "end": 1.41
     },
     {
      "text": "then",
-     "start": 1.263,
-     "end": 1.526
+     "start": 1.41,
+     "end": 1.9
     },
     {
      "text": "you",
-     "start": 1.789,
-     "end": 1.895
+     "start": 2.21,
+     "end": 2.37
     },
     {
      "text": "wait",
-     "start": 1.908,
-     "end": 2.263
+     "start": 2.37,
+     "end": 2.78
     }
-   ]
+   ],
+   "presenter": {
+    "plain": "presenter/cold2.mp4",
+    "matte": "presenter/cold2.webm"
+   }
   },
   {
    "id": "cold3",
@@ -145,75 +157,81 @@
    "scene": "cold",
    "placement": "presenter",
    "text": "At this bank, the median wait for a first answer is thirty-seven hours.",
-   "file": "vo/cold3.mp3",
-   "duration": 4.632,
+   "source": "presenter",
+   "take_file": "T03_1.mkv",
+   "file": "voice/cold3.m4a",
+   "duration": 5.24,
    "words": [
     {
      "text": "At",
-     "start": 0.105,
-     "end": 0.237
+     "start": 0.25,
+     "end": 0.41
     },
     {
      "text": "this",
-     "start": 0.25,
-     "end": 0.447
+     "start": 0.41,
+     "end": 0.69
     },
     {
      "text": "bank",
-     "start": 0.461,
-     "end": 0.855
+     "start": 0.69,
+     "end": 1.14
     },
     {
      "text": "the",
-     "start": 1.118,
-     "end": 1.211
+     "start": 1.39,
+     "end": 1.51
     },
     {
      "text": "median",
-     "start": 1.224,
-     "end": 1.579
+     "start": 1.51,
+     "end": 1.87
     },
     {
      "text": "wait",
-     "start": 1.592,
-     "end": 1.803
+     "start": 1.87,
+     "end": 2.11
     },
     {
      "text": "for",
-     "start": 1.816,
-     "end": 1.974
+     "start": 2.11,
+     "end": 2.29
     },
     {
      "text": "a",
-     "start": 1.987,
-     "end": 2.039
+     "start": 2.29,
+     "end": 2.39
     },
     {
      "text": "first",
-     "start": 2.053,
-     "end": 2.447
+     "start": 2.39,
+     "end": 2.75
     },
     {
      "text": "answer",
-     "start": 2.461,
-     "end": 2.855
+     "start": 2.75,
+     "end": 3.29
     },
     {
      "text": "is",
-     "start": 2.947,
-     "end": 3.079
+     "start": 3.29,
+     "end": 3.51
     },
     {
      "text": "thirty-seven",
-     "start": 3.092,
-     "end": 3.737
+     "start": 3.51,
+     "end": 4.13
     },
     {
      "text": "hours",
-     "start": 3.75,
-     "end": 4.25
+     "start": 4.13,
+     "end": 4.89
     }
-   ]
+   ],
+   "presenter": {
+    "plain": "presenter/cold3.mp4",
+    "matte": "presenter/cold3.webm"
+   }
   },
   {
    "id": "reveal1",
@@ -221,75 +239,81 @@
    "scene": "reveal",
    "placement": "presenter",
    "text": "I wanted that answer in seconds. And I wanted it to be right.",
-   "file": "vo/reveal1.mp3",
-   "duration": 3.576,
+   "source": "presenter",
+   "take_file": "T04_1.mkv",
+   "file": "voice/reveal1.m4a",
+   "duration": 3.98,
    "words": [
     {
      "text": "I",
-     "start": 0.105,
-     "end": 0.158
+     "start": 0.25,
+     "end": 0.37
     },
     {
      "text": "wanted",
-     "start": 0.171,
-     "end": 0.408
+     "start": 0.37,
+     "end": 0.73
     },
     {
      "text": "that",
-     "start": 0.421,
-     "end": 0.592
+     "start": 0.73,
+     "end": 1.11
     },
     {
      "text": "answer",
-     "start": 0.605,
-     "end": 0.908
+     "start": 1.11,
+     "end": 1.61
     },
     {
      "text": "in",
-     "start": 0.921,
-     "end": 1.0
+     "start": 1.61,
+     "end": 1.75
     },
     {
      "text": "seconds",
-     "start": 1.013,
-     "end": 1.605
+     "start": 1.75,
+     "end": 2.41
     },
     {
      "text": "And",
-     "start": 2.039,
-     "end": 2.105
+     "start": 2.41,
+     "end": 2.53
     },
     {
      "text": "I",
-     "start": 2.118,
-     "end": 2.171
+     "start": 2.53,
+     "end": 2.61
     },
     {
      "text": "wanted",
-     "start": 2.184,
-     "end": 2.461
+     "start": 2.61,
+     "end": 2.89
     },
     {
      "text": "it",
-     "start": 2.474,
-     "end": 2.553
+     "start": 2.89,
+     "end": 2.95
     },
     {
      "text": "to",
-     "start": 2.566,
-     "end": 2.632
+     "start": 2.95,
+     "end": 3.05
     },
     {
      "text": "be",
-     "start": 2.645,
-     "end": 2.789
+     "start": 3.05,
+     "end": 3.21
     },
     {
      "text": "right",
-     "start": 2.803,
-     "end": 3.184
+     "start": 3.21,
+     "end": 3.63
     }
-   ]
+   ],
+   "presenter": {
+    "plain": "presenter/reveal1.mp4",
+    "matte": "presenter/reveal1.webm"
+   }
   },
   {
    "id": "reveal2",
@@ -297,50 +321,56 @@
    "scene": "reveal",
    "placement": "presenter",
    "text": "So I built the LATAM Bank Dispute Agent.",
-   "file": "vo/reveal2.mp3",
-   "duration": 2.76,
+   "source": "presenter",
+   "take_file": "T05_2.mkv",
+   "file": "voice/reveal2.m4a",
+   "duration": 3.74,
    "words": [
     {
      "text": "So",
-     "start": 0.105,
-     "end": 0.276
+     "start": 0.25,
+     "end": 0.74
     },
     {
      "text": "I",
-     "start": 0.289,
-     "end": 0.355
+     "start": 0.95,
+     "end": 1.09
     },
     {
      "text": "built",
-     "start": 0.368,
-     "end": 0.645
+     "start": 1.09,
+     "end": 1.29
     },
     {
      "text": "the",
-     "start": 0.658,
-     "end": 0.75
+     "start": 1.29,
+     "end": 1.43
     },
     {
      "text": "LATAM",
-     "start": 0.763,
-     "end": 1.263
+     "start": 1.43,
+     "end": 1.85
     },
     {
      "text": "Bank",
-     "start": 1.276,
-     "end": 1.539
+     "start": 1.85,
+     "end": 2.37
     },
     {
      "text": "Dispute",
-     "start": 1.553,
-     "end": 1.96
+     "start": 2.37,
+     "end": 2.93
     },
     {
      "text": "Agent",
-     "start": 1.974,
-     "end": 2.368
+     "start": 2.93,
+     "end": 3.39
     }
-   ]
+   ],
+   "presenter": {
+    "plain": "presenter/reveal2.mp4",
+    "matte": "presenter/reveal2.webm"
+   }
   },
   {
    "id": "m1a",
@@ -348,125 +378,131 @@
    "scene": "m1",
    "placement": "bubble",
    "text": "The customer writes it in their own words. The agent finds the exact charge in their history, and asks: is this the one?",
-   "file": "vo/m1a.mp3",
-   "duration": 7.872,
+   "source": "presenter",
+   "take_file": "T06_1.mkv",
+   "file": "voice/m1a.m4a",
+   "duration": 7.85,
    "words": [
     {
      "text": "The",
-     "start": 0.118,
-     "end": 0.171
+     "start": 0.25,
+     "end": 0.39
     },
     {
      "text": "customer",
-     "start": 0.184,
-     "end": 0.671
+     "start": 0.39,
+     "end": 1.17
     },
     {
      "text": "writes",
-     "start": 0.684,
-     "end": 0.961
+     "start": 1.17,
+     "end": 1.39
     },
     {
      "text": "it",
-     "start": 0.974,
-     "end": 1.092
+     "start": 1.39,
+     "end": 1.57
     },
     {
      "text": "in",
-     "start": 1.171,
-     "end": 1.276
+     "start": 1.57,
+     "end": 1.67
     },
     {
      "text": "their",
-     "start": 1.289,
-     "end": 1.447
+     "start": 1.67,
+     "end": 1.96
     },
     {
      "text": "own",
-     "start": 1.461,
-     "end": 1.632
+     "start": 1.97,
+     "end": 2.15
     },
     {
      "text": "words",
-     "start": 1.645,
-     "end": 2.197
+     "start": 2.15,
+     "end": 2.65
     },
     {
      "text": "The",
-     "start": 2.632,
-     "end": 2.737
+     "start": 2.89,
+     "end": 3.07
     },
     {
      "text": "agent",
-     "start": 2.75,
-     "end": 3.118
+     "start": 3.07,
+     "end": 3.41
     },
     {
      "text": "finds",
-     "start": 3.132,
-     "end": 3.474
+     "start": 3.41,
+     "end": 3.73
     },
     {
      "text": "the",
-     "start": 3.487,
-     "end": 3.566
+     "start": 3.73,
+     "end": 3.93
     },
     {
      "text": "exact",
-     "start": 3.579,
-     "end": 4.145
+     "start": 3.93,
+     "end": 4.39
     },
     {
      "text": "charge",
-     "start": 4.158,
-     "end": 4.671
+     "start": 4.39,
+     "end": 4.71
     },
     {
      "text": "in",
-     "start": 4.684,
-     "end": 4.75
+     "start": 4.71,
+     "end": 4.83
     },
     {
      "text": "their",
-     "start": 4.763,
-     "end": 4.895
+     "start": 4.83,
+     "end": 4.97
     },
     {
      "text": "history",
-     "start": 4.908,
-     "end": 5.46
+     "start": 4.97,
+     "end": 5.51
     },
     {
      "text": "and",
-     "start": 5.684,
-     "end": 5.816
+     "start": 5.51,
+     "end": 5.79
     },
     {
      "text": "asks",
-     "start": 5.829,
-     "end": 6.434
+     "start": 5.79,
+     "end": 6.47
     },
     {
      "text": "is",
-     "start": 6.763,
-     "end": 6.868
+     "start": 6.47,
+     "end": 6.59
     },
     {
      "text": "this",
-     "start": 6.882,
-     "end": 7.066
+     "start": 6.59,
+     "end": 6.79
     },
     {
      "text": "the",
-     "start": 7.079,
-     "end": 7.184
+     "start": 6.79,
+     "end": 6.99
     },
     {
      "text": "one",
-     "start": 7.197,
-     "end": 7.474
+     "start": 6.99,
+     "end": 7.5
     }
-   ]
+   ],
+   "presenter": {
+    "plain": "presenter/m1a.mp4",
+    "matte": "presenter/m1a.webm"
+   }
   },
   {
    "id": "m1b",
@@ -474,120 +510,126 @@
    "scene": "m1",
    "placement": "bubble",
    "text": "One short explanation, and it's done. A provisional credit, the card blocked, a reference number. Every fact is checked against the record.",
-   "file": "vo/m1b.mp3",
-   "duration": 8.592,
+   "source": "presenter",
+   "take_file": "T07_2.mkv",
+   "file": "voice/m1b.m4a",
+   "duration": 8.73,
    "words": [
     {
      "text": "One",
-     "start": 0.118,
-     "end": 0.25
+     "start": 0.25,
+     "end": 0.43
     },
     {
      "text": "short",
-     "start": 0.263,
-     "end": 0.513
+     "start": 0.43,
+     "end": 0.67
     },
     {
      "text": "explanation",
-     "start": 0.526,
-     "end": 1.211
+     "start": 0.67,
+     "end": 1.35
     },
     {
      "text": "and",
-     "start": 1.461,
-     "end": 1.553
+     "start": 1.35,
+     "end": 1.45
     },
     {
      "text": "it's",
-     "start": 1.566,
-     "end": 1.697
+     "start": 1.45,
+     "end": 1.63
     },
     {
      "text": "done",
-     "start": 1.711,
-     "end": 1.987
+     "start": 1.63,
+     "end": 2.09
     },
     {
      "text": "A",
-     "start": 2.421,
-     "end": 2.474
+     "start": 2.09,
+     "end": 2.19
     },
     {
      "text": "provisional",
-     "start": 2.487,
-     "end": 3.026
+     "start": 2.19,
+     "end": 2.71
     },
     {
      "text": "credit",
-     "start": 3.039,
-     "end": 3.408
+     "start": 2.71,
+     "end": 3.32
     },
     {
      "text": "the",
-     "start": 3.684,
-     "end": 3.776
+     "start": 3.49,
+     "end": 3.65
     },
     {
      "text": "card",
-     "start": 3.789,
-     "end": 4.105
+     "start": 3.65,
+     "end": 4.17
     },
     {
      "text": "blocked",
-     "start": 4.118,
-     "end": 4.579
+     "start": 4.17,
+     "end": 4.7
     },
     {
      "text": "a",
-     "start": 4.842,
-     "end": 4.868
+     "start": 4.77,
+     "end": 4.89
     },
     {
      "text": "reference",
-     "start": 4.882,
-     "end": 5.368
+     "start": 4.89,
+     "end": 5.25
     },
     {
      "text": "number",
-     "start": 5.382,
-     "end": 5.763
+     "start": 5.25,
+     "end": 5.79
     },
     {
      "text": "Every",
-     "start": 6.197,
-     "end": 6.461
+     "start": 6.05,
+     "end": 6.31
     },
     {
      "text": "fact",
-     "start": 6.474,
-     "end": 6.882
+     "start": 6.31,
+     "end": 6.67
     },
     {
      "text": "is",
-     "start": 6.895,
-     "end": 7.013
+     "start": 6.67,
+     "end": 6.87
     },
     {
      "text": "checked",
-     "start": 7.026,
-     "end": 7.368
+     "start": 6.87,
+     "end": 7.37
     },
     {
      "text": "against",
-     "start": 7.382,
-     "end": 7.684
+     "start": 7.37,
+     "end": 7.73
     },
     {
      "text": "the",
-     "start": 7.697,
-     "end": 7.776
+     "start": 7.73,
+     "end": 7.83
     },
     {
      "text": "record",
-     "start": 7.789,
-     "end": 8.197
+     "start": 7.83,
+     "end": 8.38
     }
-   ]
+   ],
+   "presenter": {
+    "plain": "presenter/m1b.mp4",
+    "matte": "presenter/m1b.webm"
+   }
   },
   {
    "id": "m2a",
@@ -595,105 +637,111 @@
    "scene": "m2",
    "placement": "bubble",
    "text": "Charged twice for one taxi? It doesn't guess. It shows the customer their own charges, and lets them pick.",
-   "file": "vo/m2a.mp3",
-   "duration": 6.72,
+   "source": "presenter",
+   "take_file": "T08_3.mkv",
+   "file": "voice/m2a.m4a",
+   "duration": 6.18,
    "words": [
     {
      "text": "Charged",
-     "start": 0.105,
-     "end": 0.421
+     "start": 0.25,
+     "end": 0.55
     },
     {
      "text": "twice",
-     "start": 0.434,
-     "end": 0.803
+     "start": 0.55,
+     "end": 0.87
     },
     {
      "text": "for",
-     "start": 0.816,
-     "end": 0.961
+     "start": 0.87,
+     "end": 1.07
     },
     {
      "text": "one",
-     "start": 0.974,
-     "end": 1.132
+     "start": 1.07,
+     "end": 1.27
     },
     {
      "text": "taxi",
-     "start": 1.145,
-     "end": 1.632
+     "start": 1.27,
+     "end": 1.87
     },
     {
      "text": "It",
-     "start": 2.066,
-     "end": 2.145
+     "start": 1.87,
+     "end": 1.96
     },
     {
      "text": "doesn't",
-     "start": 2.158,
-     "end": 2.434
+     "start": 1.97,
+     "end": 2.29
     },
     {
      "text": "guess",
-     "start": 2.447,
-     "end": 2.882
+     "start": 2.29,
+     "end": 2.73
     },
     {
      "text": "It",
-     "start": 3.329,
-     "end": 3.395
+     "start": 2.79,
+     "end": 2.93
     },
     {
      "text": "shows",
-     "start": 3.408,
-     "end": 3.711
+     "start": 2.93,
+     "end": 3.19
     },
     {
      "text": "the",
-     "start": 3.724,
-     "end": 3.816
+     "start": 3.19,
+     "end": 3.35
     },
     {
      "text": "customer",
-     "start": 3.829,
-     "end": 4.289
+     "start": 3.35,
+     "end": 3.81
     },
     {
      "text": "their",
-     "start": 4.303,
-     "end": 4.46
+     "start": 3.81,
+     "end": 4.09
     },
     {
      "text": "own",
-     "start": 4.474,
-     "end": 4.618
+     "start": 4.09,
+     "end": 4.31
     },
     {
      "text": "charges",
-     "start": 4.632,
-     "end": 5.25
+     "start": 4.31,
+     "end": 4.91
     },
     {
      "text": "and",
-     "start": 5.474,
-     "end": 5.579
+     "start": 4.91,
+     "end": 5.03
     },
     {
      "text": "lets",
-     "start": 5.592,
-     "end": 5.776
+     "start": 5.03,
+     "end": 5.19
     },
     {
      "text": "them",
-     "start": 5.789,
-     "end": 5.921
+     "start": 5.19,
+     "end": 5.39
     },
     {
      "text": "pick",
-     "start": 5.934,
-     "end": 6.329
+     "start": 5.39,
+     "end": 5.83
     }
-   ]
+   ],
+   "presenter": {
+    "plain": "presenter/m2a.mp4",
+    "matte": "presenter/m2a.webm"
+   }
   },
   {
    "id": "m2b",
@@ -701,75 +749,81 @@
    "scene": "m2",
    "placement": "bubble",
    "text": "Then it finds the twin in the data, and refunds one. Only one.",
-   "file": "vo/m2b.mp3",
-   "duration": 4.296,
+   "source": "presenter",
+   "take_file": "T09_1.mkv",
+   "file": "voice/m2b.m4a",
+   "duration": 5.27,
    "words": [
     {
      "text": "Then",
-     "start": 0.105,
-     "end": 0.197
+     "start": 0.25,
+     "end": 0.65
     },
     {
      "text": "it",
-     "start": 0.211,
-     "end": 0.289
+     "start": 0.65,
+     "end": 0.83
     },
     {
      "text": "finds",
-     "start": 0.303,
-     "end": 0.658
+     "start": 0.83,
+     "end": 1.09
     },
     {
      "text": "the",
-     "start": 0.671,
-     "end": 0.763
+     "start": 1.09,
+     "end": 1.21
     },
     {
      "text": "twin",
-     "start": 0.776,
-     "end": 1.132
+     "start": 1.21,
+     "end": 1.47
     },
     {
      "text": "in",
-     "start": 1.145,
-     "end": 1.224
+     "start": 1.47,
+     "end": 1.59
     },
     {
      "text": "the",
-     "start": 1.237,
-     "end": 1.329
+     "start": 1.59,
+     "end": 1.73
     },
     {
      "text": "data",
-     "start": 1.342,
-     "end": 1.763
+     "start": 1.73,
+     "end": 2.29
     },
     {
      "text": "and",
-     "start": 2.066,
-     "end": 2.211
+     "start": 2.29,
+     "end": 2.41
     },
     {
      "text": "refunds",
-     "start": 2.224,
-     "end": 2.671
+     "start": 2.41,
+     "end": 3.19
     },
     {
      "text": "one",
-     "start": 2.684,
-     "end": 2.961
+     "start": 3.19,
+     "end": 3.55
     },
     {
      "text": "Only",
-     "start": 3.395,
-     "end": 3.579
+     "start": 3.79,
+     "end": 4.23
     },
     {
      "text": "one",
-     "start": 3.592,
-     "end": 3.908
+     "start": 4.59,
+     "end": 4.92
     }
-   ]
+   ],
+   "presenter": {
+    "plain": "presenter/m2b.mp4",
+    "matte": "presenter/m2b.webm"
+   }
   },
   {
    "id": "m3a",
@@ -777,80 +831,86 @@
    "scene": "m3",
    "placement": "bubble",
    "text": "And when a charge should not be paid automatically, it knows not to act.",
-   "file": "vo/m3a.mp3",
-   "duration": 4.392,
+   "source": "presenter",
+   "take_file": "T10_2.mkv",
+   "file": "voice/m3a.m4a",
+   "duration": 4.64,
    "words": [
     {
      "text": "And",
-     "start": 0.105,
-     "end": 0.184
+     "start": 0.25,
+     "end": 0.35
     },
     {
      "text": "when",
-     "start": 0.197,
-     "end": 0.316
+     "start": 0.35,
+     "end": 0.53
     },
     {
      "text": "a",
-     "start": 0.329,
-     "end": 0.382
+     "start": 0.53,
+     "end": 0.61
     },
     {
      "text": "charge",
-     "start": 0.395,
-     "end": 0.763
+     "start": 0.61,
+     "end": 0.83
     },
     {
      "text": "should",
-     "start": 0.776,
-     "end": 0.961
+     "start": 0.83,
+     "end": 1.01
     },
     {
      "text": "not",
-     "start": 0.974,
-     "end": 1.197
+     "start": 1.01,
+     "end": 1.17
     },
     {
      "text": "be",
-     "start": 1.211,
-     "end": 1.329
+     "start": 1.17,
+     "end": 1.29
     },
     {
      "text": "paid",
-     "start": 1.342,
-     "end": 1.658
+     "start": 1.29,
+     "end": 1.49
     },
     {
      "text": "automatically",
-     "start": 1.671,
-     "end": 2.46
+     "start": 1.49,
+     "end": 2.35
     },
     {
      "text": "it",
-     "start": 2.75,
-     "end": 2.882
+     "start": 2.85,
+     "end": 2.99
     },
     {
      "text": "knows",
-     "start": 2.895,
-     "end": 3.171
+     "start": 2.99,
+     "end": 3.31
     },
     {
      "text": "not",
-     "start": 3.184,
-     "end": 3.434
+     "start": 3.31,
+     "end": 3.53
     },
     {
      "text": "to",
-     "start": 3.447,
-     "end": 3.539
+     "start": 3.53,
+     "end": 3.67
     },
     {
      "text": "act",
-     "start": 3.553,
-     "end": 4.013
+     "start": 3.67,
+     "end": 4.29
     }
-   ]
+   ],
+   "presenter": {
+    "plain": "presenter/m3a.mp4",
+    "matte": "presenter/m3a.webm"
+   }
   },
   {
    "id": "m3b",
@@ -858,195 +918,201 @@
    "scene": "m3",
    "placement": "voice",
    "text": "It asks the questions an advisor would call back for, and blocks the card to keep the customer safe. Then a person gets the full case file: verified facts, the customer's story, and what is still open.",
-   "file": "vo/m3b.mp3",
-   "duration": 12.6,
+   "source": "presenter",
+   "take_file": "T11_1.mkv",
+   "file": "voice/m3b.m4a",
+   "duration": 12.26,
    "words": [
     {
      "text": "It",
-     "start": 0.105,
-     "end": 0.197
+     "start": 0.25,
+     "end": 0.51
     },
     {
      "text": "asks",
-     "start": 0.211,
-     "end": 0.539
+     "start": 0.51,
+     "end": 0.73
     },
     {
      "text": "the",
-     "start": 0.553,
-     "end": 0.658
+     "start": 0.73,
+     "end": 0.85
     },
     {
      "text": "questions",
-     "start": 0.671,
-     "end": 1.184
+     "start": 0.85,
+     "end": 1.33
     },
     {
      "text": "an",
-     "start": 1.197,
-     "end": 1.29
+     "start": 1.33,
+     "end": 1.45
     },
     {
      "text": "advisor",
-     "start": 1.303,
-     "end": 1.816
+     "start": 1.45,
+     "end": 1.87
     },
     {
      "text": "would",
-     "start": 1.829,
-     "end": 1.974
+     "start": 1.87,
+     "end": 2.07
     },
     {
      "text": "call",
-     "start": 1.987,
-     "end": 2.224
+     "start": 2.07,
+     "end": 2.31
     },
     {
      "text": "back",
-     "start": 2.237,
-     "end": 2.526
+     "start": 2.31,
+     "end": 2.57
     },
     {
      "text": "for",
-     "start": 2.539,
-     "end": 2.921
+     "start": 2.57,
+     "end": 3.1
     },
     {
      "text": "and",
-     "start": 3.25,
-     "end": 3.329
+     "start": 3.27,
+     "end": 3.41
     },
     {
      "text": "blocks",
-     "start": 3.342,
-     "end": 3.724
+     "start": 3.41,
+     "end": 3.71
     },
     {
      "text": "the",
-     "start": 3.737,
-     "end": 3.829
+     "start": 3.71,
+     "end": 3.83
     },
     {
      "text": "card",
-     "start": 3.842,
-     "end": 4.197
+     "start": 3.83,
+     "end": 4.19
     },
     {
      "text": "to",
-     "start": 4.211,
-     "end": 4.276
+     "start": 4.19,
+     "end": 4.33
     },
     {
      "text": "keep",
-     "start": 4.289,
-     "end": 4.526
+     "start": 4.33,
+     "end": 4.51
     },
     {
      "text": "the",
-     "start": 4.539,
-     "end": 4.618
+     "start": 4.51,
+     "end": 4.63
     },
     {
      "text": "customer",
-     "start": 4.632,
-     "end": 5.053
+     "start": 4.63,
+     "end": 5.13
     },
     {
      "text": "safe",
-     "start": 5.066,
-     "end": 5.553
+     "start": 5.13,
+     "end": 5.54
     },
     {
      "text": "Then",
-     "start": 6.0,
-     "end": 6.105
+     "start": 6.19,
+     "end": 6.69
     },
     {
      "text": "a",
-     "start": 6.118,
-     "end": 6.171
+     "start": 6.69,
+     "end": 6.77
     },
     {
      "text": "person",
-     "start": 6.184,
-     "end": 6.592
+     "start": 6.77,
+     "end": 7.05
     },
     {
      "text": "gets",
-     "start": 6.605,
-     "end": 6.842
+     "start": 7.05,
+     "end": 7.29
     },
     {
      "text": "the",
-     "start": 6.855,
-     "end": 6.947
+     "start": 7.29,
+     "end": 7.41
     },
     {
      "text": "full",
-     "start": 6.961,
-     "end": 7.316
+     "start": 7.41,
+     "end": 7.67
     },
     {
      "text": "case",
-     "start": 7.329,
-     "end": 7.658
+     "start": 7.67,
+     "end": 7.83
     },
     {
      "text": "file",
-     "start": 7.671,
-     "end": 8.066
+     "start": 7.83,
+     "end": 8.09
     },
     {
      "text": "verified",
-     "start": 8.5,
-     "end": 8.987
+     "start": 8.09,
+     "end": 8.63
     },
     {
      "text": "facts",
-     "start": 9.0,
-     "end": 9.618
+     "start": 8.63,
+     "end": 9.26
     },
     {
      "text": "the",
-     "start": 9.829,
-     "end": 9.934
+     "start": 9.41,
+     "end": 9.53
     },
     {
      "text": "customer's",
-     "start": 9.947,
-     "end": 10.421
+     "start": 9.53,
+     "end": 9.95
     },
     {
      "text": "story",
-     "start": 10.434,
-     "end": 10.908
+     "start": 9.95,
+     "end": 10.71
     },
     {
      "text": "and",
-     "start": 11.197,
-     "end": 11.316
+     "start": 10.73,
+     "end": 10.85
     },
     {
      "text": "what",
-     "start": 11.329,
-     "end": 11.5
+     "start": 10.85,
+     "end": 11.01
     },
     {
      "text": "is",
-     "start": 11.513,
-     "end": 11.618
+     "start": 11.01,
+     "end": 11.11
     },
     {
      "text": "still",
-     "start": 11.632,
-     "end": 11.921
+     "start": 11.11,
+     "end": 11.39
     },
     {
      "text": "open",
-     "start": 11.934,
-     "end": 12.211
+     "start": 11.39,
+     "end": 11.91
     }
-   ]
+   ],
+   "presenter": {
+    "plain": "presenter/m3b.mp4",
+    "matte": "presenter/m3b.webm"
+   }
   },
   {
    "id": "m3c",
@@ -1054,35 +1120,41 @@
    "scene": "m3",
    "placement": "voice",
    "text": "In Spanish, or in Portuguese.",
-   "file": "vo/m3c.mp3",
-   "duration": 2.472,
+   "source": "presenter",
+   "take_file": "T12_1.mkv",
+   "file": "voice/m3c.m4a",
+   "duration": 2.55,
    "words": [
     {
      "text": "In",
-     "start": 0.105,
-     "end": 0.197
+     "start": 0.25,
+     "end": 0.37
     },
     {
      "text": "Spanish",
-     "start": 0.211,
-     "end": 0.855
+     "start": 0.37,
+     "end": 1.07
     },
     {
      "text": "or",
-     "start": 1.132,
-     "end": 1.25
+     "start": 1.07,
+     "end": 1.15
     },
     {
      "text": "in",
-     "start": 1.263,
-     "end": 1.342
+     "start": 1.15,
+     "end": 1.23
     },
     {
      "text": "Portuguese",
-     "start": 1.355,
-     "end": 2.092
+     "start": 1.23,
+     "end": 2.2
     }
-   ]
+   ],
+   "presenter": {
+    "plain": "presenter/m3c.mp4",
+    "matte": "presenter/m3c.webm"
+   }
   },
   {
    "id": "how1",
@@ -1090,150 +1162,156 @@
    "scene": "how",
    "placement": "diagram",
    "text": "Why would a bank trust it? Because the model only reads. The rules and permissions live in code. And every fact is checked against the customer's own ledger.",
-   "file": "vo/how1.mp3",
-   "duration": 9.6,
+   "source": "presenter",
+   "take_file": "T13_2.mkv",
+   "file": "voice/how1.m4a",
+   "duration": 10.32,
    "words": [
     {
      "text": "Why",
-     "start": 0.105,
-     "end": 0.197
+     "start": 0.25,
+     "end": 0.47
     },
     {
      "text": "would",
-     "start": 0.211,
-     "end": 0.316
+     "start": 0.47,
+     "end": 0.71
     },
     {
      "text": "a",
-     "start": 0.329,
-     "end": 0.382
+     "start": 0.71,
+     "end": 0.77
     },
     {
      "text": "bank",
-     "start": 0.395,
-     "end": 0.605
+     "start": 0.77,
+     "end": 1.13
     },
     {
      "text": "trust",
-     "start": 0.618,
-     "end": 0.961
+     "start": 1.13,
+     "end": 1.55
     },
     {
      "text": "it",
-     "start": 0.974,
-     "end": 1.145
+     "start": 1.55,
+     "end": 1.82
     },
     {
      "text": "Because",
-     "start": 1.579,
-     "end": 1.855
+     "start": 1.87,
+     "end": 2.17
     },
     {
      "text": "the",
-     "start": 1.868,
-     "end": 1.961
+     "start": 2.17,
+     "end": 2.27
     },
     {
      "text": "model",
-     "start": 1.974,
-     "end": 2.434
+     "start": 2.27,
+     "end": 2.79
     },
     {
      "text": "only",
-     "start": 2.539,
-     "end": 2.816
+     "start": 2.79,
+     "end": 3.09
     },
     {
      "text": "reads",
-     "start": 2.829,
-     "end": 3.382
+     "start": 3.09,
+     "end": 3.53
     },
     {
      "text": "The",
-     "start": 3.829,
-     "end": 3.895
+     "start": 3.75,
+     "end": 3.91
     },
     {
      "text": "rules",
-     "start": 3.908,
-     "end": 4.303
+     "start": 3.91,
+     "end": 4.35
     },
     {
      "text": "and",
-     "start": 4.316,
-     "end": 4.408
+     "start": 4.35,
+     "end": 4.47
     },
     {
      "text": "permissions",
-     "start": 4.421,
-     "end": 5.0
+     "start": 4.47,
+     "end": 5.19
     },
     {
      "text": "live",
-     "start": 5.013,
-     "end": 5.224
+     "start": 5.19,
+     "end": 5.37
     },
     {
      "text": "in",
-     "start": 5.237,
-     "end": 5.329
+     "start": 5.37,
+     "end": 5.51
     },
     {
      "text": "code",
-     "start": 5.342,
-     "end": 5.724
+     "start": 5.51,
+     "end": 5.97
     },
     {
      "text": "And",
-     "start": 6.158,
-     "end": 6.316
+     "start": 5.97,
+     "end": 6.23
     },
     {
      "text": "every",
-     "start": 6.329,
-     "end": 6.605
+     "start": 6.23,
+     "end": 6.59
     },
     {
      "text": "fact",
-     "start": 6.618,
-     "end": 7.039
+     "start": 6.59,
+     "end": 7.03
     },
     {
      "text": "is",
-     "start": 7.053,
-     "end": 7.171
+     "start": 7.03,
+     "end": 7.23
     },
     {
      "text": "checked",
-     "start": 7.184,
-     "end": 7.5
+     "start": 7.23,
+     "end": 7.97
     },
     {
      "text": "against",
-     "start": 7.513,
-     "end": 7.829
+     "start": 8.03,
+     "end": 8.37
     },
     {
      "text": "the",
-     "start": 7.842,
-     "end": 7.921
+     "start": 8.37,
+     "end": 8.49
     },
     {
      "text": "customer's",
-     "start": 7.934,
-     "end": 8.526
+     "start": 8.49,
+     "end": 9.25
     },
     {
      "text": "own",
-     "start": 8.539,
-     "end": 8.75
+     "start": 9.25,
+     "end": 9.53
     },
     {
      "text": "ledger",
-     "start": 8.763,
-     "end": 9.211
+     "start": 9.53,
+     "end": 9.97
     }
-   ]
+   ],
+   "presenter": {
+    "plain": "presenter/how1.mp4",
+    "matte": "presenter/how1.webm"
+   }
   },
   {
    "id": "how2",
@@ -1241,155 +1319,161 @@
    "scene": "how",
    "placement": "diagram",
    "text": "I built it on a focused slice of the data: one month of transactions. A dispute only needs recent history, and the live app never touches the raw data.",
-   "file": "vo/how2.mp3",
-   "duration": 9.96,
+   "source": "presenter",
+   "take_file": "T14_2.mkv",
+   "file": "voice/how2.m4a",
+   "duration": 9.44,
    "words": [
     {
      "text": "I",
-     "start": 0.105,
-     "end": 0.184
+     "start": 0.25,
+     "end": 0.35
     },
     {
      "text": "built",
-     "start": 0.197,
-     "end": 0.474
+     "start": 0.35,
+     "end": 0.61
     },
     {
      "text": "it",
-     "start": 0.487,
-     "end": 0.566
+     "start": 0.61,
+     "end": 0.85
     },
     {
      "text": "on",
-     "start": 0.579,
-     "end": 0.684
+     "start": 0.85,
+     "end": 0.95
     },
     {
      "text": "a",
-     "start": 0.697,
-     "end": 0.75
+     "start": 0.95,
+     "end": 1.03
     },
     {
      "text": "focused",
-     "start": 0.763,
-     "end": 1.289
+     "start": 1.03,
+     "end": 1.37
     },
     {
      "text": "slice",
-     "start": 1.303,
-     "end": 1.816
+     "start": 1.37,
+     "end": 1.81
     },
     {
      "text": "of",
-     "start": 1.829,
-     "end": 1.895
+     "start": 1.81,
+     "end": 1.93
     },
     {
      "text": "the",
-     "start": 1.908,
-     "end": 1.987
+     "start": 1.93,
+     "end": 2.03
     },
     {
      "text": "data",
-     "start": 2.0,
-     "end": 2.342
+     "start": 2.03,
+     "end": 2.59
     },
     {
      "text": "one",
-     "start": 2.684,
-     "end": 2.921
+     "start": 2.77,
+     "end": 2.93
     },
     {
      "text": "month",
-     "start": 2.934,
-     "end": 3.171
+     "start": 2.93,
+     "end": 3.17
     },
     {
      "text": "of",
-     "start": 3.184,
-     "end": 3.25
+     "start": 3.17,
+     "end": 3.33
     },
     {
      "text": "transactions",
-     "start": 3.263,
-     "end": 4.171
+     "start": 3.33,
+     "end": 4.15
     },
     {
      "text": "A",
-     "start": 4.605,
-     "end": 4.658
+     "start": 4.19,
+     "end": 4.29
     },
     {
      "text": "dispute",
-     "start": 4.671,
-     "end": 5.171
+     "start": 4.29,
+     "end": 4.89
     },
     {
      "text": "only",
-     "start": 5.263,
-     "end": 5.553
+     "start": 5.03,
+     "end": 5.25
     },
     {
      "text": "needs",
-     "start": 5.566,
-     "end": 5.882
+     "start": 5.25,
+     "end": 5.53
     },
     {
      "text": "recent",
-     "start": 5.895,
-     "end": 6.29
+     "start": 5.53,
+     "end": 5.81
     },
     {
      "text": "history",
-     "start": 6.303,
-     "end": 6.855
+     "start": 5.81,
+     "end": 6.43
     },
     {
      "text": "and",
-     "start": 7.158,
-     "end": 7.263
+     "start": 6.43,
+     "end": 6.53
     },
     {
      "text": "the",
-     "start": 7.276,
-     "end": 7.355
+     "start": 6.53,
+     "end": 6.65
     },
     {
      "text": "live",
-     "start": 7.368,
-     "end": 7.711
+     "start": 6.65,
+     "end": 6.89
     },
     {
      "text": "app",
-     "start": 7.724,
-     "end": 8.026
+     "start": 6.89,
+     "end": 7.25
     },
     {
      "text": "never",
-     "start": 8.118,
-     "end": 8.474
+     "start": 7.25,
+     "end": 7.51
     },
     {
      "text": "touches",
-     "start": 8.487,
-     "end": 8.842
+     "start": 7.51,
+     "end": 7.93
     },
     {
      "text": "the",
-     "start": 8.855,
-     "end": 8.947
+     "start": 7.93,
+     "end": 8.11
     },
     {
      "text": "raw",
-     "start": 8.961,
-     "end": 9.171
+     "start": 8.11,
+     "end": 8.27
     },
     {
      "text": "data",
-     "start": 9.184,
-     "end": 9.566
+     "start": 8.27,
+     "end": 9.09
     }
-   ]
+   ],
+   "presenter": {
+    "plain": "presenter/how2.mp4",
+    "matte": "presenter/how2.webm"
+   }
   },
   {
    "id": "how3",
@@ -1397,115 +1481,121 @@
    "scene": "how",
    "placement": "diagram",
    "text": "I tested it on forty-eight new conversations, with the real model. It resolved all eighteen it should, with zero unsafe outcomes.",
-   "file": "vo/how3.mp3",
-   "duration": 8.88,
+   "source": "presenter",
+   "take_file": "T15_1.mkv",
+   "file": "voice/how3.m4a",
+   "duration": 9.04,
    "words": [
     {
      "text": "I",
-     "start": 0.105,
-     "end": 0.171
+     "start": 0.25,
+     "end": 0.39
     },
     {
      "text": "tested",
-     "start": 0.184,
-     "end": 0.579
+     "start": 0.39,
+     "end": 0.77
     },
     {
      "text": "it",
-     "start": 0.592,
-     "end": 0.684
+     "start": 0.77,
+     "end": 1.07
     },
     {
      "text": "on",
-     "start": 0.697,
-     "end": 0.842
+     "start": 1.07,
+     "end": 1.19
     },
     {
      "text": "forty-eight",
-     "start": 0.855,
-     "end": 1.539
+     "start": 1.19,
+     "end": 1.71
     },
     {
      "text": "new",
-     "start": 1.553,
-     "end": 1.776
+     "start": 1.71,
+     "end": 1.88
     },
     {
      "text": "conversations",
-     "start": 1.789,
-     "end": 2.776
+     "start": 1.89,
+     "end": 2.63
     },
     {
      "text": "with",
-     "start": 3.0,
-     "end": 3.132
+     "start": 2.63,
+     "end": 2.79
     },
     {
      "text": "the",
-     "start": 3.145,
-     "end": 3.237
+     "start": 2.79,
+     "end": 2.91
     },
     {
      "text": "real",
-     "start": 3.25,
-     "end": 3.553
+     "start": 2.91,
+     "end": 3.15
     },
     {
      "text": "model",
-     "start": 3.566,
-     "end": 3.987
+     "start": 3.15,
+     "end": 3.81
     },
     {
      "text": "It",
-     "start": 4.421,
-     "end": 4.526
+     "start": 3.81,
+     "end": 3.93
     },
     {
      "text": "resolved",
-     "start": 4.539,
-     "end": 5.013
+     "start": 3.93,
+     "end": 4.45
     },
     {
      "text": "all",
-     "start": 5.145,
-     "end": 5.421
+     "start": 4.45,
+     "end": 4.61
     },
     {
      "text": "eighteen",
-     "start": 5.434,
-     "end": 5.829
+     "start": 4.61,
+     "end": 5.03
     },
     {
      "text": "it",
-     "start": 5.842,
-     "end": 5.934
+     "start": 5.03,
+     "end": 5.17
     },
     {
      "text": "should",
-     "start": 5.947,
-     "end": 6.395
+     "start": 5.17,
+     "end": 5.66
     },
     {
      "text": "with",
-     "start": 6.697,
-     "end": 6.842
+     "start": 5.71,
+     "end": 5.91
     },
     {
      "text": "zero",
-     "start": 6.855,
-     "end": 7.342
+     "start": 5.91,
+     "end": 6.43
     },
     {
      "text": "unsafe",
-     "start": 7.355,
-     "end": 7.829
+     "start": 6.43,
+     "end": 6.81
     },
     {
      "text": "outcomes",
-     "start": 7.842,
-     "end": 8.487
+     "start": 6.81,
+     "end": 8.69
     }
-   ]
+   ],
+   "presenter": {
+    "plain": "presenter/how3.mp4",
+    "matte": "presenter/how3.webm"
+   }
   },
   {
    "id": "close1",
@@ -1513,90 +1603,96 @@
    "scene": "close",
    "placement": "presenter",
    "text": "Answers in seconds for the cases it should resolve. A person for the ones it shouldn't.",
-   "file": "vo/close1.mp3",
-   "duration": 5.256,
+   "source": "presenter",
+   "take_file": "T16_1.mkv",
+   "file": "voice/close1.m4a",
+   "duration": 5.38,
    "words": [
     {
      "text": "Answers",
-     "start": 0.105,
-     "end": 0.539
+     "start": 0.25,
+     "end": 0.65
     },
     {
      "text": "in",
-     "start": 0.553,
-     "end": 0.671
+     "start": 0.65,
+     "end": 0.81
     },
     {
      "text": "seconds",
-     "start": 0.684,
-     "end": 1.171
+     "start": 0.81,
+     "end": 1.23
     },
     {
      "text": "for",
-     "start": 1.184,
-     "end": 1.316
+     "start": 1.23,
+     "end": 1.41
     },
     {
      "text": "the",
-     "start": 1.329,
-     "end": 1.408
+     "start": 1.41,
+     "end": 1.51
     },
     {
      "text": "cases",
-     "start": 1.421,
-     "end": 1.908
+     "start": 1.51,
+     "end": 1.93
     },
     {
      "text": "it",
-     "start": 1.921,
-     "end": 2.066
+     "start": 1.93,
+     "end": 2.09
     },
     {
      "text": "should",
-     "start": 2.079,
-     "end": 2.289
+     "start": 2.09,
+     "end": 2.29
     },
     {
      "text": "resolve",
-     "start": 2.303,
-     "end": 2.855
+     "start": 2.29,
+     "end": 2.93
     },
     {
      "text": "A",
-     "start": 3.289,
-     "end": 3.368
+     "start": 3.11,
+     "end": 3.21
     },
     {
      "text": "person",
-     "start": 3.382,
-     "end": 3.803
+     "start": 3.21,
+     "end": 3.93
     },
     {
      "text": "for",
-     "start": 3.816,
-     "end": 3.934
+     "start": 3.93,
+     "end": 4.09
     },
     {
      "text": "the",
-     "start": 3.947,
-     "end": 4.04
+     "start": 4.09,
+     "end": 4.23
     },
     {
      "text": "ones",
-     "start": 4.053,
-     "end": 4.303
+     "start": 4.23,
+     "end": 4.37
     },
     {
      "text": "it",
-     "start": 4.316,
-     "end": 4.382
+     "start": 4.37,
+     "end": 4.49
     },
     {
      "text": "shouldn't",
-     "start": 4.395,
-     "end": 4.855
+     "start": 4.49,
+     "end": 5.03
     }
-   ]
+   ],
+   "presenter": {
+    "plain": "presenter/close1.mp4",
+    "matte": "presenter/close1.webm"
+   }
   },
   {
    "id": "close2",
@@ -1604,70 +1700,76 @@
    "scene": "close",
    "placement": "presenter",
    "text": "The LATAM Bank Dispute Agent. Try it live. The link is below.",
-   "file": "vo/close2.mp3",
-   "duration": 4.8,
+   "source": "presenter",
+   "take_file": "T17_1.mkv",
+   "file": "voice/close2.m4a",
+   "duration": 4.25,
    "words": [
     {
      "text": "The",
-     "start": 0.105,
-     "end": 0.184
+     "start": 0.25,
+     "end": 0.41
     },
     {
      "text": "LATAM",
-     "start": 0.197,
-     "end": 0.724
+     "start": 0.41,
+     "end": 0.77
     },
     {
      "text": "Bank",
-     "start": 0.737,
-     "end": 1.053
+     "start": 0.77,
+     "end": 1.01
     },
     {
      "text": "Dispute",
-     "start": 1.066,
-     "end": 1.526
+     "start": 1.01,
+     "end": 1.47
     },
     {
      "text": "Agent",
-     "start": 1.539,
-     "end": 1.921
+     "start": 1.47,
+     "end": 1.97
     },
     {
      "text": "Try",
-     "start": 2.355,
-     "end": 2.513
+     "start": 1.97,
+     "end": 2.2
     },
     {
      "text": "it",
-     "start": 2.526,
-     "end": 2.605
+     "start": 2.21,
+     "end": 2.33
     },
     {
      "text": "live",
-     "start": 2.618,
-     "end": 3.0
+     "start": 2.33,
+     "end": 2.69
     },
     {
      "text": "The",
-     "start": 3.447,
-     "end": 3.526
+     "start": 2.69,
+     "end": 2.83
     },
     {
      "text": "link",
-     "start": 3.539,
-     "end": 3.776
+     "start": 2.83,
+     "end": 3.03
     },
     {
      "text": "is",
-     "start": 3.842,
-     "end": 3.961
+     "start": 3.03,
+     "end": 3.15
     },
     {
      "text": "below",
-     "start": 3.974,
-     "end": 4.395
+     "start": 3.15,
+     "end": 3.9
     }
-   ]
+   ],
+   "presenter": {
+    "plain": "presenter/close2.mp4",
+    "matte": "presenter/close2.webm"
+   }
   }
  ]
 }
