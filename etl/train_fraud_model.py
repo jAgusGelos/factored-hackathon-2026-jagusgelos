@@ -63,6 +63,7 @@ from etl.fraud_features import (
     TARGET_COLUMN,
     build_features,
     load_features,
+    profile_warehouse,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -352,6 +353,7 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("Loaded %d labeled transactions (%d frauds)", len(df), int(df[TARGET_COLUMN].sum()))
     result = train(df, experiments_path=args.experiments)
     predictions = result.pop("predictions")
+    result["data_profile"] = profile_warehouse(args.warehouse)
 
     args.model.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(
@@ -361,7 +363,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     joblib.dump({**predictions, "selected": result["selected"], "split": result["split"],
                  "run_group": result["run_group"], "git_sha": result["git_sha"],
-                 "baselines_val": result["baselines_val"],
+                 "baselines_val": result["baselines_val"], "data_profile": result["data_profile"],
                  "models": {k: {kk: vv for kk, vv in v.items() if kk not in ("pipeline", "calibrator")}
                             for k, v in result["models"].items()}},
                 args.predictions)

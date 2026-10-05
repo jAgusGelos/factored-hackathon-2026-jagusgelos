@@ -288,3 +288,52 @@ def load_features(
     customers_warehouse_path: Path | None = DEFAULT_CUSTOMERS_WAREHOUSE_PATH,
 ) -> pd.DataFrame:
     return build_features(load_transactions(warehouse_path, customers_warehouse_path))
+
+
+def profile_warehouse(warehouse_path: Path = DEFAULT_FRAUD_WAREHOUSE_PATH) -> dict:
+    """Quality and label profile of the extracted `transactions`: duplicates,
+    null rates of the columns the model reads, label rate per month and the
+    shape of fraud_score per class. Feeds the model card's data section."""
+    con = duckdb.connect(str(warehouse_path), read_only=True)
+    try:
+        def one(sql: str):
+            return con.execute(sql).fetchone()
+
+        rows, distinct_ids, start, end = one(
+            "SELECT COUNT(*), COUNT(DISTINCT transaction_id), MIN(transaction_date), MAX(transaction_date) "
+            "FROM transactions"
+        )
+        nulls = {
+            col: round(one(f'SELECT AVG(("{col}" IS NULL)::INT) FROM transactions')[0], 4)
+            for col in RAW_COLUMNS
+        }
+        monthly = con.execute(
+            "SELECT strftime(transaction_date, '%Y-%m') AS month, COUNT(*) AS rows, "
+            "SUM(is_fraud::INT) AS frauds, ROUND(AVG(is_fraud::INT) * 100, 4) AS fraud_pct "
+            "FROM transactions GROUP BY 1 ORDER BY 1"
+        ).df()
+        score_by_class = con.execute(
+            "SELECT is_fraud, COUNT(*) AS rows, COUNT(fraud_score) AS with_score, "
+            "MIN(fraud_score) AS min, MEDIAN(fraud_score) AS median, MAX(fraud_score) AS max, "
+            "SUM((fraud_score > 30)::INT) AS above_30, SUM((fraud_score >= 30)::INT) AS at_or_above_30 "
+            "FROM transactions GROUP BY 1 ORDER BY 1"
+        ).df()
+        status = con.execute(
+            "SELECT transaction_status, COUNT(*) AS rows, SUM(is_fraud::INT) AS frauds, "
+            "ROUND(AVG(is_fraud::INT) * 100, 4) AS fraud_pct FROM transactions GROUP BY 1 ORDER BY 2 DESC"
+        ).df()
+        response = con.execute(
+            "SELECT response_code, COUNT(*) AS rows, SUM(is_fraud::INT) AS frauds, "
+            "ROUND(AVG(is_fraud::INT) * 100, 4) AS fraud_pct FROM transactions GROUP BY 1 ORDER BY 2 DESC"
+        ).df()
+    finally:
+        con.close()
+    return {
+        "rows": int(rows), "duplicate_transaction_ids": int(rows - distinct_ids),
+        "first_transaction": str(start), "last_transaction": str(end),
+        "null_rates": nulls,
+        "label_rate_by_month": monthly.to_dict("records"),
+        "fraud_score_by_class": score_by_class.to_dict("records"),
+        "fraud_rate_by_status": status.to_dict("records"),
+        "fraud_rate_by_response_code": response.to_dict("records"),
+    }

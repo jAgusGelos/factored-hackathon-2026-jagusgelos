@@ -319,6 +319,7 @@ def evaluate(pred: dict, docs_dir: Path | None = DEFAULT_DOCS_DIR) -> dict:
 
     return _round({
         "split": pred["split"], "run_group": pred["run_group"], "git_sha": pred["git_sha"],
+        "data_profile": pred.get("data_profile"),
         "selected_on_validation": pred["selected"], "best_model": best_model,
         "validation": {"baselines": pred["baselines_val"],
                        "models": {k: v["val_metrics"] | {"params": v["params"]} for k, v in pred["models"].items()}},
