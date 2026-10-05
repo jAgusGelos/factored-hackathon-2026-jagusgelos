@@ -3,7 +3,7 @@
 Audience: a bank investor, and Factored judges reading the deck as a standalone PDF.
 Split: 60% product, 40% technical; every technical slide ends on the value it delivers.
 Every number below has a `Source:` line and an honesty label:
-MEASURED (computed from the dataset or timed on real runs), SIMULATED (offline eval with a
+MEASURED (computed from the dataset, or real Claude Haiku 4.5 runs), SIMULATED (offline eval with a
 mocked model), DESIGN ARGUMENT (a reasoned choice, not a measurement).
 Body text on the slides is 22px or larger; source footnotes, labels and the top bar are smaller
 metadata. Lines marked "(not on the slide)" were cut for space and stay here as backup.
@@ -51,16 +51,19 @@ Source: README "Demand analysis", closing paragraph.
 2. **Asks when it is unclear.** "Me cobraron dos veces un taxi": the agent shows only the
    customer's own matching charges as cards and lets them pick. It never guesses.
    Caption: "Two matching charges: the customer picks from their own. It never guesses."
-3. **Steps aside, file ready.** A charge that fails the policy goes to a person, with the
-   customer's statement, the verified facts and the open questions already in the file. Screen:
-   the advisor's case file ("Hechos verificados", from the record).
-   Caption: "Fails the policy: a person gets verified facts, the customer's account and open questions."
+3. **Protects, hands off.** The customer denies an online charge with a high fraud score: the
+   agent blocks the card (simulated) before the handoff, and a person gets the customer's
+   statement, the verified facts and the open questions already in the file. Screen: the
+   advisor's case file ("Hechos verificados", from the record; its "Acciones realizadas" lists
+   "Tarjeta bloqueada preventivamente por el agente (simulado)").
+   Caption: "Likely fraud: the card is blocked, and a person gets the verified facts and the customer's account."
 
 **Strip:** Spanish and Portuguese · Credits and card blocks are simulated (the live URL is on slide 6)
 
 Source: README "The required scenarios, on one customer" (rows: Automated resolution (typed),
-Ambiguous: duplicated charge, Human escalation (policy)); screenshots captured from the running app
-(milestone 2).
+Ambiguous: duplicated charge, Human escalation (policy)); the card block is AD-14
+(`docs/architecture-decisions.md`, `CONFORMANCE.md` row 23). Screenshots re-captured on 2026-10-05
+from the running app on main's fixture (the handoff screen shows the block notice).
 
 ---
 
@@ -82,23 +85,24 @@ Hand off. Dashed return path: "Replies use only facts the code allows" (closed a
 - **Verified facts only.** A convincing explanation is never enough on its own: a credit needs
   evidence in the record. → A persuasive claim the record contradicts still goes to a person.
 
-All three rules are DESIGN ARGUMENT (enforced in code; Slide 5 shows them on a simulated suite).
+All three rules are DESIGN ARGUMENT (enforced in code; Slide 5 measures the outcome on a held-out set with the real model).
 
 **Footnote (source line):** The priority classifier can only add a reason to escalate. An exhaustive sweep over
 every dispute reason and all 128 combinations of the other conditions proves it never causes a
 credit. Source: README "Evaluation results" (`tests/test_policy_not_overridden.py`).
 
-**Footnote (source line):** 990 automated tests. Source: README "Running it end to end" step 5 and "Repo layout";
-re-checked with `pytest --collect-only` on 2026-10-04 (990 collected).
+**Footnote (source line):** 1,121 automated tests. Source: `pytest --collect-only` on main merged into
+this branch, 2026-10-05 (1,121 collected; the README still says 990, written before the fraud and
+measured-eval features).
 
 Source for the architecture: README "Architecture at a glance" and "Dispute policy" (AD-13);
-`docs/architecture-decisions.md` AD-3, AD-5, AD-13; `CONFORMANCE.md` rows 2, 3, 5, 15.
+`docs/architecture-decisions.md` AD-3, AD-5, AD-13 to AD-15; `CONFORMANCE.md` rows 2, 3, 5, 15, 23, 24.
 
 ---
 
 ## Slide 4 · Data & ML rigor
 
-**Headline:** Real challenge data, with every shortcut explained.
+**Headline:** Honest models: we ship only what the numbers back.
 
 **Panel A, ETL with contracts:**
 - An offline DuckDB ETL with a schema contract per table (9 tables) checks row counts, duplicate
@@ -112,63 +116,87 @@ complaints.affected_product_id → products, 0 of 44,570).
 - Transactions: 130,690 of 5,000,000 rows, plus call-center interactions and transcripts, in a
   30-day window (2026-05-18 to 2026-06-17). Complaints in full: 67,095 rows. MEASURED.
 - The live app reads only a small fixture: one dataset customer (6 of their real dataset charges)
-  plus 8 labeled synthetic charges.
+  plus 10 labeled synthetic charges.
 - Why: the runtime never touches S3 (privacy, AD-2); the run is reproducible; it deploys on a free
   plan; and a dispute only needs the customer's recent ledger. DESIGN ARGUMENT.
 Source: `data/extraction_manifest.json` (`windowed_date_range`, `tables[].row_count`); `etl/extract.py`
 (`DEFAULT_WINDOW_DAYS = 30`);
 `docs/challenge/challenge-brief.md` ("transactions: 5,000,000 rows"); `docs/architecture-decisions.md`
-AD-2; README "Demo data" and "Known limitations" (6 of the 14 charges are real dataset rows).
+AD-2; README "Demo data" and "Known limitations" (6 of the 16 charges are real dataset rows; re-counted on main's fixture, 2026-10-05).
 
-**Panel C, priority classifier vs baseline:**
-- Chronological split: train 11,543, held-out test 2,037 (split date 2026-01-06). MEASURED.
-- Macro-F1: majority-class baseline 0.1662 → RandomForest 0.2448 (+0.0786). MEASURED.
-- A modest gain, reported as such. The classifier only supports decisions: it can add a reason to
-  escalate, never approve a credit.
-Source: `data/classifier_eval_report.json` (`split`, `baseline.macro_f1`, `proposed.macro_f1`,
-`macro_f1_delta`); README "Evaluation results".
+**Panel C, fraud model vs the bank's score:**
+- Trained offline on 2 years of transactions: 2,951,642 rows (2024-06-17 to 2026-06-17). MEASURED.
+- Test PR-AUC on 451,556 scored charges (391 frauds): the bank's `fraud_score` 0.720, our stacked
+  model 0.707 (paired 95% CI of the difference [-0.024, -0.005]). It does not beat the bank's
+  score. MEASURED.
+- Shipped instead: the cost-justified gate `fraud_score > 30`. On the test fold's proxy
+  population its 48 escalations are all fraud, 18 fewer legitimate charges sent to a person than
+  `>= 30`, with the same 48 frauds caught. MEASURED (costs partly ASSUMED). The model's estimate
+  reaches only the advisor's handoff and never decides.
+Source: `docs/ml/fraud-model.md` ("Data", "Results on the test fold", "Operating threshold by
+cost"); `docs/policy/fraud-gate.md`; `docs/architecture-decisions.md` AD-15; `CONFORMANCE.md` row 24.
 
-**Value line:** Full complaints and a 30-day ledger for analysis; a small fixture where privacy
-matters more.
+**Footnote, priority classifier:** macro-F1 0.2448 against 0.2434 for 100 shuffled-label refits,
+permutation p = 0.45: no measured lift. It stays as an escalation-only signal and can never
+credit. MEASURED. (On the slide: "no measured lift (p = 0.45) and can only escalate".) Earlier
+copy compared it with the majority baseline (0.1662 vs 0.2448); the signal-ceiling test shows that
+gain is what any class-balanced guesser gets, so it is no longer claimed.
+Source: `docs/ml/fraud-model.md` "Priority classifier: signal ceiling"; AD-15.
+
+**Value line:** Our model lost to the bank's score, so it never decides: the rule the numbers back does.
+
+**(not on the slide)** Full complaints and a 30-day ledger for analysis; a small fixture where
+privacy matters more.
 
 ---
 
 ## Slide 5 · Proof
 
-**Headline:** 40 scripted attacks and edge cases. Zero unsafe outcomes.
+**Top bar:** Evaluation on the real model
 
-**Hero chip:** 0 / 40 unsafe outcomes · SIMULATED
-Source: `data/eval_report.json` (`unsafe_outcomes.count = 0`, `of_attempted = 40`); README
-"Evaluation results".
+**Headline:** 48 held-out conversations on the real model. Zero unsafe outcomes.
 
-**System comparison table (same 40 cases, SIMULATED):**
+**Hero chip:** 0 / 48 unsafe, in each of 3 runs · MEASURED
+Source: `docs/eval/measured-eval.md` (v2 results table); `docs/eval/measured-eval-summary.json`
+(`systems.hybrid.runs[].unsafe`, `variability.unsafe_rate`). 24 situations x ES/PT, customer
+messages written blind by a model that never saw the policy or prompts, labels committed before
+the first run, real Claude Haiku 4.5 through the real app.
 
-| System | Correct resolutions (of 6) | Unsafe credits (of 34) | Correct transfers (of 30) |
+**Supporting lines (all MEASURED, same source):**
+- 18 / 18 resolvable cases resolved (safe automated resolutions, every run).
+- 26 / 26 card blocks right (protective card block on the labeled escalated cases, every run).
+- 3.0 s median reply (typed turn p50, range 2.68-3.44 over runs), p95 7.7 s.
+- $0.004 per case ($0.0040, measured tokens at Haiku 4.5 list price).
+
+**System comparison table (same 48 cases, MEASURED):**
+
+| System | Correct (of 48) | Unsafe (of 48) | Unneeded transfers (of 18) |
 |---|---|---|---|
-| Our hybrid | 6 | 0 | 30 |
-| Always escalate (safety anchor) | 0 | 0 | 30 |
-| No evidence check (ablation) | 6 | 4 | 26 |
+| Our hybrid (Claude Haiku 4.5, 3 runs) | 43 | 0 | 0 |
+| Regex extractor (model's extraction swapped for rules, 1 run) | 43 | 0 | 0 |
+| Always escalate (the safety anchor, scored from labels) | n/a | 0 | 18 |
 
-Read: escalating everything is safe but helps no one. Dropping the evidence check
-pays 4 credits a person should have reviewed. The hybrid keeps both.
-Source: `data/eval_report.json` (`system_comparison`); README "System-level comparison".
+"Correct" means final state, escalation reason and credit all match the label (0.896).
+Source: `docs/eval/measured-eval.md`, "Results (v2)" and "Reading the comparison".
 
-**Other chips:**
-- (not on the slide) Statement completeness 20 / 20: every escalated case that needed the customer's statement
-  records its outcome (given, declined or unavailable) · SIMULATED.
-  Source: `data/eval_report.json` (`escalation_quality.statement_completeness_rate`: count 20,
-  `of_escalated_needing_a_statement` 20).
-- "3.2 s median to resolve, real Claude Haiku 4.5": the explanation turn that resolves took a
-  median 3.2 s (1.3-6.6 s, 8 ES/PT runs) · MEASURED (manual runs, 2026-09-30).
-- "0.05-0.14 s for a button tap, no model call" · MEASURED (manual runs, 2026-09-30); a tapped
-  charge takes about 1 s (not on the slide).
-  Source: README "Evaluation results", real Haiku latency bullet.
+**Read:** Escalating everything is safe but helps no one. The code, not the model, keeps it safe:
+the 5 misses moved no money (failure analysis: S11 x2 and S09-es escalated with a generic reason,
+S04 x2 left open by the script; none credited). Secondary line, SIMULATED: on the offline suite
+with a mocked model (48 constructed cases), dropping the evidence check pays 6 unsafe credits; the
+hybrid pays 0. Source: `data/eval_report.json` `system_comparison` (regenerated with
+`python -m eval.run_eval` on 2026-10-05; pinned by `tests/test_system_comparison.py`).
 
-**Caveat (always visible):** A constructed offline suite with a mocked model, written by the
-policy's author. It is not a held-out workload; the only held-out evaluation is the classifier's
-chronological split.
-Source: README "System-level comparison", "Read this with its limits"; `data/eval_report.json`
-(`system_comparison.disclosure`).
+**(not on the slide)** The regex baseline is 21% cheaper and about 0.5-0.8 s faster at p50; at
+this size the difference in correctness is within run-to-run noise.
+
+**Caveat (always visible):** one customer's account, messages written by a model that never saw
+the policy, labels fixed before the first run. 0 of 48 bounds the unsafe rate below about 7%
+(Wilson 95% upper bound), not at zero.
+Source: `docs/eval/measured-eval.md` "Results (v2)" (Wilson line) and "Limitations".
+
+**Replaced:** the previous headline "40 scripted attacks and edge cases. Zero unsafe outcomes."
+(SIMULATED) and the manual-run latency (3.2 s over 8 runs, 2026-09-30); the measured eval
+supersedes both.
 
 ---
 
@@ -182,7 +210,7 @@ Source: README "System-level comparison", "Read this with its limits"; `data/eva
 1. **Real identity.** The bank's identity verification replaces the demo login.
 2. **Managed database.** Replicated storage across several instances, not local SQLite.
 3. **Monitoring.** The structured, correlated event log feeds alerting.
-4. **Real traffic.** Policy thresholds and the live model validated on held-out cases.
+4. **Real traffic.** Thresholds and the live model re-validated on real customer traffic.
 Source: README "Remaining production-deployment work".
 
 **Links:**
@@ -195,5 +223,5 @@ evidence. Every hard case in a person's hands, with the file already complete.
 ---
 
 ## Checks
-- No number above is absent from the cited file (checked 2026-10-04 against the files listed).
+- No number above is absent from the cited file (checked 2026-10-05 against the files listed).
 - No em-dash in this file.

@@ -46,8 +46,8 @@ agent's wording can change slightly from one capture to the next.
 
 ## Where every number comes from
 
-Results carry an honesty label on the slide: MEASURED (computed from the dataset or timed on
-real runs), SIMULATED (offline evaluation with a mocked model) or DESIGN ARGUMENT (a reasoned
+Results carry an honesty label on the slide: MEASURED (computed from the dataset, or real Claude
+Haiku 4.5 runs), SIMULATED (offline evaluation with a mocked model) or DESIGN ARGUMENT (a reasoned
 choice, not a measurement). Plain counts of the repo itself (tests, contracts, fixture rows) and
 the roadmap carry no label; the table says what they are. The dataset is the challenge's synthetic
 LATAM Bank data, not a live bank's. Body text on the slides is 22px or larger; source footnotes,
@@ -57,20 +57,25 @@ labels and the top bar are smaller metadata.
 |---|---|---|---|
 | 1 | 37 h median first response, p90 58 h, n = 7,567 of 12,297 "Cargo no reconocido" complaints | MEASURED | `docs/analysis/demand-report.md`, finding 3 |
 | 1 | Why disputes: checkable in code against the customer's own ledger | DESIGN ARGUMENT | README "Demand analysis", closing paragraph |
-| 2 | The three moments (resolve, ask, hand off); no numbers | Screenshots of the running app | README "The required scenarios, on one customer"; `scripts/capture-screens.cjs` |
+| 2 | The three moments (resolve, ask, protect and hand off); no numbers | Screenshots of the running app (re-captured 2026-10-05 on main's fixture) | README "The required scenarios, on one customer"; AD-14 (simulated card block); `scripts/capture-screens.cjs` |
 | 3 | 128 combinations in the exhaustive sweep (the classifier never causes a credit) | Test result | README "Evaluation results"; `tests/test_policy_not_overridden.py` |
-| 3 | 990 automated tests | Count | README "Running it end to end"; `pytest --collect-only` (990 collected, 2026-10-04) |
+| 3 | 1,121 automated tests | Count | `pytest --collect-only` (1,121 collected, 2026-10-05, main merged) |
 | 4 | 9 table contracts | Count | `etl/schema_contract.py` |
 | 4 | 0 orphaned rows on both foreign keys checked from complaints (67,095 and 44,570 rows) | MEASURED | `data/lineage_manifest.json`, `quality_checks.foreign_keys` |
 | 4 | 130,690 of 5,000,000 transactions, 30-day window 2026-05-18 to 2026-06-17; complaints 67,095 in full | MEASURED | `data/extraction_manifest.json`; `docs/challenge/challenge-brief.md` (5,000,000 rows); `etl/extract.py` (`DEFAULT_WINDOW_DAYS = 30`) |
-| 4 | Fixture: 1 dataset customer and 8 labeled synthetic charges | Count | README "Demo data" and "Known limitations" |
+| 4 (copy only) | Fixture: 1 dataset customer and 10 labeled synthetic charges | Count | `data/fixture.duckdb` re-counted 2026-10-05 (6 real, 10 synthetic rows); `docs/eval/measured-eval.md` "Limitations" |
 | 4 | Why a subset: no S3 at runtime, reproducible, free-plan deploy, a dispute needs only the recent ledger | DESIGN ARGUMENT | `docs/architecture-decisions.md` AD-2 |
-| 4 | Classifier split 11,543 / 2,037 (2026-01-06); macro-F1 baseline 0.1662, model 0.2448 (+0.0786) | MEASURED | `data/classifier_eval_report.json` |
-| 5 | 0 of 40 unsafe outcomes | SIMULATED | `data/eval_report.json`, `unsafe_outcomes` |
-| 5 | System comparison: hybrid 6 / 0 / 30, always escalate 0 / 0 / 30, no evidence check 6 / 4 / 26 | SIMULATED | `data/eval_report.json`, `system_comparison`; README "System-level comparison" |
-| 5 | 3.2 s median resolving turn (1.3-6.6 s, 8 ES/PT runs); taps 0.05-0.14 s | MEASURED | README "Evaluation results", real Claude Haiku 4.5 latency (manual runs, 2026-09-30) |
+| 4 | Fraud model trained on 2,951,642 transactions over 2 years | MEASURED | `docs/ml/fraud-model.md`, "Data" |
+| 4 | Test PR-AUC: bank `fraud_score` 0.720, our model 0.707 (does not beat it) | MEASURED | `docs/ml/fraud-model.md`, "Results on the test fold"; AD-15 |
+| 4 | Gate `fraud_score > 30`: 48 escalations on test, all fraud | MEASURED (costs partly ASSUMED) | `docs/ml/fraud-model.md`, "Operating threshold by cost"; `docs/policy/fraud-gate.md` |
+| 4 | Priority classifier: no measured lift, p = 0.45 | MEASURED | `docs/ml/fraud-model.md`, "Priority classifier: signal ceiling" |
+| 5 | 0 of 48 unsafe in each of 3 runs; 18 / 18 resolved; 26 / 26 card blocks right; 43 / 48 correct | MEASURED | `docs/eval/measured-eval.md`, "Results (v2)"; `docs/eval/measured-eval-summary.json` |
+| 5 | Comparison: hybrid 43 / 0 / 0, regex extractor 43 / 0 / 0, always escalate n/a / 0 / 18 | MEASURED | `docs/eval/measured-eval.md`, "Results (v2)" |
+| 5 | 3.0 s median reply, p95 7.7 s; $0.004 per case | MEASURED | `docs/eval/measured-eval.md`, latency and cost rows |
+| 5 | Unsafe rate below about 7% (Wilson 95% upper bound) | MEASURED | `docs/eval/measured-eval.md`, "Results (v2)" |
+| 5 | Without the evidence check: 6 unsafe credits on the offline suite (48 constructed cases) | SIMULATED | `data/eval_report.json`, `system_comparison`; `tests/test_system_comparison.py` |
 | 6 | Roadmap: identity, managed database, monitoring, real traffic | Roadmap | README "Remaining production-deployment work" |
 
-Slide 5 always shows its limit: the 40 cases are a constructed offline suite with a mocked model,
-written by the policy's author, not a held-out workload. The only held-out evaluation is the
-classifier's chronological split.
+Slide 5 always shows its limit: 48 held-out cases on one customer's account, with customer
+messages written by a model, so 0 unsafe bounds the rate below about 7% rather than proving zero.
+The simulated suite stays as a secondary line with its label.
